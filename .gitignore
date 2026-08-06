@@ -1,0 +1,38 @@
+# === MIS-QMS .gitignore ===
+# ИНВАРИАНТ: реальные данные отклонений (WO, номера деталей, ивритские
+# заключения) НИКОГДА не попадают в git. База автономна (RULES §5).
+
+# --- Данные / импорты (автономны, вне репо) ---
+data/
+imports/
+*.xlsx
+*.xls
+*.csv
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Билды / артефакты ---
+build/
+dist/
+out/
+*.log
+
+# --- Зависимости ---
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# --- Окружение / секреты ---
+.env
+.env.*
+*.local
+
+# --- IDE / ОС ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
