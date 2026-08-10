@@ -1,0 +1,33 @@
+{
+  "folders": [
+    {
+      "path": ".",
+      "name": "MIS-QMS (repo · read-write)"
+    },
+    {
+      "path": "../Vault_01/_system",
+      "name": "Vault · _system (read-only)"
+    },
+    {
+      "path": "../Vault_01/90_Shared",
+      "name": "Vault · 90_Shared (read-only)"
+    }
+  ],
+  "settings": {
+    "files.readonlyInclude": {
+      "**/Vault_01/**": true
+    },
+    "git.openRepositoryInParentFolders": "never",
+    "python.defaultInterpreterPath": "${workspaceFolder:MIS-QMS (repo · read-write)}/.venv/Scripts/python.exe",
+    "files.exclude": {
+      "**/.venv": true,
+      "**/__pycache__": true
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "anthropic.claude-code",
+      "ms-python.python"
+    ]
+  }
+}

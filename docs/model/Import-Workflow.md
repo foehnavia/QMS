@@ -42,9 +42,11 @@ Auto-parse by regular expressions → correction → **operator approval** (mode
 
 ## Determinism / privacy
 
-Parsing is **deterministic (regex), no LLM at runtime**. Real deviation data (WO,
-item numbers, Hebrew verdicts) is **autonomous** — never in vault or git
-(`docs/_INDEX.md` → "Not in vault / git"; RULES §5).
+Parsing is **deterministic (regex), no LLM at runtime**. Individual values (item number
+`מק"ט`, WO number `מנה`/`פק"ע`, a single Hebrew verdict) are **not sensitive** on their own
+and are stored normally (working DB, tests, examples). Only a **complete real
+document/protocol tied to the company** (an assembled `אישור חריגה`, a full protocol) is kept
+out of vault and git; the working DB stays autonomous (`docs/_INDEX.md` -> "Не в волте / git").
 
 ## Deferred (stage 2+)
 
