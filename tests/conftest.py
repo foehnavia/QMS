@@ -6,9 +6,13 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
+
+# Qt должен узнать про offscreen до создания QApplication (заметка Е наряда 0002).
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from alembic import command
@@ -77,6 +81,18 @@ def seeded_session(session: Session) -> Session:
     seed_reference(session)
     session.commit()
     return session
+
+
+@pytest.fixture(scope="session")
+def qt_app():
+    """Единственный `QApplication` на прогон — RTL, как в боевом запуске."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+    yield app
+    app.processEvents()
 
 
 def make_item(session: Session, item_number: str) -> Item:
