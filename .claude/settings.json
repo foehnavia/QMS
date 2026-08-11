@@ -1,9 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
-    "additionalDirectories": [
-      "../Vault_01/_system",
-      "../Vault_01/90_Shared"
+    "allow": [
+      "Bash(git push *)",
+      "Bash(git status *)"
     ],
     "deny": [
       "Write(../Vault_01/**)",
@@ -12,9 +12,15 @@
       "Bash(mv ../Vault_01/**)",
       "mcp__claude_ai_FHA",
       "mcp__claude_ai_FHA__*"
+    ],
+    "additionalDirectories": [
+      "../Vault_01/_system",
+      "../Vault_01/90_Shared"
     ]
   },
   "deniedMcpServers": [
-    { "serverName": "claude.ai FHA" }
+    {
+      "serverName": "claude.ai FHA"
+    }
   ]
 }
