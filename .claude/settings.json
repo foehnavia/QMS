@@ -3,7 +3,10 @@
   "permissions": {
     "allow": [
       "Bash(git push *)",
-      "Bash(git status *)"
+      "Bash(git status *)",
+      "Bash(.venv/Scripts/python.exe -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(.venv/Scripts/python.exe -m pytest --version)",
+      "Bash(.venv/Scripts/python.exe -c \"import sqlalchemy, alembic; print\\(sqlalchemy.__version__, alembic.__version__\\)\")"
     ],
     "deny": [
       "Write(../Vault_01/**)",
