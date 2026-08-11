@@ -255,7 +255,7 @@ class Mapping(Base):
         CheckConstraint(
             "(g_position_id IS NOT NULL AND is_absent = 0)"
             " OR (g_position_id IS NULL AND is_absent = 1)",
-            name="mapping_target_xor_absent",
+            name="target_xor_absent",
         ),
     )
 
@@ -285,7 +285,7 @@ class Deviation(Base):
         CheckConstraint(
             "decision_dev IS NULL OR decision_dev IN "
             "('approved', 'rejected', 'sorting', 'repair')",
-            name="deviation_decision_dev",
+            name="decision_dev",
         ),
     )
 
@@ -323,7 +323,7 @@ class Finding(Base):
 
     __tablename__ = "finding"
     __table_args__ = (
-        CheckConstraint("direction IN ('+', '-')", name="finding_direction"),
+        CheckConstraint("direction IN ('+', '-')", name="direction"),
     )
 
     finding_id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -360,7 +360,7 @@ class Inspection(Base):
     __tablename__ = "inspection"
     __table_args__ = (
         CheckConstraint(
-            "decision_insp IN ('approved', 'not_approved')", name="inspection_decision"
+            "decision_insp IN ('approved', 'not_approved')", name="decision_insp"
         ),
     )
 
