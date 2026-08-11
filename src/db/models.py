@@ -1,12 +1,15 @@
-"""Модели MIS-QMS — 14 таблиц физической схемы (`docs/architecture.md` §5, rev 0.1).
+"""Модели MIS-QMS — 15 таблиц физической схемы (`docs/architecture.md` §5, rev 0.2).
 
-Core (8): item · characteristic · characteristic_group · g_position · mapping ·
-deviation · finding · inspection.
+Core (9): item · characteristic · characteristic_group · g_position · mapping ·
+item_position_absent · deviation · finding · inspection.
 Reference (6): ref_item_type · ref_connection_type · ref_size · ref_zone ·
 ref_deviation_type · ref_inspection_type.
 
 Везде суррогатный целочисленный PK; у `deviation` и `inspection` дополнительно —
-человекочитаемый бизнес-номер (`db.ids`). Наряд 0001 / QMS-011.
+человекочитаемый бизнес-номер (`db.ids`).
+
+Наряд 0001 / QMS-011 (rev 0.1) · наряд 0003 / QMS-013 (rev 0.2: чертёж и
+координаты баллонов в канон-слое, код 99 отдельной таблицей).
 """
 
 from __future__ import annotations
@@ -16,13 +19,13 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
-    Boolean,
     CheckConstraint,
     Date,
     DateTime,
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -140,12 +143,21 @@ REFERENCE_MODELS = (
 
 
 class CharacteristicGroup(Base):
-    """Группа характеристик (CG) — канон-слой сравнения деталей между собой."""
+    """Группа характеристик (CG) — канон-слой сравнения деталей между собой.
+
+    Чертёж хранится **в базе** (`drawing`), а не ссылкой на файл: это справочные
+    данные канона (~20–30 групп), без них визуальный редактор нерабочий, и
+    правило «бэкап = копия одного файла БД» должно оставаться верным. Осознанное
+    исключение из конвенции «вложения — ссылки, не блобы» (`architecture.md` §4);
+    для `deviation.attachment` конвенция не меняется. Решение Cowork, наряд 0003.
+    """
 
     __tablename__ = "characteristic_group"
 
     cg_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    drawing: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
+    drawing_name: Mapped[Optional[str]] = mapped_column(String(255))
 
     positions: Mapped[list["GPosition"]] = relationship(
         back_populates="cg", cascade="all, delete-orphan"
@@ -153,10 +165,19 @@ class CharacteristicGroup(Base):
 
 
 class GPosition(Base):
-    """Каноническая позиция `g1…gN` внутри CG; номинал и допуск зашиты из чертежа."""
+    """Каноническая позиция `g1…gN` внутри CG; номинал и допуск зашиты из чертежа.
+
+    `x`/`y` — положение баллона на чертеже в **нормализованных** координатах
+    0..1: пиксельные ломались бы при смене размера окна и при замене чертежа на
+    скан другого разрешения (заметка А наряда 0003).
+    """
 
     __tablename__ = "g_position"
-    __table_args__ = (UniqueConstraint("cg_id", "g_index", name="uq_g_position_cg_index"),)
+    __table_args__ = (
+        UniqueConstraint("cg_id", "g_index", name="uq_g_position_cg_index"),
+        CheckConstraint("x IS NULL OR (x BETWEEN 0 AND 1)", name="x_normalized"),
+        CheckConstraint("y IS NULL OR (y BETWEEN 0 AND 1)", name="y_normalized"),
+    )
 
     g_position_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     cg_id: Mapped[int] = mapped_column(
@@ -166,9 +187,12 @@ class GPosition(Base):
     nominal: Mapped[Optional[float]] = mapped_column(Float)
     tol_plus: Mapped[Optional[float]] = mapped_column(Float)
     tol_minus: Mapped[Optional[float]] = mapped_column(Float)
+    x: Mapped[Optional[float]] = mapped_column(Float)
+    y: Mapped[Optional[float]] = mapped_column(Float)
 
     cg: Mapped[CharacteristicGroup] = relationship(back_populates="positions")
     mappings: Mapped[list["Mapping"]] = relationship(back_populates="g_position")
+    absences: Mapped[list["ItemPositionAbsent"]] = relationship(back_populates="g_position")
 
 
 # --- Ядро ----------------------------------------------------------------------
@@ -198,6 +222,9 @@ class Item(Base):
         back_populates="item", cascade="all, delete-orphan"
     )
     deviations: Mapped[list["Deviation"]] = relationship(back_populates="item")
+    absent_positions: Mapped[list["ItemPositionAbsent"]] = relationship(
+        back_populates="item", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - диагностика
         return f"<Item {self.item_number!r}>"
@@ -241,23 +268,15 @@ class Characteristic(Base):
 class Mapping(Base):
     """Привязка размера детали к канонической g-позиции — 0..1 на характеристику.
 
-    Три различимых состояния (заметка А наряда 0001):
-
-    * строки нет — маппинга ещё нет (в т.ч. исключение R2 «срочный WO»);
-    * `g_position_id` заполнен — размер привязан к канону;
-    * `g_position_id IS NULL AND is_absent` — **код 99**: «позиция рассмотрена,
-      отсутствует у детали». Не ключ поиска: джойнить нечего, поэтому в выдачу
-      по `(cg, g_index)` такие строки не попадают.
+    Строка означает ровно одно: «размер привязан к g-позиции». Факт «позиция
+    рассмотрена, у детали её нет» (**код 99**) переехал в отдельную таблицу
+    `item_position_absent`: во флаге на `mapping` нельзя было записать, *какой
+    именно* позиции нет (`g_position_id` при флаге обязан быть NULL), а канон
+    требует именно пару `g:99`. Пересмотр ратификации S1 №6 — решение Cowork,
+    наряд 0003.
     """
 
     __tablename__ = "mapping"
-    __table_args__ = (
-        CheckConstraint(
-            "(g_position_id IS NOT NULL AND is_absent = 0)"
-            " OR (g_position_id IS NULL AND is_absent = 1)",
-            name="target_xor_absent",
-        ),
-    )
 
     mapping_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     characteristic_id: Mapped[int] = mapped_column(
@@ -265,13 +284,38 @@ class Mapping(Base):
         nullable=False,
         unique=True,
     )
-    g_position_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("g_position.g_position_id")
+    g_position_id: Mapped[int] = mapped_column(
+        ForeignKey("g_position.g_position_id"), nullable=False
     )
-    is_absent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     characteristic: Mapped[Characteristic] = relationship(back_populates="mapping")
-    g_position: Mapped[Optional[GPosition]] = relationship(back_populates="mappings")
+    g_position: Mapped[GPosition] = relationship(back_populates="mappings")
+
+
+class ItemPositionAbsent(Base):
+    """Код 99 — «позицию рассмотрели, у детали её нет».
+
+    Пара (деталь, g-позиция). Не ключ поиска: выдача «детали по `(cg, g_index)`»
+    строится по `mapping` и такие детали не возвращает — пара лишь фиксирует,
+    что вопрос закрыт, и отличает это от «ещё не рассматривали»
+    (`CharacteristicGroup.md`, Session-03 §4).
+    """
+
+    __tablename__ = "item_position_absent"
+    __table_args__ = (
+        UniqueConstraint("item_id", "g_position_id", name="uq_item_position_absent_pair"),
+    )
+
+    absent_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[int] = mapped_column(
+        ForeignKey("item.item_id", ondelete="CASCADE"), nullable=False
+    )
+    g_position_id: Mapped[int] = mapped_column(
+        ForeignKey("g_position.g_position_id"), nullable=False
+    )
+
+    item: Mapped["Item"] = relationship(back_populates="absent_positions")
+    g_position: Mapped[GPosition] = relationship(back_populates="absences")
 
 
 class Deviation(Base):
@@ -384,13 +428,14 @@ class Inspection(Base):
         return f"<Inspection {self.insp_number}>"
 
 
-#: Полный перечень таблиц схемы rev 0.1 — сверяется тестом критерия приёмки 1.
+#: Полный перечень таблиц схемы rev 0.2 — сверяется тестом критерия приёмки.
 ALL_TABLES = (
     "item",
     "characteristic",
     "characteristic_group",
     "g_position",
     "mapping",
+    "item_position_absent",
     "deviation",
     "finding",
     "inspection",

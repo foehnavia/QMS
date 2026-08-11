@@ -19,6 +19,7 @@ from db.models import (
     GPosition,
     Inspection,
     Item,
+    ItemPositionAbsent,
     Mapping,
     RefInspectionType,
 )
@@ -163,44 +164,67 @@ def test_unknown_direction_is_rejected(seeded_session: Session) -> None:
         seeded_session.flush()
 
 
-# --- Заметка А: три состояния маппинга ------------------------------------------
+# --- Код 99 отдельной таблицей (rev 0.2) ----------------------------------------
 
 
-def test_code99_mapping_has_no_g_position(seeded_session: Session) -> None:
-    """Код 99 = строка есть, канонической позиции нет — «рассмотрено, отсутствует»."""
+def _group(session: Session, name: str = "CG-A", indexes=(1, 2)) -> CharacteristicGroup:
+    cg = CharacteristicGroup(name=name)
+    cg.positions = [GPosition(g_index=i, nominal=1.0) for i in indexes]
+    session.add(cg)
+    session.flush()
+    return cg
+
+
+def test_absent_row_records_which_position_is_missing(seeded_session: Session) -> None:
+    """Ради этого код 99 и переехал из флага в таблицу: позиция теперь известна."""
     item = make_item(seeded_session, "IT-001")
-    char = Characteristic(item=item, local_number="32")
-    seeded_session.add(char)
+    cg = _group(seeded_session)
+
+    seeded_session.add(ItemPositionAbsent(item=item, g_position=cg.positions[1]))
     seeded_session.flush()
 
-    seeded_session.add(Mapping(characteristic=char, is_absent=True))
-    seeded_session.flush()
-
-    assert char.mapping.is_absent is True
-    assert char.mapping.g_position is None
+    assert item.absent_positions[0].g_position.g_index == 2
 
 
-def test_mapping_cannot_be_both_bound_and_absent(seeded_session: Session) -> None:
+def test_absent_pair_is_unique(seeded_session: Session) -> None:
     item = make_item(seeded_session, "IT-001")
-    char = Characteristic(item=item, local_number="12")
-    cg = CharacteristicGroup(name="CG-A")
-    cg.positions = [GPosition(g_index=1, nominal=1.0, tol_plus=0.1, tol_minus=-0.1)]
-    seeded_session.add_all([char, cg])
-    seeded_session.flush()
+    cg = _group(seeded_session)
 
-    seeded_session.add(Mapping(characteristic=char, g_position=cg.positions[0], is_absent=True))
+    seeded_session.add_all(
+        [
+            ItemPositionAbsent(item=item, g_position=cg.positions[0]),
+            ItemPositionAbsent(item=item, g_position=cg.positions[0]),
+        ]
+    )
     with pytest.raises(IntegrityError):
         seeded_session.flush()
 
 
-def test_empty_mapping_row_is_rejected(seeded_session: Session) -> None:
-    """«Маппинга ещё нет» выражается отсутствием строки, а не пустой строкой."""
+def test_absent_row_needs_an_existing_position(seeded_session: Session) -> None:
+    item = make_item(seeded_session, "IT-001")
+    seeded_session.add(ItemPositionAbsent(item_id=item.item_id, g_position_id=424242))
+    with pytest.raises(IntegrityError):
+        seeded_session.flush()
+
+
+def test_mapping_requires_a_position(seeded_session: Session) -> None:
+    """Строка `mapping` теперь означает ровно одно — «размер привязан»."""
     item = make_item(seeded_session, "IT-001")
     char = Characteristic(item=item, local_number="12")
     seeded_session.add(char)
     seeded_session.flush()
 
-    seeded_session.add(Mapping(characteristic=char, is_absent=False))
+    seeded_session.add(Mapping(characteristic=char, g_position=None))
+    with pytest.raises(IntegrityError):
+        seeded_session.flush()
+
+
+def test_balloon_coordinates_must_be_normalized(seeded_session: Session) -> None:
+    cg = CharacteristicGroup(name="CG-A")
+    seeded_session.add(cg)
+    seeded_session.flush()
+
+    seeded_session.add(GPosition(cg=cg, g_index=1, x=1.5, y=0.5))
     with pytest.raises(IntegrityError):
         seeded_session.flush()
 

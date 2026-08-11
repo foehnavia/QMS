@@ -50,9 +50,10 @@ def test_full_graph_survives_a_reopen(migrated_url: str) -> None:
         assert (mapped.g_position.nominal, mapped.g_position.tol_plus) == (3.75, 0.05)
         assert mapped.g_position.cg.name == "Implant_Con_375_C1"
         assert len(mapped.g_position.cg.positions) == 3
-        # код 99 — строка есть, канонической позиции нет
-        assert by_number["32"].mapping.is_absent is True
-        assert by_number["32"].mapping.g_position is None
+        # код 99 — пара (деталь, позиция) в отдельной таблице
+        assert by_number["32"].mapping is None  # не-CG размер живёт без канона
+        absent = item.absent_positions
+        assert [row.g_position.g_index for row in absent] == [3]
 
         # deviation -> finding -> characteristic / zone / deviation_type
         dev = session.scalar(

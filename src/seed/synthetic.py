@@ -32,6 +32,7 @@ from db.models import (
     GPosition,
     Inspection,
     Item,
+    ItemPositionAbsent,
     Mapping,
     RefConnectionType,
     RefDeviationType,
@@ -57,7 +58,7 @@ def build_synthetic(session: Session) -> dict[str, object]:
     ]
     session.add(cg)
     session.flush()
-    g1, g2, _g3 = cg.positions
+    g1, g2, g3 = cg.positions
 
     # --- Деталь A: в CG, размеры засеяны при заведении детали ---
     item_a = Item(
@@ -77,10 +78,11 @@ def build_synthetic(session: Session) -> dict[str, object]:
         [
             Mapping(characteristic=ch_a12, g_position=g1),
             Mapping(characteristic=ch_a19, g_position=g2),
-            # Код 99: размер рассмотрен, канонической позиции у детали нет.
-            Mapping(characteristic=ch_a32, is_absent=True),
+            # Код 99: позицию g3 рассмотрели — у этой детали её нет.
+            ItemPositionAbsent(item=item_a, g_position=g3),
         ]
     )
+    # Размер 32 — не-CG: у детали он есть, канонической позиции ему не нашлось.
 
     # --- Деталь B: вне CG (массовый случай), дефолты `General` ---
     item_b = Item(

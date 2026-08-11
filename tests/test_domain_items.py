@@ -87,7 +87,6 @@ def test_cg_seed_creates_characteristics_and_mappings(seeded_session: Session) -
     for char in created:
         assert char.mapping is not None
         assert char.mapping.g_position is not None
-        assert char.mapping.is_absent is False
     # геометрия осталась на g-позиции и на характеристику не скопирована
     assert created[0].mapping.g_position.nominal == 3.75
     assert not hasattr(created[0], "nominal")
