@@ -1,0 +1,91 @@
+"""Общие фикстуры: чистая БД под каждый тест.
+
+Схема поднимается **той же baseline-миграцией Alembic**, что и в production —
+так тесты проверяют миграцию, а не параллельный `create_all`.
+"""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
+
+import pytest
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import Engine
+from sqlalchemy.orm import Session
+
+from db.models import GENERAL, Item, RefConnectionType, RefSize
+from db.session import create_db_engine, make_session_factory
+from seed.reference import ref, seed_reference
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def alembic_config(db_url: str) -> Config:
+    """Конфиг Alembic, нацеленный на конкретную БД."""
+    config = Config(str(REPO_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(REPO_ROOT / "migrations"))
+    config.set_main_option("sqlalchemy.url", db_url)
+    return config
+
+
+@pytest.fixture
+def db_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """URL временной SQLite-БД; `QMS_DB_URL` подменён, чтобы env.py смотрел сюда."""
+    url = f"sqlite:///{(tmp_path / 'test.sqlite').as_posix()}"
+    monkeypatch.setenv("QMS_DB_URL", url)
+    return url
+
+
+@pytest.fixture
+def migrated_url(db_url: str) -> str:
+    """Пустая БД со схемой, накатанной `alembic upgrade head`."""
+    command.upgrade(alembic_config(db_url), "head")
+    return db_url
+
+
+@pytest.fixture
+def engine(migrated_url: str) -> Iterator[Engine]:
+    engine = create_db_engine(migrated_url)
+    yield engine
+    engine.dispose()
+
+
+@contextmanager
+def reopen(db_url: str) -> Iterator[Session]:
+    """Сессия на новом соединении — чтение идёт из файла, не из identity map."""
+    engine = create_db_engine(db_url)
+    try:
+        with make_session_factory(engine)() as session:
+            yield session
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
+def session(engine: Engine) -> Iterator[Session]:
+    factory = make_session_factory(engine)
+    with factory() as session:
+        yield session
+
+
+@pytest.fixture
+def seeded_session(session: Session) -> Session:
+    """Сессия на БД с засеянными справочниками."""
+    seed_reference(session)
+    session.commit()
+    return session
+
+
+def make_item(session: Session, item_number: str) -> Item:
+    """Деталь на `General`-дефолтах — минимум для тестов связей."""
+    item = Item(
+        item_number=item_number,
+        connection_type=ref(session, RefConnectionType, GENERAL),
+        size=ref(session, RefSize, GENERAL),
+    )
+    session.add(item)
+    session.flush()
+    return item
