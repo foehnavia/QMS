@@ -26,14 +26,14 @@ from db.session import session_scope
 from domain.errors import ValidationError
 from domain.groups import GPositionSpec, create_group
 
-from .common import russian_buttons, show_error
+from .common import russian_buttons, show_error, strip_iso
 
 COLUMNS = ("g-позиция", "Номинал", "Допуск +", "Допуск −")
 
 
 def parse_optional_number(text: str, field: str) -> float | None:
     """Пустое — None; запятая принимается как десятичный разделитель."""
-    cleaned = (text or "").strip().replace(",", ".")
+    cleaned = strip_iso(text).strip().replace(",", ".")
     if not cleaned:
         return None
     try:

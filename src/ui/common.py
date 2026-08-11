@@ -40,6 +40,11 @@ def iso(text: str) -> str:
     return f"{_FSI}{text}{_PDI}"
 
 
+def strip_iso(text: str) -> str:
+    """Снять изоляты — текст из редактируемой ячейки приходит вместе с ними."""
+    return (text or "").replace(_FSI, "").replace(_PDI, "")
+
+
 def russian_buttons(box) -> None:
     """Подписать стандартные кнопки диалога по-русски.
 

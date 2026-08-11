@@ -42,7 +42,7 @@ from domain.groups import (
 
 from .balloon_canvas import MODE_EDIT, Balloon, BalloonCanvas
 from .cg_dialog import parse_optional_number
-from .common import iso, russian_buttons, show_error
+from .common import iso, russian_buttons, show_error, strip_iso
 
 COLUMNS = ("g-позиция", "Номинал", "Допуск +", "Допуск −")
 
@@ -245,7 +245,9 @@ class CgEditor(QDialog):
         """Забрать правки геометрии из таблицы."""
         rows: list[_Row] = []
         for index, row in enumerate(self._rows):
-            raw_index = (self.table.item(index, 0).text() if self.table.item(index, 0) else "").strip()
+            raw_index = strip_iso(
+                self.table.item(index, 0).text() if self.table.item(index, 0) else ""
+            ).strip()
             if not raw_index.isdigit() or int(raw_index) < 1:
                 raise ValidationError(f"Строка {index + 1}: индекс позиции должен быть числом ≥ 1.")
 
@@ -310,7 +312,8 @@ class CgEditor(QDialog):
 
 
 def _text(value: float | None) -> str:
-    return "" if value is None else f"{value:g}"
+    """Число для ячейки: в изоляте, иначе ведущий минус в RTL уезжает в хвост."""
+    return "" if value is None else iso(f"{value:g}")
 
 
 def _in_use(g_index: int, used: int) -> Exception:
