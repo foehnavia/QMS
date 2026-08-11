@@ -37,15 +37,27 @@ REPO_ROOT = SRC.parent
 
 
 def prepare_database(engine: Engine) -> None:
-    """Накатить схему, если её нет, и досеять справочники."""
-    if not set(ALL_TABLES) <= set(inspect(engine).get_table_names()):
-        from alembic import command
-        from alembic.config import Config
+    """Довести схему до head и досеять справочники.
 
-        config = Config(str(REPO_ROOT / "alembic.ini"))
-        config.set_main_option("script_location", str(REPO_ROOT / "migrations"))
-        config.set_main_option("sqlalchemy.url", str(engine.url))
-        print("Схема не найдена — накатываю baseline-миграцию…")
+    Сверяем **ревизию Alembic**, а не набор таблиц: миграция, которая добавляет
+    только колонку, по таблицам неотличима от актуальной схемы, и приложение
+    молча работало бы на устаревшей базе.
+    """
+    from alembic import command
+    from alembic.config import Config
+    from alembic.runtime.migration import MigrationContext
+    from alembic.script import ScriptDirectory
+
+    config = Config(str(REPO_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(REPO_ROOT / "migrations"))
+    config.set_main_option("sqlalchemy.url", str(engine.url))
+
+    head = ScriptDirectory.from_config(config).get_current_head()
+    with engine.connect() as connection:
+        current = MigrationContext.configure(connection).get_current_revision()
+
+    if current != head:
+        print(f"Схема: {current or 'пусто'} → {head}, накатываю миграции…")
         command.upgrade(config, "head")
 
     with session_scope(engine) as session:
