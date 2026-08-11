@@ -72,7 +72,7 @@ def test_item_dialog_preselects_general(seeded_engine) -> None:
     assert dialog.positions.rowCount() == 0
 
 
-def test_item_dialog_shows_group_positions_with_prefilled_numbers(seeded_engine) -> None:
+def test_item_dialog_shows_group_positions_without_prefilled_numbers(seeded_engine) -> None:
     from domain.groups import GPositionSpec, create_group
     from db.session import session_scope
 
@@ -87,7 +87,8 @@ def test_item_dialog_shows_group_positions_with_prefilled_numbers(seeded_engine)
     dialog.group.setCurrentText("CG-A")
 
     assert dialog.positions.rowCount() == 2
-    assert dialog.local_numbers() == {1: "1", 2: "2"}
+    # номер размера не подставляется — он с чертежа детали (решение Cowork, заметка Б)
+    assert dialog.local_numbers() == {1: "", 2: ""}
     assert dialog.positions.item(0, 2).text() == "3.75"  # номинал показан, не скопирован
     assert dialog.positions.item(0, 0).text() == "g1"
 
@@ -112,6 +113,31 @@ def test_item_dialog_saves_item_and_seeds_the_group(seeded_engine) -> None:
         item = list_items(session)[0]
         assert sorted(c.local_number for c in item.characteristics) == ["12", "19"]
         assert [g.name for g in groups_of(item)] == ["CG-A"]
+
+
+def test_item_dialog_refuses_to_save_without_local_numbers(seeded_engine, monkeypatch) -> None:
+    """Незаполненный номер размера — отказ с сообщением, деталь не создаётся."""
+    import ui.item_dialog as item_dialog
+    from domain.groups import GPositionSpec, create_group
+    from domain.items import list_items
+    from db.session import session_scope
+
+    with session_scope(seeded_engine) as session:
+        create_group(session, "CG-A", (GPositionSpec(1, 3.75), GPositionSpec(2, 2.0)))
+
+    shown: list[Exception] = []
+    monkeypatch.setattr(item_dialog, "show_error", lambda parent, error, **kw: shown.append(error))
+
+    dialog = item_dialog.ItemDialog(seeded_engine)
+    dialog.number_edit.setText("C1-08375A")
+    dialog.group.setCurrentText("CG-A")
+    dialog.positions.item(0, 1).setText("12")  # вторую позицию оставляем пустой
+    dialog.save()
+
+    assert dialog.created_number is None
+    assert shown and "g2" in str(shown[0])
+    with session_scope(seeded_engine) as session:
+        assert list_items(session) == []
 
 
 def test_item_view_reloads(seeded_engine) -> None:

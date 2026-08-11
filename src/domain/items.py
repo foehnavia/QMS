@@ -52,28 +52,22 @@ def create_item(
     return item
 
 
-def default_local_numbers(group: CharacteristicGroup) -> dict[int, str]:
-    """Предзаполнение `local_number` при сиде — по индексу g-позиции (заметка Б).
-
-    Оператор правит их в форме до сохранения: реальный номер размера берётся с
-    чертежа детали и совпадает с `g_index` не всегда.
-    """
-    return {position.g_index: str(position.g_index) for position in group.positions}
-
-
 def seed_cg_characteristics(
     session: Session,
     item: Item,
     group: CharacteristicGroup,
-    local_numbers: MappingType[int, str] | None = None,
+    local_numbers: MappingType[int, str],
 ) -> list[Characteristic]:
     """Засеять деталь размерами группы и смаппить их на её g-позиции.
+
+    Номер размера задаётся **явно на каждую g-позицию** — он берётся с чертежа
+    детали и с `g_index` совпадает редко, поэтому автоподстановка закрепляла бы
+    в базе неверный номер (решение Cowork по заметке Б наряда 0002).
 
     Маппинг создаётся сразу — ранняя привязка к канону (R2). Геометрия остаётся
     на `g_position` и на характеристику не копируется.
     """
-    numbers = dict(default_local_numbers(group))
-    numbers.update(local_numbers or {})
+    numbers = dict(local_numbers or {})
 
     cleaned: dict[int, str] = {}
     for position in group.positions:

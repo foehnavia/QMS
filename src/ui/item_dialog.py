@@ -2,8 +2,9 @@
 
 `connection_type` и `size` предвыбраны как `General` — деталь заводится и когда
 специфика ещё не важна (`Item.md`). При выборе группы её g-позиции показываются
-таблицей: номер размера предзаполнен индексом позиции и правится оператором
-до сохранения (заметка Б наряда 0002) — реальный номер берётся с чертежа детали.
+таблицей: номер размера оператор проставляет сам на каждую позицию — он берётся
+с чертежа детали и с индексом g-позиции совпадает редко (решение Cowork по
+заметке Б наряда 0002), поэтому автоподстановки нет.
 """
 
 from __future__ import annotations
@@ -85,7 +86,7 @@ class ItemDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(
-            QLabel("Размеры группы (номер размера — с чертежа детали, можно править):")
+            QLabel("Размеры группы — проставьте номер размера по чертежу для каждой позиции:")
         )
         layout.addWidget(self.positions, 1)
         layout.addWidget(self.buttons)
@@ -131,8 +132,9 @@ class ItemDialog(QDialog):
         self.positions.setRowCount(len(rows))
         for row, (g_index, nominal, tolerance) in enumerate(rows):
             self.positions.setItem(row, 0, _readonly(f"g{g_index}", g_index))
-            # предзаполнение по индексу позиции — правится оператором (заметка Б)
-            self.positions.setItem(row, 1, QTableWidgetItem(str(g_index)))
+            # номер размера не подставляется: он с чертежа детали и с g_index
+            # совпадает редко (решение Cowork по заметке Б наряда 0002)
+            self.positions.setItem(row, 1, QTableWidgetItem(""))
             self.positions.setItem(row, 2, _readonly(nominal))
             self.positions.setItem(row, 3, _readonly(tolerance))
 

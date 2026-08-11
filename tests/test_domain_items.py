@@ -9,7 +9,7 @@ from conftest import reopen
 from db.models import GENERAL, Item, RefConnectionType, RefItemType, RefSize
 from domain.errors import DuplicateValue, ValidationError
 from domain.groups import GPositionSpec, create_group, list_groups
-from domain.items import create_item, default_local_numbers, groups_of, seed_cg_characteristics
+from domain.items import create_item, groups_of, seed_cg_characteristics
 from seed.reference import ref
 
 POSITIONS = (
@@ -80,10 +80,10 @@ def test_cg_seed_creates_characteristics_and_mappings(seeded_session: Session) -
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "Implant_Con_375_C1", POSITIONS)
 
-    created = seed_cg_characteristics(seeded_session, item, group)
+    created = seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
     seeded_session.commit()
 
-    assert [char.local_number for char in created] == ["1", "2", "3"]
+    assert [char.local_number for char in created] == ["12", "19", "32"]
     for char in created:
         assert char.mapping is not None
         assert char.mapping.g_position is not None
@@ -93,20 +93,27 @@ def test_cg_seed_creates_characteristics_and_mappings(seeded_session: Session) -
     assert not hasattr(created[0], "nominal")
 
 
-def test_cg_seed_prefills_local_numbers_by_g_index(seeded_session: Session) -> None:
+def test_local_numbers_are_required_for_every_position(seeded_session: Session) -> None:
+    """Номер размера — с чертежа детали; автоподстановки по `g_index` нет."""
+    item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-A", POSITIONS)
-    assert default_local_numbers(group) == {1: "1", 2: "2", 3: "3"}
+
+    with pytest.raises(ValidationError) as excinfo:
+        seed_cg_characteristics(seeded_session, item, group, {})
+    assert "g1" in str(excinfo.value)
+
+    with pytest.raises(ValidationError):
+        seed_cg_characteristics(seeded_session, item, group, {1: "12", 3: "32"})
 
 
-def test_operator_can_override_local_numbers(seeded_session: Session) -> None:
-    """Номер размера берётся с чертежа детали и с `g_index` совпадает не всегда."""
+def test_local_number_is_bound_to_the_right_position(seeded_session: Session) -> None:
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-A", POSITIONS)
 
     created = seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
     seeded_session.commit()
 
-    assert [char.local_number for char in created] == ["12", "19", "32"]
+    assert created[1].local_number == "19"
     assert created[1].mapping.g_position.g_index == 2
 
 
@@ -114,7 +121,7 @@ def test_cg_membership_is_derived_not_stored(seeded_session: Session) -> None:
     """Item↔CG — через characteristic→mapping→g_position→cg, отдельной таблицы нет."""
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-A", POSITIONS)
-    seed_cg_characteristics(seeded_session, item, group)
+    seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
     seeded_session.commit()
 
     assert [g.name for g in groups_of(item)] == ["CG-A"]
@@ -139,11 +146,11 @@ def test_seed_clashing_with_existing_characteristics_is_rejected(seeded_session:
 
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-A", POSITIONS)
-    get_or_create_characteristic(seeded_session, item, "2")
+    get_or_create_characteristic(seeded_session, item, "19")
 
     with pytest.raises(DuplicateValue) as excinfo:
-        seed_cg_characteristics(seeded_session, item, group)
-    assert "2" in str(excinfo.value)
+        seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
+    assert "19" in str(excinfo.value)
 
 
 def test_blank_local_number_is_rejected(seeded_session: Session) -> None:
@@ -151,7 +158,7 @@ def test_blank_local_number_is_rejected(seeded_session: Session) -> None:
     group = create_group(seeded_session, "CG-A", POSITIONS)
 
     with pytest.raises(ValidationError):
-        seed_cg_characteristics(seeded_session, item, group, {2: "  "})
+        seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "  ", 3: "32"})
 
 
 # --- CG на лету, R3 (критерий 4) -------------------------------------------------
@@ -171,7 +178,7 @@ def test_group_created_on_the_fly_is_immediately_bindable(seeded_session: Sessio
     """R3: недостающая группа заводится прямо в потоке заведения детали."""
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-new", (GPositionSpec(g_index=1, nominal=1.0),))
-    seed_cg_characteristics(seeded_session, item, group)
+    seed_cg_characteristics(seeded_session, item, group, {1: "7"})
     seeded_session.commit()
 
     assert [g.name for g in groups_of(item)] == ["CG-new"]
