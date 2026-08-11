@@ -54,6 +54,22 @@ class PositionState:
         return self.state != "none"
 
 
+def _drop_mapping(session: Session, mapping: Mapping) -> None:
+    """Снять привязку через коллекцию владельца.
+
+    Не `session.delete`: тот оставляет `characteristic.mapping` указывать на
+    удалённую строку, и следующая попытка привязать тот же размер упирается в
+    призрак. `delete-orphan` на связи удаляет строку и чинит граф разом.
+    """
+    mapping.characteristic.mapping = None
+    session.flush()
+
+
+def _drop_absence(session: Session, absence: ItemPositionAbsent) -> None:
+    absence.item.absent_positions.remove(absence)
+    session.flush()
+
+
 def _mapping_for(session: Session, item: Item, position: GPosition) -> Mapping | None:
     return session.scalar(
         select(Mapping)
@@ -94,7 +110,7 @@ def bind(session: Session, item: Item, position: GPosition, local_number: str) -
     # Привязка отменяет прежнее «у детали этой позиции нет».
     absence = _absence_for(session, item, position)
     if absence is not None:
-        session.delete(absence)
+        _drop_absence(session, absence)
 
     mapping = Mapping(characteristic=characteristic, g_position=position)
     session.add(mapping)
@@ -107,8 +123,7 @@ def mark_absent(session: Session, item: Item, position: GPosition) -> ItemPositi
     mapping = _mapping_for(session, item, position)
     if mapping is not None:
         # Характеристику не трогаем: размер у детали может существовать сам по себе.
-        session.delete(mapping)
-        session.flush()
+        _drop_mapping(session, mapping)
 
     absence = _absence_for(session, item, position)
     if absence is None:
@@ -126,11 +141,10 @@ def clear(session: Session, item: Item, position: GPosition) -> None:
     """
     mapping = _mapping_for(session, item, position)
     if mapping is not None:
-        session.delete(mapping)
+        _drop_mapping(session, mapping)
     absence = _absence_for(session, item, position)
     if absence is not None:
-        session.delete(absence)
-    session.flush()
+        _drop_absence(session, absence)
 
 
 def binding_state(

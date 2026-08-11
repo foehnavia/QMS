@@ -167,7 +167,9 @@ def remove_position(session: Session, position: GPosition) -> None:
             f"Позиция g{position.g_index} используется в {used} записях "
             "(привязки размеров или отметки «нет у детали») — сначала снимите их."
         )
-    session.delete(position)
+    # Через коллекцию группы: `delete-orphan` удалит строку и уберёт позицию из
+    # уже загруженного графа — иначе вызывающий код видит удалённую позицию.
+    position.cg.positions.remove(position)
     session.flush()
 
 

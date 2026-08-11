@@ -37,9 +37,11 @@ def test_main_window_builds(seeded_engine, qt_app: QApplication) -> None:
     window.show()
     qt_app.processEvents()
 
-    assert window.sections.count() >= 2
-    assert window.pages.count() == 2
+    assert window.sections.count() >= 3
+    assert window.pages.count() == 3
     window.sections.setCurrentRow(1)
+    assert window.pages.currentWidget() is window.cg_view
+    window.sections.setCurrentRow(2)
     assert window.pages.currentWidget() is window.item_view
     window.close()
 

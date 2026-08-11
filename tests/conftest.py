@@ -95,6 +95,31 @@ def qt_app():
     app.processEvents()
 
 
+def make_png(width: int = 16, height: int = 12, color: tuple[int, int, int] = (200, 30, 30)) -> bytes:
+    """Настоящий PNG без Qt — для проверок чертежа в домене и в UI."""
+    import struct
+    import zlib
+
+    signature = bytes([0x89]) + b"PNG" + bytes([0x0D, 0x0A, 0x1A, 0x0A])
+    raw = b"".join(bytes([0]) + bytes(color) * width for _ in range(height))
+
+    def chunk(tag: bytes, payload: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(payload))
+            + tag
+            + payload
+            + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
+        )
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        signature
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+
+
 def make_item(session: Session, item_number: str) -> Item:
     """Деталь на `General`-дефолтах — минимум для тестов связей."""
     item = Item(

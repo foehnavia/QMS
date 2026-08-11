@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy import Engine
 
+from .cg_view import CgView
 from .item_view import ItemView
 from .reference_view import ReferenceView
 
@@ -40,8 +41,10 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
 
         self.reference_view = ReferenceView(engine)
+        self.cg_view = CgView(engine)
         self.item_view = ItemView(engine)
         self._add_section("Справочники", self.reference_view)
+        self._add_section("Группы характеристик", self.cg_view)
         self._add_section("Детали", self.item_view)
 
         for title, sprint in PLANNED_SECTIONS:
