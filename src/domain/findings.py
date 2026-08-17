@@ -99,12 +99,33 @@ def update_finding(
 
 
 def inspection_count(session: Session, finding: Finding) -> int:
-    """Сколько исследований висит на находке."""
+    """Сколько исследований висит на находке (одна находка — один вопрос)."""
     return session.scalar(
         select(func.count())
         .select_from(Inspection)
         .where(Inspection.finding_id == finding.finding_id)
     )
+
+
+def inspection_counts(session: Session, findings) -> dict[int, int]:
+    """То же по набору находок — **один** запрос на набор.
+
+    Пакетный близнец `inspection_count`: таблица находок рисует счётчик в каждой
+    строке, и построчный вопрос превращал бы её в `N+1` (наряд 0005, критерий 8).
+    Находки без исследований в результате есть — со значением `0`, а не пропуском.
+    """
+    ids = [finding.finding_id for finding in findings if finding is not None]
+    if not ids:
+        return {}
+
+    counted = dict(
+        session.execute(
+            select(Inspection.finding_id, func.count())
+            .where(Inspection.finding_id.in_(ids))
+            .group_by(Inspection.finding_id)
+        ).all()
+    )
+    return {finding_id: counted.get(finding_id, 0) for finding_id in ids}
 
 
 def remove_finding(session: Session, finding: Finding) -> None:

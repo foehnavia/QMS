@@ -130,3 +130,25 @@ def make_item(session: Session, item_number: str) -> Item:
     session.add(item)
     session.flush()
     return item
+
+
+@contextmanager
+def count_queries(engine: Engine) -> Iterator[list[str]]:
+    """Считать SQL-запросы, ушедшие в базу внутри блока (наряд 0005, критерий 8).
+
+    Возвращает список текстов запросов — по нему видно не только «сколько», но и
+    «какие», что превращает провал теста на `N+1` в готовый диагноз. Слушатель
+    снимается в `finally`: висящий подписчик исказил бы соседние тесты.
+    """
+    from sqlalchemy import event
+
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(engine, "before_cursor_execute", record)

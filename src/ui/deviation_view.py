@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -26,6 +27,7 @@ from db.models import Deviation
 from db.session import session_scope
 from domain.deviations import delete_deviation, list_deviations
 
+from .card_dialog import CardDialog
 from .common import decision_dev_label, iso, show_error
 from .decision_dialog import DecisionDialog
 from .deviation_dialog import DeviationDialog
@@ -54,13 +56,17 @@ class DeviationView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.doubleClicked.connect(self.open_deviation)
+        # Двойной клик ведёт в карточку, а не в правку: карточка — рабочий
+        # экран отклонения, правка из неё в одном нажатии (решение Cowork 1).
+        self.table.doubleClicked.connect(self.open_card)
 
         self.add_button = QPushButton(iso("Добавить отклонение…"))
+        self.card_button = QPushButton(iso("Карточка…"))
         self.open_button = QPushButton(iso("Открыть…"))
         self.decision_button = QPushButton(iso("Решение…"))
         self.delete_button = QPushButton("Удалить")
         self.add_button.clicked.connect(self.add_deviation)
+        self.card_button.clicked.connect(self.open_card)
         self.open_button.clicked.connect(self.open_deviation)
         self.decision_button.clicked.connect(self.set_decision)
         self.delete_button.clicked.connect(self.delete_deviation)
@@ -70,6 +76,7 @@ class DeviationView(QWidget):
         buttons = QHBoxLayout()
         for button in (
             self.add_button,
+            self.card_button,
             self.open_button,
             self.decision_button,
             self.delete_button,
@@ -123,8 +130,27 @@ class DeviationView(QWidget):
         return self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
 
     def add_deviation(self) -> None:
-        if DeviationDialog.run(self._engine, None, self):
+        """Регистрация; карточка нового отклонения всплывает сама.
+
+        Канон: «opens as soon as a deviation is entered» (`DeviationCard.md`) —
+        именно тогда прецеденты и нужны. При правке существующего не открываем:
+        оператор уже знает, что там.
+        """
+        dialog = DeviationDialog(self._engine, None, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.reload()
+        if dialog.deviation_id is not None:
+            CardDialog.run(self._engine, dialog.deviation_id, self)
             self.reload()
+
+    def open_card(self) -> None:
+        """Карточка выбранного отклонения — рабочий экран с прецедентами."""
+        deviation_id = self._selected()
+        if deviation_id is None:
+            return
+        CardDialog.run(self._engine, deviation_id, self)
+        self.reload()
 
     def open_deviation(self) -> None:
         deviation_id = self._selected()

@@ -42,15 +42,22 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import selectinload
 
 from db.models import Deviation, Finding, Inspection, Item, RefDeviationType, RefZone
 from db.session import session_scope
 from domain.characteristics import get_or_create_characteristic
 from domain.deviations import register, update_registration
-from domain.findings import inspection_count, make_finding, remove_finding, update_finding
+from domain.findings import (
+    inspection_counts,
+    make_finding,
+    remove_finding,
+    update_finding,
+)
 from domain.inspections import remove_inspection
 from domain.items import list_items
+from domain.precedents import CANON_NEW, canon_labels_for_item
 
 from .common import (
     DECISION_INSP_LABELS,
@@ -61,7 +68,7 @@ from .common import (
     russian_buttons,
     show_error,
 )
-from .finding_dialog import FindingDialog, FindingRow, canon_state
+from .finding_dialog import FindingDialog, FindingRow
 from .inspection_dialog import InspectionDialog
 from .item_dialog import ItemDialog
 from .mapping_dialog import MappingDialog
@@ -184,6 +191,8 @@ class DeviationDialog(QDialog):
         self.inspections.setHorizontalHeaderLabels(INSPECTION_COLUMNS)
         self.inspections.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.inspections.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.inspections.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.inspections.currentCellChanged.connect(lambda *_: self._refresh_actions())
         self.edit_inspection = QPushButton(iso("Править исследование…"))
         self.drop_inspection = QPushButton("Удалить исследование")
         self.edit_inspection.clicked.connect(self.on_edit_inspection)
@@ -229,6 +238,12 @@ class DeviationDialog(QDialog):
         dialog = cls(engine, deviation_id, parent)
         return dialog.exec() == QDialog.DialogCode.Accepted
 
+    @property
+    def deviation_id(self) -> int | None:
+        """Id записи. У новой формы появляется только после успешного сохранения —
+        по нему список открывает карточку (`card_dialog`, решение Cowork 1)."""
+        return self._deviation_id
+
     # --- загрузка ---------------------------------------------------------------
 
     def reload_items(self, preselect: str | None = None) -> None:
@@ -265,6 +280,8 @@ class DeviationDialog(QDialog):
             self.ncr.setText(deviation.ncr or "")
             self.attachment.setPlainText(deviation.attachment or "")
 
+            findings = _load_findings(session, deviation)
+            counts = inspection_counts(session, findings)
             self._rows = [
                 FindingRow(
                     local_number=finding.characteristic.local_number,
@@ -275,11 +292,9 @@ class DeviationDialog(QDialog):
                     zone_id=finding.zone_id,
                     deviation_type_id=finding.deviation_type_id,
                     finding_id=finding.finding_id,
-                    inspections=inspection_count(session, finding),
+                    inspections=counts.get(finding.finding_id, 0),
                 )
-                for finding in sorted(
-                    deviation.findings, key=lambda f: f.characteristic.local_number
-                )
+                for finding in findings
             ]
 
     # --- отрисовка ---------------------------------------------------------------
@@ -296,10 +311,16 @@ class DeviationDialog(QDialog):
             kinds = {
                 value.deviation_type_id: value.name for value in session.query(RefDeviationType)
             }
+            # Пакетно, а не построчно: прежний `canon_state` открывал сессию на
+            # каждую находку (`docs/specs/deviation-entry.md` §8, N+1).
+            item = session.get(Item, item_id) if item_id is not None else None
+            canon = canon_labels_for_item(
+                session, item, [row.local_number for row in self._rows]
+            )
 
         self.findings.setRowCount(len(self._rows))
         for index, row in enumerate(self._rows):
-            row.canon = canon_state(self._engine, item_id, row.local_number)
+            row.canon = canon.get(row.local_number, CANON_NEW)
             values = (
                 iso(row.local_number),
                 iso(row.canon),
@@ -357,8 +378,11 @@ class DeviationDialog(QDialog):
         # Исследование ссылается на строку находки в базе — на несохранённой
         # находке его завести нечем.
         self.inspect.setEnabled(row is not None and row.finding_id is not None)
-        self.edit_inspection.setEnabled(self.inspections.rowCount() > 0)
-        self.drop_inspection.setEnabled(self.inspections.rowCount() > 0)
+        # По выбранной строке, а не по «в таблице есть строки»: иначе кнопка
+        # активна, а в ответ говорит «Сначала выберите» (Δ S4-в).
+        selected = self.inspections.currentRow() >= 0
+        self.edit_inspection.setEnabled(selected)
+        self.drop_inspection.setEnabled(selected)
 
         complete = has_item and bool(self._rows)
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(complete)
@@ -516,12 +540,15 @@ class DeviationDialog(QDialog):
         self._refresh()
 
     def _reload_inspection_counts(self) -> None:
+        saved = [row for row in self._rows if row.finding_id is not None]
+        if not saved:
+            return
         with session_scope(self._engine) as session:
-            for row in self._rows:
-                if row.finding_id is not None:
-                    row.inspections = inspection_count(
-                        session, session.get(Finding, row.finding_id)
-                    )
+            counts = inspection_counts(
+                session, [session.get(Finding, row.finding_id) for row in saved]
+            )
+        for row in saved:
+            row.inspections = counts.get(row.finding_id, 0)
 
     # --- сохранение --------------------------------------------------------------
 
@@ -616,6 +643,22 @@ class DeviationDialog(QDialog):
         for finding in list(deviation.findings):
             if finding.finding_id not in keep:
                 remove_finding(session, finding)
+
+
+def _load_findings(session, deviation: Deviation) -> list[Finding]:
+    """Находки отклонения вместе с размером — фиксированным числом запросов.
+
+    Сортировать по `finding.characteristic.local_number` без `selectinload`
+    значит подгружать характеристику на каждую строку: обращение к связи и есть
+    тот самый `N+1`, который наряд 0005 велит снять. `selectinload` добавляет
+    один запрос на связь — независимо от числа находок.
+    """
+    findings = session.scalars(
+        select(Finding)
+        .where(Finding.deviation_id == deviation.deviation_id)
+        .options(selectinload(Finding.characteristic))
+    ).all()
+    return sorted(findings, key=lambda finding: finding.characteristic.local_number)
 
 
 def _qdate(value: date_type) -> QDate:

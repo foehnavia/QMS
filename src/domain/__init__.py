@@ -2,7 +2,7 @@
 
 `architecture.md` §4: ядро UI-независимо, UI — единственный сменный слой.
 Поэтому здесь не должно появляться импортов PySide6 (проверяется тестом).
-Наряды 0002 / QMS-012, 0003 / QMS-013, 0004 / QMS-014.
+Наряды 0002 / QMS-012, 0003 / QMS-013, 0004 / QMS-014, 0005 / QMS-015.
 """
 
 from .characteristics import get_or_create_characteristic
@@ -56,15 +56,28 @@ from .mappings import (
     items_by_position,
     mark_absent,
 )
+from .precedents import (
+    CANON_NEW,
+    CANON_UNBOUND,
+    PrecedentRow,
+    canon_labels,
+    canon_labels_for_item,
+    precedents_descriptive,
+    precedents_same_dimension,
+    precedents_same_position,
+)
 from .reference import add_value, delete_value, list_values, rename_value, usage_count
 
 __all__ = [
+    "CANON_NEW",
+    "CANON_UNBOUND",
     "DeviationRow",
     "DomainError",
     "DuplicateValue",
     "GPositionSpec",
     "InvariantViolation",
     "PositionState",
+    "PrecedentRow",
     "ProtectedValue",
     "ValidationError",
     "ValueInUse",
@@ -72,6 +85,8 @@ __all__ = [
     "add_value",
     "bind",
     "binding_state",
+    "canon_labels",
+    "canon_labels_for_item",
     "clear",
     "create_group",
     "create_inspection",
@@ -92,6 +107,9 @@ __all__ = [
     "make_finding",
     "mark_absent",
     "position_usage",
+    "precedents_descriptive",
+    "precedents_same_dimension",
+    "precedents_same_position",
     "register",
     "remove_finding",
     "remove_inspection",
