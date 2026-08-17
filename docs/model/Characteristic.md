@@ -4,7 +4,7 @@ entity: Characteristic
 order: 30
 canon: true
 rev: "1.00"
-updated: 2026-08-10
+updated: 2026-08-17
 ---
 
 # Characteristic (dimension)
@@ -32,9 +32,10 @@ updated: 2026-08-10
 ## Attributes
 
 - `item` (FK), `local_number`.
-- Optional **`state-depending dimension`** attribute (see below): default `none`,
-  may hold the linked dimension's local number; **dormant** (not used in ordinary
-  search; reserved for future special queries).
+- Optional **`state-depending dimension`** attribute (see below): a **reference to
+  another characteristic of the same part** — a nullable self-FK, empty by default,
+  **not** a copied local number. **Dormant**: not used in ordinary search, reserved
+  for future special queries.
 
 ## Part states (e.g. before / after electropolishing)
 
@@ -49,13 +50,19 @@ After electropolishing the number becomes `AB` and the value 1.9 mm. Branch:
 - **Dimension is not in a CG** → the states remain two separate dimensions under
   their own numbers.
 
-To link such dimensions, the **`state-depending dimension`** attribute is provided
-(empty by default, may hold the number of the linked dimension). It is **dormant**.
-Typically ≤ 5 state dimensions per part (usually 3).
+To link such dimensions, the **`state-depending dimension`** attribute is provided:
+a nullable **self-reference to the other characteristic row of the same part**
+(`characteristic.state_depending`, empty by default). It holds a real foreign key, not
+a copy of the other dimension's number: a copied number would be a second spelling of
+an identity the table already owns, free to drift once either row is renamed — and the
+key `(item, local_number)` is unique only inside the part anyway. The attribute is
+**dormant**. Typically ≤ 5 state dimensions per part (usually 3).
 
 > **Canon note (R1).** At session 06 such a linking attribute was considered and
 > rejected for stage 1. In rev 1.00 it is reintroduced as a dormant field — a
-> deliberate reversal (see `docs/decisions.md`, R1).
+> deliberate reversal (see `docs/decisions.md`, R1). Its physical shape was ratified
+> with schema rev 0.1 in S1 (`docs/decisions.md`, ratification 1): **self-FK, not a
+> number**; this text is the prose synchronized to that ratification (S5 / QMS-015).
 
 ## Related
 
