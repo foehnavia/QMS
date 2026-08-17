@@ -658,3 +658,105 @@ def test_the_list_isolates_dates_and_business_numbers(engine_with_item) -> None:
 
     for column in (0, 1, 2, 3, 4):
         assert view.table.item(0, column).text().startswith("⁨")
+
+
+# --- Ревью S4: замена всех находок за одну правку --------------------------------
+
+
+def test_all_findings_can_be_replaced_in_one_edit(engine_with_item, monkeypatch) -> None:
+    """Штатный путь исправления опечатки в номере размера.
+
+    Номер размера у сохранённой находки не правится (другой размер — другая
+    находка), поэтому «добавить правильную, убрать неправильную» — единственный
+    способ. Раньше сохранение падало: удаление шло до записи, и на последней
+    удаляемой срабатывал гард «должна остаться хотя бы одна», хотя замена в
+    форме была.
+
+    `show_error` перехватываем не ради удобства: при провале сохранения форма
+    показывает **модальный** QMessageBox, и под offscreen он ждёт ответа
+    вечно — регрессия вешала бы прогон вместо того, чтобы уронить тест.
+    """
+    import ui.deviation_dialog as module
+
+    shown: list[Exception] = []
+    monkeypatch.setattr(module, "show_error", lambda parent, error, **kw: shown.append(error))
+
+    dialog = DeviationDialog(engine_with_item)
+    _fill_header(dialog)
+    dialog._rows.append(_row("12", Direction.PLUS, value=0.08))
+    dialog._refresh()
+    dialog.save()
+
+    deviation_id = _deviation_id(engine_with_item)
+    reopened = DeviationDialog(engine_with_item, deviation_id)
+    reopened._rows.append(_row("15", Direction.MINUS, value=0.04))
+    reopened._refresh()
+    wrong = next(i for i, row in enumerate(reopened._rows) if row.local_number == "12")
+    reopened.findings.setCurrentCell(wrong, 0)
+    reopened.on_drop_finding()
+
+    reopened.save()
+
+    assert shown == [], f"сохранение отбито: {shown and shown[0]}"
+    with session_scope(engine_with_item) as session:
+        deviation = session.get(Deviation, deviation_id)
+        assert [f.characteristic.local_number for f in deviation.findings] == ["15"]
+        assert deviation.findings[0].value == 0.04
+        # Размер существует независимо от канона и от находок — опечаточный
+        # №12 остаётся у детали, его чистит администратор, а не форма.
+        item = session.query(Item).filter_by(item_number="C1-08375A").one()
+        assert sorted(c.local_number for c in item.characteristics) == ["12", "15"]
+
+
+def test_replacing_findings_keeps_the_inspection_guard(engine_with_item, monkeypatch) -> None:
+    """Перестановка порядка не отменила гард по исследованиям."""
+    import ui.deviation_dialog as module
+
+    warned: list[str] = []
+    monkeypatch.setattr(
+        module.QMessageBox, "warning", lambda *args, **kw: warned.append(args[2])
+    )
+
+    finding_id = _finding_id(engine_with_item, extra="19")
+    with session_scope(engine_with_item) as session:
+        create_inspection(
+            session,
+            session.get(Finding, finding_id),
+            inspection_type=list_values(session, RefInspectionType)[0],
+            decision_insp="approved",
+            protocol="p.docx",
+        )
+
+    dialog = DeviationDialog(engine_with_item, _deviation_id(engine_with_item))
+    studied = next(i for i, row in enumerate(dialog._rows) if row.finding_id == finding_id)
+    dialog.findings.setCurrentCell(studied, 0)
+    dialog.on_drop_finding()
+
+    assert warned and "исследований: 1" in warned[0]
+    assert len(dialog._rows) == 2
+
+
+def test_saving_stays_blocked_when_the_last_finding_is_removed(engine_with_item) -> None:
+    """Регресс на гард `1..N`: пустой список по-прежнему не сохраняется.
+
+    Форма не даёт убрать последнюю строку, а если бы дала — «Сохранить» остаётся
+    недоступной. Перестановка «сначала запись, потом удаление» эту защиту не
+    отменяет: удалять станет нечего только тогда, когда что-то записано.
+    """
+    dialog = DeviationDialog(engine_with_item)
+    _fill_header(dialog)
+    dialog._rows.append(_row("12"))
+    dialog._refresh()
+    dialog.save()
+
+    reopened = DeviationDialog(engine_with_item, _deviation_id(engine_with_item))
+    save = reopened.buttons.button(QDialogButtonBox.StandardButton.Save)
+    assert save.isEnabled() is True
+
+    reopened._rows.clear()
+    reopened._refresh()
+
+    assert save.isEnabled() is False
+    assert "находку" in reopened.status.text()
+    with session_scope(engine_with_item) as session:
+        assert session.query(Finding).count() == 1

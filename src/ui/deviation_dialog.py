@@ -555,11 +555,25 @@ class DeviationDialog(QDialog):
         self.accept()
 
     def _write_findings(self, session, deviation: Deviation) -> None:
-        """Свести таблицу формы с базой: убрать, обновить, добавить."""
-        kept = {row.finding_id for row in self._rows if row.finding_id is not None}
-        for finding in list(deviation.findings):
-            if finding.finding_id not in kept:
-                remove_finding(session, finding)
+        """Свести таблицу формы с базой: **сначала записать, потом убрать**.
+
+        Порядок здесь — не вкусовщина. Если удалять первым, замена всех находок
+        сразу упирается в доменный гард «должна остаться хотя бы одна»: новых в
+        базе ещё нет, и последнее удаление отбивается, хотя замена в форме есть.
+        А это штатный путь — номер размера у сохранённой находки не правится, и
+        «добавить правильную, убрать неправильную» единственный способ исправить
+        опечатку в номере.
+
+        Множество `keep` собирается **по ходу записи**, а не из `self._rows`
+        заранее: у новой строки `finding_id` ещё `None`, и посчитанное до записи
+        множество не содержало бы только что созданных находок — цикл удаления
+        снёс бы их следом.
+
+        Удаление и дальше идёт через `remove_finding`: оба гарда — по
+        исследованиям и «последняя» — остаются в силе, но теперь видят уже
+        записанные новые находки.
+        """
+        keep: set[int] = set()
 
         for row in self._rows:
             zone = session.get(RefZone, row.zone_id) if row.zone_id else None
@@ -574,7 +588,7 @@ class DeviationDialog(QDialog):
                 characteristic, _ = get_or_create_characteristic(
                     session, deviation.item, row.local_number
                 )
-                make_finding(
+                finding = make_finding(
                     session,
                     deviation,
                     characteristic,
@@ -586,7 +600,7 @@ class DeviationDialog(QDialog):
                     deviation_type=kind,
                 )
             else:
-                update_finding(
+                finding = update_finding(
                     session,
                     session.get(Finding, row.finding_id),
                     direction=row.direction,
@@ -596,6 +610,12 @@ class DeviationDialog(QDialog):
                     zone=zone,
                     deviation_type=kind,
                 )
+            # `make_finding` уже сделал flush, так что id проставлен.
+            keep.add(finding.finding_id)
+
+        for finding in list(deviation.findings):
+            if finding.finding_id not in keep:
+                remove_finding(session, finding)
 
 
 def _qdate(value: date_type) -> QDate:
