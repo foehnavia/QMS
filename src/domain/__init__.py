@@ -2,10 +2,18 @@
 
 `architecture.md` §4: ядро UI-независимо, UI — единственный сменный слой.
 Поэтому здесь не должно появляться импортов PySide6 (проверяется тестом).
-Наряды 0002 / QMS-012 и 0003 / QMS-013.
+Наряды 0002 / QMS-012, 0003 / QMS-013, 0004 / QMS-014.
 """
 
 from .characteristics import get_or_create_characteristic
+from .deviations import (
+    DeviationRow,
+    delete_deviation,
+    list_deviations,
+    register,
+    set_decision,
+    update_registration,
+)
 from .errors import (
     DomainError,
     DuplicateValue,
@@ -14,7 +22,13 @@ from .errors import (
     ValidationError,
     ValueInUse,
 )
-from .findings import ensure_finding_target, make_finding
+from .findings import (
+    ensure_finding_target,
+    inspection_count,
+    make_finding,
+    remove_finding,
+    update_finding,
+)
 from .groups import (
     GPositionSpec,
     add_position,
@@ -25,6 +39,12 @@ from .groups import (
     set_drawing,
     update_group,
     update_position,
+)
+from .inspections import (
+    create_inspection,
+    inspections_for,
+    remove_inspection,
+    update_inspection,
 )
 from .items import create_item, groups_of, list_items, seed_cg_characteristics
 from .mappings import (
@@ -39,6 +59,7 @@ from .mappings import (
 from .reference import add_value, delete_value, list_values, rename_value, usage_count
 
 __all__ = [
+    "DeviationRow",
     "DomainError",
     "DuplicateValue",
     "GPositionSpec",
@@ -53,24 +74,36 @@ __all__ = [
     "binding_state",
     "clear",
     "create_group",
+    "create_inspection",
     "create_item",
+    "delete_deviation",
     "delete_value",
     "ensure_finding_target",
     "get_or_create_characteristic",
     "groups_of",
+    "inspection_count",
+    "inspections_for",
     "is_complete",
     "items_by_position",
+    "list_deviations",
     "list_groups",
     "list_items",
     "list_values",
     "make_finding",
     "mark_absent",
     "position_usage",
+    "register",
+    "remove_finding",
+    "remove_inspection",
     "remove_position",
     "rename_value",
     "seed_cg_characteristics",
+    "set_decision",
     "set_drawing",
+    "update_finding",
     "update_group",
+    "update_inspection",
     "update_position",
+    "update_registration",
     "usage_count",
 ]
