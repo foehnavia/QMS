@@ -211,7 +211,7 @@ def test_binding_state_reports_all_three_states(seeded_session: Session) -> None
 
 
 def test_completeness_needs_every_balloon(seeded_session: Session) -> None:
-    """Критерий 6: «Сохранить» активна, только когда все баллоны решены."""
+    """Критерий 6: «Готово» активна, только когда все баллоны решены."""
     item = make_item(seeded_session, "IT-001")
     group = _group(seeded_session)
 

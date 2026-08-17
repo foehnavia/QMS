@@ -130,13 +130,22 @@ def update_position(
     session: Session,
     position: GPosition,
     *,
-    nominal: float | None = None,
-    tol_plus: float | None = None,
-    tol_minus: float | None = None,
-    x: float | None = None,
-    y: float | None = None,
+    nominal: float | None,
+    tol_plus: float | None,
+    tol_minus: float | None,
+    x: float | None,
+    y: float | None,
 ) -> GPosition:
-    """Обновить геометрию и/или место баллона."""
+    """Заменить геометрию и место баллона — **целиком**.
+
+    Значений по умолчанию намеренно нет: функция присваивает все поля
+    безусловно, поэтому пропущенный аргумент стирал бы старое значение, а
+    выглядел бы как «это поле не трогаем». Вызывающий передаёт всё состояние
+    позиции — в том числе то, что не менял.
+
+    Индекс позиции здесь не меняется: на него ссылаются привязки всех деталей,
+    и тихая перенумерация переклеила бы ярлыки под готовыми привязками.
+    """
     position.nominal = nominal
     position.tol_plus = tol_plus
     position.tol_minus = tol_minus

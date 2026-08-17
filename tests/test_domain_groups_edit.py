@@ -29,6 +29,23 @@ def _group(session: Session, name: str = "CG-A") -> CharacteristicGroup:
     return create_group(session, name, POSITIONS)
 
 
+def _move(session: Session, position: GPosition, x: float, y: float) -> GPosition:
+    """Переставить баллон, сохранив геометрию.
+
+    `update_position` заменяет позицию целиком, поэтому «сдвинуть баллон» —
+    это передать и то, что не меняется. Помощник держит правило на виду.
+    """
+    return update_position(
+        session,
+        position,
+        nominal=position.nominal,
+        tol_plus=position.tol_plus,
+        tol_minus=position.tol_minus,
+        x=x,
+        y=y,
+    )
+
+
 # --- Название и позиции ----------------------------------------------------------
 
 
@@ -63,6 +80,30 @@ def test_position_is_added_and_updated(seeded_session: Session) -> None:
 
     assert (added.g_index, added.nominal, added.tol_plus) == (3, 0.6, 0.03)
     assert (added.x, added.y) == (0.4, 0.4)
+
+
+def test_update_position_demands_every_field(seeded_session: Session) -> None:
+    """Ревью S3, п. 3: у `update_position` нет значений по умолчанию.
+
+    С ними вызов «поменяй только номинал» молча обнулял бы допуски и координаты
+    баллона — подпись приглашала наступить на это в S4.
+    """
+    group = _group(seeded_session)
+
+    with pytest.raises(TypeError):
+        update_position(seeded_session, group.positions[0], nominal=1.0)
+
+
+def test_moving_a_balloon_keeps_the_geometry(seeded_session: Session) -> None:
+    """Обратная сторона того же: сдвиг баллона не трогает номинал и допуски."""
+    group = _group(seeded_session)
+    position = group.positions[0]
+
+    _move(seeded_session, position, 0.9, 0.1)
+    seeded_session.commit()
+
+    assert (position.nominal, position.tol_plus, position.tol_minus) == (3.75, 0.05, -0.05)
+    assert (position.x, position.y) == (0.9, 0.1)
 
 
 def test_duplicate_position_index_is_refused(seeded_session: Session) -> None:
@@ -155,7 +196,7 @@ def test_jpeg_is_accepted() -> None:
 def test_dropping_the_drawing_keeps_balloon_coordinates(seeded_session: Session) -> None:
     """Заметка Б: снятие чертежа не роняет расстановку баллонов."""
     group = _group(seeded_session)
-    update_position(seeded_session, group.positions[0], x=0.3, y=0.7)
+    _move(seeded_session, group.positions[0], 0.3, 0.7)
     set_drawing(seeded_session, group, make_png(), "cg.png")
 
     set_drawing(seeded_session, group, None, None)
@@ -167,7 +208,7 @@ def test_dropping_the_drawing_keeps_balloon_coordinates(seeded_session: Session)
 
 def test_replacing_the_drawing_keeps_coordinates(seeded_session: Session) -> None:
     group = _group(seeded_session)
-    update_position(seeded_session, group.positions[0], x=0.2, y=0.2)
+    _move(seeded_session, group.positions[0], 0.2, 0.2)
     set_drawing(seeded_session, group, make_png(10, 10), "first.png")
 
     set_drawing(seeded_session, group, make_png(40, 30), "second.png")
@@ -180,7 +221,7 @@ def test_replacing_the_drawing_keeps_coordinates(seeded_session: Session) -> Non
 def test_coordinates_survive_a_reopen(migrated_url: str, seeded_session: Session) -> None:
     """Критерий 3: место баллона переживает перезапуск."""
     group = _group(seeded_session)
-    update_position(seeded_session, group.positions[0], x=0.125, y=0.875)
+    _move(seeded_session, group.positions[0], 0.125, 0.875)
     seeded_session.commit()
     seeded_session.close()
 

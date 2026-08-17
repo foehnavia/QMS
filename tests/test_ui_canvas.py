@@ -170,6 +170,38 @@ def test_editor_saves_geometry_and_name(group_engine) -> None:
         assert next(p for p in group.positions if p.g_index == 1).nominal == 4.25
 
 
+def test_editor_locks_the_index_of_an_existing_position(group_engine) -> None:
+    """Ревью S3, п. 1: номер существующей позиции не редактируется.
+
+    На него ссылаются привязки всех деталей — перенумерация переклеила бы ярлыки
+    под готовыми привязками. У новой строки индекс ещё ничей, она открыта.
+    """
+    editor = CgEditor(group_engine, _cg_id(group_engine))
+    assert not editor.table.item(0, 0).flags() & Qt.ItemFlag.ItemIsEditable
+
+    editor.add_position()
+    assert editor.table.item(3, 0).flags() & Qt.ItemFlag.ItemIsEditable
+
+
+def test_editor_ignores_a_forced_index_swap(group_engine) -> None:
+    """Тот же пункт со стороны сохранения: перестановка g1↔g2 не доезжает до базы.
+
+    Раньше форма писала новый индекс прямо в модель и сбрасывала на диск после
+    каждой позиции — на промежуточном шаге индекс двоился, и оператор получал
+    сырое `UNIQUE constraint failed` вместо человеческого текста.
+    """
+    editor = CgEditor(group_engine, _cg_id(group_engine))
+    editor.table.item(0, 0).setText("2")  # мимо запрета — прямо в ячейку
+    editor.table.item(1, 0).setText("1")
+
+    editor.save()
+
+    with session_scope(group_engine) as session:
+        group = session.query(CharacteristicGroup).one()
+        assert sorted(p.g_index for p in group.positions) == [1, 2, 3]
+        assert next(p for p in group.positions if p.g_index == 1).nominal == 3.75
+
+
 def test_editor_adds_and_removes_positions(group_engine) -> None:
     editor = CgEditor(group_engine, _cg_id(group_engine))
     editor.add_position()
@@ -243,13 +275,17 @@ def test_editor_rejects_a_bad_number(group_engine, monkeypatch) -> None:
 
 
 def test_mapping_dialog_shows_states_and_blocks_save(group_engine) -> None:
-    """Критерий 6: «Сохранить» неактивна, пока хоть один баллон без состояния."""
+    """Критерий 6: «Готово» неактивна, пока хоть один баллон без состояния."""
     dialog = MappingDialog(group_engine, _item_id(group_engine), _cg_id(group_engine))
     save = dialog.buttons.button(QDialogButtonBox.StandardButton.Save)
 
     assert dialog.table.rowCount() == 3
     assert save.isEnabled() is False
     assert "g1" in dialog.status.text()
+
+    # Ревью S3: диалог пишет сразу, откатывать нечего — подписи это признают.
+    assert save.text() == "Готово"
+    assert dialog.buttons.button(QDialogButtonBox.StandardButton.Cancel).text() == "Закрыть"
 
 
 def test_mapping_dialog_enables_save_when_every_balloon_is_decided(group_engine) -> None:

@@ -2,11 +2,11 @@
 
     python src/app.py                 # или: python -m app  (при запуске из src/)
 
-Запуск подготавливает БД к работе: накатывает схему baseline-миграцией, если
-её ещё нет, и досеивает справочники (идемпотентно). Новых миграций приложение
-не создаёт — схема заморожена на rev 0.1.
+Запуск подготавливает БД к работе: доводит схему до head миграциями Alembic,
+если ревизия отстала, и досеивает справочники (идемпотентно). Новых миграций
+приложение не создаёт.
 
-Наряд 0002 / QMS-012.
+Наряды 0002 / QMS-012, 0003 / QMS-013.
 """
 
 from __future__ import annotations
@@ -26,9 +26,8 @@ for _stream in (sys.stdout, sys.stderr):
 
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
-from sqlalchemy import Engine, inspect  # noqa: E402
+from sqlalchemy import Engine  # noqa: E402
 
-from db.models import ALL_TABLES  # noqa: E402
 from db.session import create_db_engine, default_db_url, session_scope  # noqa: E402
 from seed.reference import seed_reference  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402

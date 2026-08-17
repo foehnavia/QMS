@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -172,7 +173,7 @@ class CgEditor(QDialog):
         self.table.blockSignals(True)
         self.table.setRowCount(len(self._rows))
         for index, row in enumerate(self._rows):
-            self.table.setItem(index, 0, QTableWidgetItem(str(row.g_index)))
+            self.table.setItem(index, 0, _index_cell(row))
             self.table.setItem(index, 1, QTableWidgetItem(_text(row.nominal)))
             self.table.setItem(index, 2, QTableWidgetItem(_text(row.tol_plus)))
             self.table.setItem(index, 3, QTableWidgetItem(_text(row.tol_minus)))
@@ -245,11 +246,19 @@ class CgEditor(QDialog):
         """Забрать правки геометрии из таблицы."""
         rows: list[_Row] = []
         for index, row in enumerate(self._rows):
-            raw_index = strip_iso(
-                self.table.item(index, 0).text() if self.table.item(index, 0) else ""
-            ).strip()
-            if not raw_index.isdigit() or int(raw_index) < 1:
-                raise ValidationError(f"Строка {index + 1}: индекс позиции должен быть числом ≥ 1.")
+            if row.position_id is None:
+                # Индекс редактируется только у новой позиции — у существующей
+                # ячейка закрыта (`_index_cell`), и её значение берём из модели.
+                raw_index = strip_iso(
+                    self.table.item(index, 0).text() if self.table.item(index, 0) else ""
+                ).strip()
+                if not raw_index.isdigit() or int(raw_index) < 1:
+                    raise ValidationError(
+                        f"Строка {index + 1}: индекс позиции должен быть числом ≥ 1."
+                    )
+                g_index = int(raw_index)
+            else:
+                g_index = row.g_index
 
             def cell(column: int) -> str:
                 item = self.table.item(index, column)
@@ -257,7 +266,7 @@ class CgEditor(QDialog):
 
             rows.append(
                 _Row(
-                    g_index=int(raw_index),
+                    g_index=g_index,
                     nominal=parse_optional_number(cell(1), f"Строка {index + 1}, номинал"),
                     tol_plus=parse_optional_number(cell(2), f"Строка {index + 1}, допуск +"),
                     tol_minus=parse_optional_number(cell(3), f"Строка {index + 1}, допуск −"),
@@ -295,7 +304,6 @@ class CgEditor(QDialog):
                         )
                     else:
                         position = session.get(GPosition, row.position_id)
-                        position.g_index = row.g_index
                         update_position(
                             session,
                             position,
@@ -309,6 +317,24 @@ class CgEditor(QDialog):
             show_error(self, error, title="Группа не сохранена")
             return
         self.accept()
+
+
+def _index_cell(row: _Row) -> QTableWidgetItem:
+    """Ячейка индекса: у существующей позиции — только чтение.
+
+    Индекс g-позиции — идентичность, на которую ссылаются привязки всех деталей
+    (`domain.groups.update_position`). Перенумеровать её в форме значило бы
+    переклеить ярлыки под готовыми привязками; у новой строки индекс ещё ничей,
+    поэтому она остаётся редактируемой.
+    """
+    cell = QTableWidgetItem(str(row.g_index))
+    if row.position_id is not None:
+        cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        cell.setToolTip(
+            "Номер позиции менять нельзя: на него ссылаются привязки размеров. "
+            "Нужен другой номер — добавьте позицию и снимите старую."
+        )
+    return cell
 
 
 def _text(value: float | None) -> str:
