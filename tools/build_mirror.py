@@ -13,21 +13,34 @@ strips per-file front matter, and concatenates the bodies under a mirror banner
 whose ``source_version`` equals the canon rev. Deterministic (no wall clock) so a
 re-run over an unchanged canon yields a byte-identical file — a mismatch is drift.
 
+**Staleness is detected by content, not by a hand-maintained field (Q-09).** The
+banner also carries ``source_hash`` — a sha256 over the canon files that went into
+the mirror. ``source_version`` is still written, for a human to read, but the guard
+no longer depends on someone remembering to bump ``rev``: edit any canon file and
+``--check`` goes red on the next run.
+
 Usage:
-    python tools/build_mirror.py \
-        --model docs/model \
-        --out   /path/to/Vault_01/50_MIS-QMS/CONCEPT_full_rev1.00_EN.md
+    # regenerate into the repo, then hand the artefact over the bridge
+    python tools/build_mirror.py --out build/mirror/CONCEPT_full_rev1.00_EN.md
+
+    # verify an existing mirror against the current canon (no writes)
+    python tools/build_mirror.py --check <path-to-mirror>
 
 Rule: run this ONLY from a repo-connected session/machine, at the close of any
 session that changed docs/model/. Sessions without repo access must never write
-the mirror (they cannot see the canon). See docs/_INDEX.md → "Mirror & sync".
+the mirror (they cannot see the canon). The generator writes **into the repo**;
+carrying the file into the vault is Cowork's step — Claude Code never writes to
+the vault (INFRA-013). See docs/_INDEX.md → "Mirror & sync".
 """
 import argparse
+import hashlib
 import pathlib
 import re
 import sys
 
 FM_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
+
+HASH_PREFIX = "sha256:"
 
 
 def parse_front_matter(text):
@@ -54,12 +67,38 @@ def collect(model_dir):
             order = int(meta.get("order", "999999"))
         except ValueError:
             order = 999999
-        items.append((order, f.name, meta, body))
+        items.append((order, f.name, meta, body, f))
     items.sort(key=lambda t: (t[0], t[1]))
     return items
 
 
-def build(items):
+def canon_hash(model_dir, items):
+    """sha256 over the canon set — the mirror's staleness detector (Q-09).
+
+    Two deliberate choices:
+
+    * files are hashed in **path order** relative to ``docs/model/``, not in the
+      ``order`` used for assembly — a reshuffle of the ``order`` field must not
+      look like a content change, and a rename must;
+    * line endings are normalised **CRLF -> LF** before hashing, because a
+      checkout on Windows would otherwise produce a different hash for byte-identical
+      content and the guard would cry wolf on every clone.
+
+    The path is hashed alongside the body, so renaming a file is a change even when
+    its text is untouched.
+    """
+    digest = hashlib.sha256()
+    for path in sorted(item[4] for item in items):
+        relative = path.relative_to(model_dir).as_posix()
+        body = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(body.encode("utf-8"))
+        digest.update(b"\0")
+    return f"{HASH_PREFIX}{digest.hexdigest()}"
+
+
+def build(items, source_hash):
     if not items:
         raise SystemExit("build_mirror: no canon files found")
     rev = items[0][2].get("rev", "?")            # _overview (order 10) carries the rev
@@ -74,6 +113,7 @@ def build(items):
         f'version: "{rev}"\n'
         f"updated: {updated}\n"
         f'source_version: "{rev}"\n'
+        f'source_hash: "{source_hash}"\n'
         "mirror_of: docs/model/\n"
         "generated_by: tools/build_mirror.py\n"
         "language: en\n"
@@ -87,24 +127,86 @@ def build(items):
         "> repo access (e.g. a phone session with only the vault connected) can read the\n"
         f"> whole concept offline. **Canon is the repo; on any discrepancy the repo prevails.**\n"
         f"> Regenerate with `tools/build_mirror.py` from a repo-connected session whenever\n"
-        f"> `docs/model/` changes. `source_version` here (**{rev}**) must equal the canon rev.\n\n"
+        f"> `docs/model/` changes. Staleness is checked by `source_hash` over the canon\n"
+        f"> files — `python tools/build_mirror.py --check <this file>`; `source_version`\n"
+        f"> (**{rev}**) is for humans.\n\n"
         "---\n"
     )
     parts = [header]
-    for _order, name, _meta, body in items:
+    for _order, name, _meta, body, _path in items:
         parts.append(f"\n\n<!-- from docs/model/{name} -->\n\n{body.rstrip()}\n")
     return "".join(parts).rstrip() + "\n"
+
+
+def check(model_dir, mirror_path, stream=sys.stdout):
+    """Compare a mirror's stamped hash with the canon as it is now.
+
+    Returns 0 when they match, 1 otherwise. Writes nothing: the check must be safe
+    to run from anywhere, including against a mirror already sitting in the vault.
+    The file list is printed alongside the verdict so a mismatch can be explained,
+    not merely announced.
+    """
+    items = collect(model_dir)
+    if not items:
+        print("build_mirror --check: no canon files found", file=stream)
+        return 1
+
+    expected = canon_hash(model_dir, items)
+    if not mirror_path.exists():
+        print(f"build_mirror --check: mirror not found: {mirror_path}", file=stream)
+        return 1
+
+    meta, _body = parse_front_matter(mirror_path.read_text(encoding="utf-8"))
+    stamped = meta.get("source_hash", "")
+
+    print(f"canon files ({len(items)}):", file=stream)
+    for item in items:
+        print(f"  - {item[4].relative_to(model_dir).as_posix()}", file=stream)
+    print(f"canon  hash: {expected}", file=stream)
+    print(f"mirror hash: {stamped or '(not stamped)'}", file=stream)
+
+    if not stamped:
+        print(
+            "VERDICT: STALE — mirror carries no source_hash; regenerate it "
+            "(it predates the content guard).",
+            file=stream,
+        )
+        return 1
+    if stamped != expected:
+        print(
+            "VERDICT: STALE — canon changed since this mirror was generated; "
+            "regenerate and carry the artefact over.",
+            file=stream,
+        )
+        return 1
+    print("VERDICT: OK — mirror matches the canon.", file=stream)
+    return 0
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="docs/model", type=pathlib.Path)
-    ap.add_argument("--out", required=True, type=pathlib.Path)
+    ap.add_argument("--out", type=pathlib.Path, help="where to write the mirror artefact")
+    ap.add_argument(
+        "--check",
+        type=pathlib.Path,
+        metavar="MIRROR",
+        help="verify an existing mirror against the canon; writes nothing",
+    )
     args = ap.parse_args(argv)
+
+    if args.check is not None:
+        return check(args.model, args.check)
+    if args.out is None:
+        ap.error("one of --out or --check is required")
+
     items = collect(args.model)
-    args.out.write_text(build(items), encoding="utf-8")
+    source_hash = canon_hash(args.model, items)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(build(items, source_hash), encoding="utf-8")
     print(f"build_mirror: wrote {args.out} from {len(items)} canon files "
           f"(rev {items[0][2].get('rev','?')})")
+    print(f"build_mirror: source_hash {source_hash}")
     return 0
 
 
