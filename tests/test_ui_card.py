@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog
 
 from conftest import count_queries, make_item
@@ -523,3 +524,26 @@ def test_precedent_row_carries_the_whole_deviation(engine) -> None:
     assert "доработка по месту" in card.same_dimension.item(row, 7).text()
     # Обоснование целиком — в подсказке, чтобы длинный текст не рвал вёрстку.
     assert card.same_dimension.item(row, 7).toolTip().startswith("доработка")
+
+
+def test_navigation_has_no_card_section(engine) -> None:
+    """Решение 7: карточка открывается от отклонения, разделом не заводится.
+
+    А «Поиск» остаётся выключенным — это конструктор запросов Этапа 1.5, не S5.
+    """
+    from ui.main_window import PLANNED_SECTIONS, MainWindow
+
+    window = MainWindow(engine)
+    titles = [window.sections.item(i).text() for i in range(window.sections.count())]
+
+    assert not any("Карточка" in title for title in titles)
+    assert PLANNED_SECTIONS == (("Поиск", "S8"),)
+    assert any("Поиск" in title and "S8" in title for title in titles)
+    # Выключенный пункт — без флагов, кликнуть нельзя.
+    search = next(
+        window.sections.item(i)
+        for i in range(window.sections.count())
+        if "Поиск" in window.sections.item(i).text()
+    )
+    assert search.flags() == Qt.ItemFlag.NoItemFlags
+    window.close()

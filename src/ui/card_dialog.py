@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import selectinload
 
-from db.models import Characteristic, Deviation, Finding, Item
+from db.models import Characteristic, Deviation, Direction, Finding, Item
 from db.session import session_scope
 from domain.findings import inspection_counts
 from domain.precedents import (
@@ -49,13 +49,7 @@ from domain.precedents import (
     precedents_same_position,
 )
 
-from .common import (
-    decision_dev_label,
-    direction_label,
-    iso,
-    number_label,
-    show_error,
-)
+from .common import decision_dev_label, direction_label, iso, number_label, show_error
 from .decision_dialog import DecisionDialog
 from .deviation_dialog import FINDING_COLUMNS, DeviationDialog
 from .inspection_dialog import InspectionDialog
@@ -116,7 +110,7 @@ class PrecedentTable(QTableWidget):
                 iso(row.item_number),
                 iso(row.wo),
                 size,
-                f"{direction_label(row.direction)} {number_label(row.value)}".strip(),
+                _signed(row.direction, row.value),
                 decision_dev_label(row.decision),
                 _one_line(row.explanation),
                 str(row.inspection_count),
@@ -128,6 +122,10 @@ class PrecedentTable(QTableWidget):
                 cell = QTableWidgetItem(value)
                 if column == 0:
                     cell.setData(Qt.ItemDataRole.UserRole, row.deviation_id)
+                if column == 4 and row.g_label:
+                    # Узкая колонка съедает имя группы — оно нужно, чтобы понять,
+                    # по какому канону совпало; держим в подсказке.
+                    cell.setToolTip(f"{row.local_number} · {row.g_label}")
                 if column == 7:
                     # Обоснование в строке урезано, целиком — в подсказке: это
                     # главный текст прецедента, терять его нельзя.
@@ -165,22 +163,26 @@ class CardDialog(QDialog):
         self.explanation = QLabel()
         self.explanation.setWordWrap(True)
 
-        head_left = QFormLayout()
+        # Поля не растягиваются на всю ширину: иначе значение уезжает от своей
+        # подписи через полэкрана и липнет к подписи соседней колонки.
+        head_left = _compact_form()
         head_left.addRow("Отклонение:", self.number)
         head_left.addRow("Деталь:", self.item_label)
         head_left.addRow("WO:", self.wo)
         head_left.addRow("Станок:", self.machine)
-        head_right = QFormLayout()
+        head_right = _compact_form()
         head_right.addRow("Количество:", self.quantity)
         head_right.addRow("Дата:", self.date)
         head_right.addRow("NCR:", self.ncr)
         head_right.addRow("Вложения:", self.attachment)
 
+        # Каждая колонка — в своём виджете: соседние QFormLayout иначе делят
+        # ширину так, что значение левой оказывается вплотную к подписи правой.
         head_columns = QHBoxLayout()
-        head_columns.addLayout(head_left, 1)
-        head_columns.addLayout(head_right, 1)
+        head_columns.addWidget(_boxed(head_left), 1)
+        head_columns.addWidget(_boxed(head_right), 1)
 
-        decision_form = QFormLayout()
+        decision_form = _compact_form()
         decision_form.addRow("Решение:", self.decision)
         decision_form.addRow("Обоснование:", self.explanation)
 
@@ -506,6 +508,32 @@ def _load_findings(session, deviation: Deviation) -> list[Finding]:
         )
     ).all()
     return sorted(findings, key=lambda finding: finding.characteristic.local_number)
+
+
+def _compact_form() -> QFormLayout:
+    """Форма, в которой поле остаётся рядом с подписью, а не растягивается."""
+    form = QFormLayout()
+    form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
+    return form
+
+
+def _boxed(layout: QFormLayout) -> QWidget:
+    box = QWidget()
+    box.setLayout(layout)
+    return box
+
+
+def _signed(direction: str, value: float | None) -> str:
+    """Знак и величина одной ячейкой — **один** изолят на всю строку.
+
+    Изолировать знак и число по отдельности мало: два изолята подряд остаются
+    двумя runs, и в RTL-ячейке они раскладываются справа налево — `− 0.05`
+    показывалось как `0.05 −`. Изолят вокруг собранной строки держит и знак при
+    числе, и порядок токенов.
+    """
+    sign = "+" if direction == Direction.PLUS else "−"
+    number = "" if value is None else f"{value:g}"
+    return iso(f"{sign} {number}".strip())
 
 
 def _one_line(text: str | None) -> str:
