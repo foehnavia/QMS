@@ -287,15 +287,26 @@ def precedents_descriptive(
     zone_id = zone.zone_id if zone is not None else None
     type_id = deviation_type.deviation_type_id if deviation_type is not None else None
 
-    rows: list[PrecedentRow] = []
+    # Единица выдачи — **отклонение целиком**, даже когда совпал один размер
+    # (`Search.md`). Запрос идёт по находкам, поэтому отклонение с двумя
+    # размерами в одной зоне вернулось бы двумя строками с одним номером, а
+    # счётчик «похожих» считал бы находки вместо случаев. Сворачиваем по
+    # отклонению, оставляя **сильнейшее** совпадение: строки уже упорядочены
+    # рангом, значит первая встреченная и есть сильнейшая.
+    #
+    # В L1a и L1b свёртка не нужна по построению: там на отклонение приходится
+    # ровно одна подходящая находка — один размер даёт одну находку, а на
+    # g-позицию у детали идёт ровно один размер (правило «1 баллон = 1 размер»).
+    seen: dict[int, PrecedentRow] = {}
     for record in session.execute(query):
         hit_zone = zone_id is not None and record.zone_id == zone_id
         hit_type = type_id is not None and record.deviation_type_id == type_id
         match: Match = (
             "zone+type" if hit_zone and hit_type else "zone" if hit_zone else "type"
         )
-        rows.append(_row(record, match))
-    return rows
+        if record.deviation_id not in seen:
+            seen[record.deviation_id] = _row(record, match)
+    return list(seen.values())
 
 
 # --- Пакетное состояние канона (снятие N+1 из S4) ---------------------------------
@@ -319,9 +330,8 @@ def canon_labels(
         return {}
 
     bound = session.execute(
-        select(Mapping.characteristic_id, CharacteristicGroup.name, GPosition.g_index)
+        select(Mapping.characteristic_id, GPosition.g_index)
         .join(GPosition, Mapping.g_position_id == GPosition.g_position_id)
-        .join(CharacteristicGroup, GPosition.cg_id == CharacteristicGroup.cg_id)
         .where(Mapping.characteristic_id.in_(ids))
     )
     labels = {row.characteristic_id: f"g{row.g_index}" for row in bound}

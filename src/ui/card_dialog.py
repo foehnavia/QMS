@@ -49,7 +49,14 @@ from domain.precedents import (
     precedents_same_position,
 )
 
-from .common import decision_dev_label, direction_label, iso, number_label, show_error
+from .common import (
+    decision_dev_label,
+    dimension_sort_key,
+    direction_label,
+    iso,
+    number_label,
+    show_error,
+)
 from .decision_dialog import DecisionDialog
 from .deviation_dialog import FINDING_COLUMNS, DeviationDialog
 from .inspection_dialog import InspectionDialog
@@ -101,6 +108,10 @@ class PrecedentTable(QTableWidget):
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
     def fill(self, rows: list[PrecedentRow]) -> None:
+        # Выбор сбрасываем: строки другие, а уцелевшее выделение делало бы вид,
+        # что оператор что-то выбрал в таблице, которую он ещё не смотрел.
+        self.clearSelection()
+        self.setCurrentCell(-1, -1)
         self.setRowCount(len(rows))
         for index, row in enumerate(rows):
             size = iso(f"{row.local_number} · {row.g_label}") if row.g_label else iso(row.local_number)
@@ -147,6 +158,9 @@ class CardDialog(QDialog):
         self._engine = engine
         self._deviation_id = deviation_id
         self._finding_ids: list[int] = []
+        # Автопереход на L2 — только при открытии карточки: иначе смена
+        # находки выкидывала бы оператора с вкладки, выбранной руками.
+        self._first_render = True
         self.resize(1180, 820)
 
         # --- шапка ---
@@ -232,8 +246,17 @@ class CardDialog(QDialog):
         self.same_dimension = PrecedentTable()
         self.same_position = PrecedentTable()
         self.descriptive = PrecedentTable(with_match=True)
+        self._active_table: PrecedentTable | None = None
+        self._syncing_selection = False
         for table in (self.same_dimension, self.same_position, self.descriptive):
-            table.doubleClicked.connect(self.open_precedent)
+            # Таблицу передаём явно: двойной клик во второй секции обязан открыть
+            # строку второй секции, а не «первой, где что-то выбрано».
+            table.doubleClicked.connect(
+                lambda *_args, source=table: self.open_precedent(source)
+            )
+            table.itemSelectionChanged.connect(
+                lambda source=table: self._on_table_selected(source)
+            )
 
         self.same_dimension_title = QLabel()
         self.same_position_title = QLabel()
@@ -267,7 +290,7 @@ class CardDialog(QDialog):
         self.tabs.addTab(similar, "Похожие (L2)")
 
         self.open_button = QPushButton(iso("Открыть прецедент…"))
-        self.open_button.clicked.connect(self.open_precedent)
+        self.open_button.clicked.connect(lambda: self.open_precedent())
         self.status = QLabel()
         self.status.setWordWrap(True)
 
@@ -348,7 +371,11 @@ class CardDialog(QDialog):
 
         if rows:
             restored = self._finding_ids.index(previous) if previous in self._finding_ids else 0
+            # Сигнал глушим: иначе выбор строки и явный вызов ниже дают две
+            # перерисовки прецедентов, то есть два лишних похода в базу.
+            self.findings.blockSignals(True)
             self.findings.setCurrentCell(restored, 0)
+            self.findings.blockSignals(False)
         self.refresh_precedents()
 
     def refresh_precedents(self) -> None:
@@ -413,9 +440,11 @@ class CardDialog(QDialog):
 
         # Если точных совпадений нет — сразу показываем описательные: иначе
         # оператор видит две пустые таблицы и не догадывается про вторую вкладку.
+        # Только при открытии: дальше вкладку выбирает оператор.
         exact_total = len(same_dimension) + len(same_position)
-        if exact_total == 0:
+        if exact_total == 0 and self._first_render:
             self.tabs.setCurrentIndex(1)
+        self._first_render = False
 
         self.status.setText(
             f"Точных совпадений: {exact_total} · похожих: {len(descriptive)}. "
@@ -470,10 +499,39 @@ class CardDialog(QDialog):
         MappingDialog.run(self._engine, item_id, cg_id, self)
         self.reload()
 
-    def open_precedent(self) -> None:
-        """Открыть карточку прецедента поверх текущей — глубина не ограничена."""
-        table = self._current_table()
-        deviation_id = table.selected_deviation() if table else None
+    def _on_table_selected(self, table: PrecedentTable) -> None:
+        """Выбор строки: запомнить таблицу и снять выбор в соседних.
+
+        Три таблицы независимы, поэтому без этого выбранными оказывались строки
+        сразу в двух секциях, и кнопка «Открыть прецедент…» открывала **первую**
+        непустую — молча и неотличимо от нормы.
+
+        Одного лишь запоминания мало: повторный клик по уже выбранной строке
+        сигнала не даёт, и «активной» осталась бы прежняя таблица. Поэтому выбор
+        физически держится в одной таблице — заодно и на экране подсвечена ровно
+        одна строка. Флаг гасит рекурсию: `clearSelection` соседей сам приводит
+        сюда же.
+        """
+        if self._syncing_selection or table.currentRow() < 0:
+            return
+        self._syncing_selection = True
+        try:
+            self._active_table = table
+            for other in (self.same_dimension, self.same_position, self.descriptive):
+                if other is not table:
+                    other.clearSelection()
+                    other.setCurrentCell(-1, -1)
+        finally:
+            self._syncing_selection = False
+
+    def open_precedent(self, table: PrecedentTable | None = None) -> None:
+        """Открыть карточку прецедента поверх текущей — глубина не ограничена.
+
+        `table` приходит от двойного клика — это таблица, по которой кликнули.
+        Кнопка источника не имеет, поэтому берёт последнюю, где меняли выбор.
+        """
+        source = table if isinstance(table, PrecedentTable) else self._current_table()
+        deviation_id = source.selected_deviation() if source else None
         if deviation_id is None:
             self.status.setText("Сначала выберите прецедент в таблице.")
             return
@@ -483,13 +541,19 @@ class CardDialog(QDialog):
             show_error(self, error, title="Прецедент не открыт")
 
     def _current_table(self) -> PrecedentTable | None:
-        """Таблица, в которой оператор выбрал строку последней."""
-        if self.tabs.currentIndex() == 1:
-            return self.descriptive
-        for table in (self.same_dimension, self.same_position):
+        """Таблица для кнопки: последняя, где меняли выбор, в пределах вкладки."""
+        on_descriptive = self.tabs.currentIndex() == 1
+        allowed = (
+            (self.descriptive,)
+            if on_descriptive
+            else (self.same_dimension, self.same_position)
+        )
+        if self._active_table in allowed and self._active_table.currentRow() >= 0:
+            return self._active_table
+        for table in allowed:
             if table.currentRow() >= 0:
                 return table
-        return self.same_dimension
+        return None
 
 
 def _load_findings(session, deviation: Deviation) -> list[Finding]:
@@ -507,7 +571,7 @@ def _load_findings(session, deviation: Deviation) -> list[Finding]:
             selectinload(Finding.deviation_type),
         )
     ).all()
-    return sorted(findings, key=lambda finding: finding.characteristic.local_number)
+    return sorted(findings, key=lambda f: dimension_sort_key(f.characteristic.local_number))
 
 
 def _compact_form() -> QFormLayout:

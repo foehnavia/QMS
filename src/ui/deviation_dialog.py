@@ -61,6 +61,7 @@ from domain.precedents import CANON_NEW, canon_labels_for_item
 
 from .common import (
     DECISION_INSP_LABELS,
+    dimension_sort_key,
     direction_label,
     iso,
     ltr_field,
@@ -658,7 +659,7 @@ def _load_findings(session, deviation: Deviation) -> list[Finding]:
         .where(Finding.deviation_id == deviation.deviation_id)
         .options(selectinload(Finding.characteristic))
     ).all()
-    return sorted(findings, key=lambda finding: finding.characteristic.local_number)
+    return sorted(findings, key=lambda f: dimension_sort_key(f.characteristic.local_number))
 
 
 def _qdate(value: date_type) -> QDate:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox, QWidget
 
@@ -121,3 +123,14 @@ def ltr_field(widget: QWidget) -> QWidget:
     """
     widget.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
     return widget
+
+
+def dimension_sort_key(local_number: str) -> tuple:
+    """Порядок номеров размеров: «9» раньше «10», а не наоборот.
+
+    Номер — строка (канон допускает буквенные `AA`/`AB` для состояний до и после
+    электрополировки), поэтому обычная сортировка текстом ставит «10» перед «9».
+    Разбиваем на цифровые и нецифровые куски и числа сравниваем числами.
+    """
+    parts = re.split(r"(\d+)", (local_number or "").strip())
+    return tuple((1, int(part)) if part.isdigit() else (0, part) for part in parts if part)

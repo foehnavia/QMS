@@ -117,7 +117,7 @@ def test_check_explains_which_files_it_hashed(canon: Path, tmp_path: Path) -> No
 
     _code, output = _verdict(canon, mirror)
 
-    assert "canon files (12):" in output
+    assert "canon files (12), in hashing order:" in output
     assert "- Search.md" in output
     assert "- reference/reference-data.md" in output
 
@@ -181,3 +181,83 @@ def test_main_check_returns_one_on_a_stale_mirror(canon: Path, tmp_path: Path) -
 def test_main_demands_out_or_check(canon: Path) -> None:
     with pytest.raises(SystemExit):
         main(["--model", str(canon)])
+
+
+# --- Ревью S5, дефект 3: порядок хеширования не зависит от платформы --------------
+
+#: Эталон рецепта хеширования на фиксированном наборе (см. `_recipe_canon`).
+#: Меняется только вместе с рецептом — тогда эта константа и должна упасть.
+RECIPE_HASH = "sha256:19abe33444a5e060da9565dc6367822c7d52e32e7bd91d85f73aec9e37f22beb"
+
+
+def _recipe_canon(root: Path) -> Path:
+    """Крошечный синтетический канон с фиксированным содержимым.
+
+    Эталон считаем **не** по настоящему `docs/model/`: тот правит Cowork, и
+    константа падала бы при каждой правке канона, ничего не сообщая о рецепте.
+    Имена подобраны так, что регистрозависимый и регистронезависимый порядок
+    различаются: ASCII ставит `Alpha` < `Zeta` < `_overview` < `beta`, а
+    casefold — `_overview` < `alpha` < `beta` < `zeta`.
+    """
+    model = root / "recipe"
+    (model / "reference").mkdir(parents=True)
+    for name, order in (("_overview.md", 10), ("Alpha.md", 20), ("Zeta.md", 30), ("beta.md", 40)):
+        (model / name).write_text(
+            f'---\ncanon: true\norder: {order}\nrev: "1.00"\n---\n\nbody of {name}\n',
+            encoding="utf-8",
+        )
+    (model / "reference" / "ref.md").write_text(
+        '---\ncanon: true\norder: 50\nrev: "1.00"\n---\n\nbody of ref\n', encoding="utf-8"
+    )
+    return model
+
+
+def test_hashing_order_is_a_plain_string_sort(tmp_path: Path) -> None:
+    """Порядок — по строке пути, а не по объекту `Path`.
+
+    Сортировка `pathlib.Path` зависит от платформы: на Windows сравнение
+    регистронезависимое, на Linux — нет. Хеш зависит от порядка, поэтому
+    зеркало, проштампованное на рабочей машине, читалось бы как устаревшее при
+    проверке из Linux-сессии — сторож ломался бы ровно в том сценарии, ради
+    которого сделан.
+    """
+    from tools.build_mirror import canon_files
+
+    model = _recipe_canon(tmp_path)
+    order = [relative for relative, _path in canon_files(model, collect(model))]
+
+    assert order == sorted(order)
+    assert order == ["Alpha.md", "Zeta.md", "_overview.md", "beta.md", "reference/ref.md"]
+
+
+def test_hashing_order_does_not_follow_the_assembly_order(tmp_path: Path) -> None:
+    """Последовательность хеширования не зависит от поля `order`.
+
+    Сам хеш при перенумерации меняется — и правильно: `order` управляет порядком
+    секций в собранном зеркале, поэтому зеркало действительно устаревает. Здесь
+    проверяется только то, что **последовательность файлов** остаётся прежней:
+    иначе перенумерация тасовала бы хеш ещё и через порядок, и причину
+    расхождения нельзя было бы объяснить по списку в выводе `--check`.
+    """
+    from tools.build_mirror import canon_files
+
+    model = _recipe_canon(tmp_path)
+    order_before = [relative for relative, _ in canon_files(model, collect(model))]
+
+    victim = model / "Alpha.md"
+    victim.write_text(
+        victim.read_text(encoding="utf-8").replace("order: 20", "order: 99"), encoding="utf-8"
+    )
+
+    assert [relative for relative, _ in canon_files(model, collect(model))] == order_before
+
+
+def test_hash_recipe_matches_the_recorded_constant(tmp_path: Path) -> None:
+    """Эталон рецепта: любая будущая смена способа считать хеш видна сразу.
+
+    Если этот тест упал, а `_recipe_canon` не менялся — изменился рецепт, и все
+    зеркала в обращении нужно перештамповать.
+    """
+    model = _recipe_canon(tmp_path)
+
+    assert canon_hash(model, collect(model)) == RECIPE_HASH

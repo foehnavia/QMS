@@ -72,24 +72,36 @@ def collect(model_dir):
     return items
 
 
+def canon_files(model_dir, items):
+    """The canon set in **hashing order**: (relative posix path, path) pairs.
+
+    Ordered by the relative path **as a string**, deliberately not by sorting
+    ``pathlib.Path`` objects: path comparison is platform-dependent — case-insensitive
+    on Windows, case-sensitive elsewhere — so sorting the objects puts ``_overview.md``
+    first on Windows and after ``Search.md`` on Linux over the very same files. The hash
+    depends on order, so a mirror stamped on the work machine would read STALE when
+    checked from a Linux session: the guard would break in exactly the scenario it
+    exists for.
+
+    The ``order`` field is not used here: it drives assembly, not identity, so the
+    hashing sequence stays put when someone renumbers the canon. The hash itself still
+    changes then — and rightly so, because the assembled mirror does. A rename changes
+    both, since the relative path is hashed alongside the body.
+    """
+    pairs = [(item[4].relative_to(model_dir).as_posix(), item[4]) for item in items]
+    return sorted(pairs, key=lambda pair: pair[0])
+
+
 def canon_hash(model_dir, items):
     """sha256 over the canon set — the mirror's staleness detector (Q-09).
 
-    Two deliberate choices:
-
-    * files are hashed in **path order** relative to ``docs/model/``, not in the
-      ``order`` used for assembly — a reshuffle of the ``order`` field must not
-      look like a content change, and a rename must;
-    * line endings are normalised **CRLF -> LF** before hashing, because a
-      checkout on Windows would otherwise produce a different hash for byte-identical
-      content and the guard would cry wolf on every clone.
-
-    The path is hashed alongside the body, so renaming a file is a change even when
-    its text is untouched.
+    Line endings are normalised **CRLF -> LF** before hashing: a checkout on Windows
+    would otherwise produce a different hash for byte-identical content and the guard
+    would cry wolf on every clone. The relative path is hashed alongside the body, so
+    renaming a file is a change even when its text is untouched.
     """
     digest = hashlib.sha256()
-    for path in sorted(item[4] for item in items):
-        relative = path.relative_to(model_dir).as_posix()
+    for relative, path in canon_files(model_dir, items):
         body = path.read_text(encoding="utf-8").replace("\r\n", "\n")
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
@@ -159,9 +171,9 @@ def check(model_dir, mirror_path, stream=sys.stdout):
     meta, _body = parse_front_matter(mirror_path.read_text(encoding="utf-8"))
     stamped = meta.get("source_hash", "")
 
-    print(f"canon files ({len(items)}):", file=stream)
-    for item in items:
-        print(f"  - {item[4].relative_to(model_dir).as_posix()}", file=stream)
+    print(f"canon files ({len(items)}), in hashing order:", file=stream)
+    for relative, _path in canon_files(model_dir, items):
+        print(f"  - {relative}", file=stream)
     print(f"canon  hash: {expected}", file=stream)
     print(f"mirror hash: {stamped or '(not stamped)'}", file=stream)
 

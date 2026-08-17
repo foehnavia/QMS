@@ -547,3 +547,149 @@ def test_navigation_has_no_card_section(engine) -> None:
     )
     assert search.flags() == Qt.ItemFlag.NoItemFlags
     window.close()
+
+
+# --- Ревью S5, дефект 1: прецедент открывается из той таблицы, где кликнули --------
+
+
+def _two_sections(engine) -> tuple[int, int, int]:
+    """Карточка, у которой непусты **обе** секции L1. Возвращает id: текущее, L1a, L1b."""
+    with session_scope(engine) as session:
+        group = create_group(session, "CG-A", POSITIONS)
+        mine = make_item(session, "IT-001")
+        other = make_item(session, "IT-002")
+        bind(session, mine, group.positions[0], "12")
+        bind(session, other, group.positions[0], "77")
+        past_id, _ = _case(session, mine, "12", wo="W-SAME-DIM")
+        position_id, _ = _case(session, other, "77", wo="W-SAME-POS")
+        current_id, _ = _case(session, mine, "12", wo="W-NOW", decision=None)
+    return current_id, past_id, position_id
+
+
+def test_double_click_in_the_second_section_opens_its_own_row(engine, monkeypatch) -> None:
+    """Секции — независимые таблицы: выбор в первой не должен перебивать вторую.
+
+    Раньше `_current_table` перебирал их в порядке «эта деталь» → «другие детали»
+    и всегда предпочитал первую, поэтому двойной клик во второй секции молча
+    открывал отклонение из первой.
+    """
+    import ui.card_dialog as module
+
+    current_id, past_id, position_id = _two_sections(engine)
+    card = CardDialog(engine, current_id)
+    assert (card.same_dimension.rowCount(), card.same_position.rowCount()) == (1, 1)
+
+    opened: list[int] = []
+    monkeypatch.setattr(
+        module.CardDialog, "run", staticmethod(lambda e, dev_id, parent=None: opened.append(dev_id))
+    )
+
+    card.same_dimension.setCurrentCell(0, 0)  # оператор посмотрел первую секцию
+    card.same_position.setCurrentCell(0, 0)
+    card.open_precedent(card.same_position)   # и кликнул по второй
+
+    assert opened == [position_id], "открылась строка не той секции"
+
+
+def test_the_button_follows_the_last_touched_table(engine, monkeypatch) -> None:
+    """Кнопка источника не имеет — берёт таблицу, в которой выбор меняли последней."""
+    import ui.card_dialog as module
+
+    current_id, past_id, position_id = _two_sections(engine)
+    card = CardDialog(engine, current_id)
+
+    opened: list[int] = []
+    monkeypatch.setattr(
+        module.CardDialog, "run", staticmethod(lambda e, dev_id, parent=None: opened.append(dev_id))
+    )
+
+    card.same_position.setCurrentCell(0, 0)
+    card.same_dimension.setCurrentCell(0, 0)
+    card.open_precedent()
+    assert opened == [past_id]
+
+    card.same_position.setCurrentCell(0, 0)
+    card.open_precedent()
+    assert opened == [past_id, position_id]
+
+
+def test_switching_the_finding_drops_a_stale_selection(engine, monkeypatch) -> None:
+    """Перерисовка сбрасывает выбор: иначе перекос переживал бы смену находки."""
+    import ui.card_dialog as module
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        _case(session, item, "12", wo="W-OLD-12")
+        deviation = register(session, item=item, wo="W-NOW", quantity=1, date=TODAY)
+        for number in ("12", "19"):
+            characteristic, _ = get_or_create_characteristic(session, item, number)
+            make_finding(session, deviation, characteristic, direction=Direction.PLUS)
+        current_id = deviation.deviation_id
+
+    card = CardDialog(engine, current_id)
+    card.findings.setCurrentCell(0, 0)
+    card.same_dimension.setCurrentCell(0, 0)
+
+    card.findings.setCurrentCell(1, 0)  # у размера 19 прецедентов нет
+
+    assert card.same_dimension.currentRow() == -1
+    opened: list[int] = []
+    monkeypatch.setattr(
+        module.CardDialog, "run", staticmethod(lambda e, dev_id, parent=None: opened.append(dev_id))
+    )
+    card.open_precedent()
+    assert opened == [] and "Сначала выберите" in card.status.text()
+
+
+def test_status_counts_deviations_not_findings(engine) -> None:
+    """Счётчик «похожих» считает случаи — после свёртки L2 по отклонению."""
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        zone = _zone(session)
+        similar = register(session, item=item, wo="W-TWO-DIMS", quantity=1, date=TODAY)
+        for number in ("30", "31"):
+            characteristic, _ = get_or_create_characteristic(session, item, number)
+            make_finding(session, similar, characteristic, direction=Direction.PLUS, zone=zone)
+        set_decision(session, similar, decision="approved", explanation="ок")
+        current_id, _ = _case(session, item, "12", wo="W-NOW", decision=None, zone=zone)
+
+    card = CardDialog(engine, current_id)
+
+    assert card.descriptive.rowCount() == 1
+    assert "похожих: 1" in card.status.text()
+
+
+def test_tab_stays_where_the_operator_put_it(engine) -> None:
+    """Автопереход на L2 — только при открытии, дальше вкладку выбирает оператор."""
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        _case(session, item, "12", wo="W-PAST")
+        deviation = register(session, item=item, wo="W-NOW", quantity=1, date=TODAY)
+        for number in ("12", "19"):
+            characteristic, _ = get_or_create_characteristic(session, item, number)
+            make_finding(session, deviation, characteristic, direction=Direction.PLUS)
+        current_id = deviation.deviation_id
+
+    card = CardDialog(engine, current_id)
+    card.findings.setCurrentCell(0, 0)
+    assert card.tabs.currentIndex() == L1_TAB
+
+    card.tabs.setCurrentIndex(L2_TAB)      # оператор ушёл на «Похожие» руками
+    card.findings.setCurrentCell(1, 0)     # у размера 19 точных совпадений нет
+
+    assert card.tabs.currentIndex() == L2_TAB
+
+
+def test_findings_are_ordered_numerically(engine) -> None:
+    """«9» раньше «10»: номер размера — строка, но читается как число."""
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation = register(session, item=item, wo="W1", quantity=1, date=TODAY)
+        for number in ("10", "9", "2"):
+            characteristic, _ = get_or_create_characteristic(session, item, number)
+            make_finding(session, deviation, characteristic, direction=Direction.PLUS)
+        current_id = deviation.deviation_id
+
+    card = CardDialog(engine, current_id)
+
+    assert [_text(card.findings.item(r, 0)) for r in range(3)] == ["2", "9", "10"]
