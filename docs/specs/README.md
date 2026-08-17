@@ -8,9 +8,9 @@ Planned specs (from `50_MIS-QMS/PROPOSAL_MIS-QMS_structure` §4.1 and the concep
 
 - **Add Item** form — create a part; seed CG dimensions; create a missing CG on the
   fly (`../model/Item.md`, `../model/CharacteristicGroup.md`).
-- **Deviation entry** form — "Create mapping / link" and "Create Item" buttons; early
-  canon binding before registration (`../model/CharacteristicGroup.md`,
-  `../model/_overview.md` §5).
+- **Deviation entry** form — header, findings `1..N`, early canon binding (R2), decision as a
+  separate action, inspection on a finding →
+  **`deviation-entry.md` (as-built, S4 / QMS-014)**.
 - **Visual CG editor & mapping dialog** — balloons `g1…gN` over the CG drawing →
   **`cg-editor-and-mapping.md` (as-built, S3 / QMS-013)**.
 - **Deviation card** — automatic prior-deviation overview + query constructor
