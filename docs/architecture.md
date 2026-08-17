@@ -1,9 +1,9 @@
 ---
 part_of: MIS-QMS/docs
-title: MIS-QMS — Архитектура и технологический стек (rev 1.0, ratified)
+title: MIS-QMS — Архитектура и технологический стек (rev 1.1, ratified)
 status: ratified
 task: QMS-009
-updated: 2026-08-10
+updated: 2026-08-11
 ---
 
 # MIS-QMS — Архитектура и технологический стек
@@ -63,11 +63,20 @@ updated: 2026-08-10
 |  Слой 1 — SQLAlchemy ORM (+ Alembic)                    |
 |  Слой 0 — SQLite  app.sqlite  (источник истины)         |
 +---------------------------------------------------------+
-     ^ вложения = ссылки на файлы в сетевой папке (не блобы)
+     ^ вложения отклонений = ссылки на файлы в сетевой папке (не блобы)
+     ^ исключение: чертёж CG хранится в самой БД (см. §5, QMS-013)
 [Слой 4 — UI: PySide6]  формы ввода · карточка · конструктор запросов
 ```
 
-## 5. Физическая схема (rev 0.1)
+> **Исключение из «не блобы» (QMS-013).** Чертёж группы характеристик лежит **внутри
+> БД** (`characteristic_group.drawing`). Это справочные данные канон-слоя (~20–30 групп),
+> без которых визуальный редактор нерабочий, а правило «бэкап = копия одного файла»
+> должно оставаться верным: ссылка на внешний файл ломала бы и то, и другое. Ограничения —
+> PNG/JPEG, ≤5 МБ, проверка по сигнатуре файла. Порог пересмотра: если файл БД превысит
+> ~200 МБ — вынести чертежи в отдельную таблицу с ленивой загрузкой (флаг на S7).
+> На вложения отклонений (`deviation.attachment`) исключение **не распространяется**.
+
+## 5. Физическая схема (rev 0.2)
 
 Суррогатный целочисленный PK для связей **плюс** генерируемый человекочитаемый
 бизнес-номер (`DEV-YYMMDD-NNNN`, `INSP-YYMMDD-NNN`).
@@ -76,13 +85,20 @@ updated: 2026-08-10
 |---|---|---|
 | `item` | PK `item_id`; `item_number` UNIQUE; FK type/connection/size | центр модели |
 | `characteristic` | PK; FK `item`; `local_number`; UNIQUE(item, local_number); nullable self-FK `state_depending` | размер; спящий state-слой |
-| `characteristic_group` | PK `cg_id`; `name` | ~20–30 групп |
-| `g_position` | PK; FK `cg`; `g_index`; `nominal`; `tol_plus`; `tol_minus` | номинал/допуск зашиты |
-| `mapping` | FK `characteristic` → FK `g_position` (0..1); код 99 = «позиции нет» | до регистрации (R2) |
+| `characteristic_group` | PK `cg_id`; `name`; `drawing` (BLOB, nullable); `drawing_name` | ~20–30 групп; чертёж — в БД (§4) |
+| `g_position` | PK; FK `cg`; `g_index`; `nominal`; `tol_plus`; `tol_minus`; `x`; `y` | номинал/допуск зашиты; `x`/`y` — координаты баллона, нормализованы 0..1 (CHECK) |
+| `mapping` | FK `characteristic` (UNIQUE) → FK `g_position` **NOT NULL**; 0..1 на характеристику | до регистрации (R2); означает ровно «размер привязан» |
+| `item_position_absent` | PK; FK `item`; FK `g_position`; UNIQUE(`item`, `g_position`) | **код 99** — «позицию рассмотрели, у детали её нет»; не ключ поиска |
 | `deviation` | PK; `dev_number` UNIQUE; FK `item`; `wo`; `machine?`; `quantity`; `date`; `ncr?`; `decision_date`; `decision_dev`(4); `explanation`; `attachment` | целостность здесь |
 | `finding` | PK; FK `deviation`; FK `characteristic`; `direction±`; `value?`; `dimension_point?`; `comment`; FK `zone?`; FK `deviation_type?` | решения не несёт |
 | `inspection` | PK; `insp_number` UNIQUE; FK `deviation`+`finding`; FK `type`; `decision_insp`(bin); `protocol` | «наука» в протоколе |
 | Справочники | `ref_item_type`, `ref_connection_type`, `ref_size`, `ref_zone`, `ref_deviation_type`, `ref_inspection_type` | контролируемые словари |
+
+**Ревизии схемы.** rev 0.1 — baseline (S1/QMS-011). **rev 0.2** (S3/QMS-013) — чертёж и
+координаты баллонов в канон-слое; код 99 переехал из флага `mapping.is_absent` в таблицу
+`item_position_absent`, флаг и CHECK `target_xor_absent` сняты, `mapping.g_position_id`
+стал NOT NULL. Причина переезда: флаг не хранил, **какой именно** позиции нет у детали, —
+пара `g:99` канона на нём невыразима. Пересматривает ратификацию S1 №6 (`decisions.md`).
 
 **Карточка отклонения — не таблица, а запрос-представление:** по `(item, local#)`, для
 маппленых — по `(cg, g_index)`; единица вывода — **отклонение целиком**.

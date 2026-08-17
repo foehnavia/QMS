@@ -23,6 +23,13 @@ updated: 2026-08-10
   `g1…gN`.
 - **Nominal and tolerance are baked into the CG schema** (from the drawing); the
   moderator does not enter them.
+- **The drawing itself belongs to the CG** (stored inside the database; PNG/JPEG,
+  ≤5 MB) and each g-position carries **balloon coordinates** `x`/`y`, normalised to
+  0..1 of the image. The visual editor draws balloons `g1…gN` on top of the drawing;
+  a CG **without** a drawing still works — balloons fall back to a grid. Rationale
+  and the size threshold: `architecture.md` §4–§5 (QMS-013).
+- A position's **`g_index` is its identity** — mappings of every part point at it, so
+  it is not renumbered in place: add a new position and drop the old one instead.
 - No versioning in stage 1. A second-level CG (linking constructively similar parts)
   is out of scope for now — it only imposes keeping the Item↔CG link many-to-many
   (`Item.md`).
@@ -42,9 +49,15 @@ updated: 2026-08-10
   the deviation is registered** (buttons "Create mapping / link" sit in the deviation
   entry form, next to "Create Item"). See `_overview.md` §5–6.
 - **Optional**: non-CG dimensions (the mass case) live without a canon.
+- **One balloon = one local dimension = one link**, enforced both ways: a g-position
+  takes a single dimension of a given part, and a dimension is linked to a single
+  g-position. Re-linking a taken dimension is never silent — clear it first.
 - Code **99** = "the part does not have this position" (a technical stub; a `g:99`
   pair explicitly records "the position was considered, it is absent"). Not a search
-  key.
+  key. **Physically it is the pair (item, g-position)** in its own table
+  (`item_position_absent`), not a flag on the mapping row: the flag could not record
+  *which* position was missing (`decisions.md`, S1 №6 revised — rev 0.2, QMS-013).
+  Search by `(cg, g_index)` never returns such a part — there is nothing to join.
 
 > **Canon note (R2).** Retroactive mapping is treated as a data-loss risk and is
 > **not** the default (this reverses session 06's "lazy resolve"; see

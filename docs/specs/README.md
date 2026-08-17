@@ -11,7 +11,8 @@ Planned specs (from `50_MIS-QMS/PROPOSAL_MIS-QMS_structure` §4.1 and the concep
 - **Deviation entry** form — "Create mapping / link" and "Create Item" buttons; early
   canon binding before registration (`../model/CharacteristicGroup.md`,
   `../model/_overview.md` §5).
-- **Visual CG editor** — balloons `g1…gN` for mapping (`../model/CharacteristicGroup.md`).
+- **Visual CG editor & mapping dialog** — balloons `g1…gN` over the CG drawing →
+  **`cg-editor-and-mapping.md` (as-built, S3 / QMS-013)**.
 - **Deviation card** — automatic prior-deviation overview + query constructor
   (`../model/DeviationCard.md`).
 - **Deep search** — query constructor, read-only, stage 1.5 (`../model/Search.md`,
@@ -19,4 +20,5 @@ Planned specs (from `50_MIS-QMS/PROPOSAL_MIS-QMS_structure` §4.1 and the concep
 - **Document generation** — `אישור חריגה` export (later stage;
   `../model/reference/output-document.md`).
 
-Nothing here is canon yet; add spec files as the UI is designed.
+Specs are written **as-built**: the sprint's naryad designs the UI, the accepted result is
+recorded here. Model canon stays in `../model/` — specs never restate it, they link.
