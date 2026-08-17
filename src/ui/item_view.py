@@ -21,15 +21,13 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy import Engine
 
-from db.models import Item
 from db.session import session_scope
-from domain.groups import list_groups
 from domain.items import groups_of, list_items
 
 from .common import iso
 from .item_dialog import ItemDialog
 from .mapping_dialog import MappingDialog
-from .pickers import pick_group
+from .pickers import choose_cg_for_item
 
 COLUMNS = ("Номер детали", "Тип", "Соединение", "Размерный класс", "Размеров", "Группы")
 
@@ -100,25 +98,9 @@ class ItemView(QWidget):
             return
         item_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
 
-        with session_scope(self._engine) as session:
-            item = session.get(Item, item_id)
-            own = [(group.cg_id, group.name) for group in groups_of(item)]
-            everything = [(group.cg_id, group.name) for group in list_groups(session)]
-
-        # У детали своя группа — открываем её; иначе даём выбрать (у детали
-        # группы может ещё не быть: привязка и заводит первую связь).
-        if len(own) == 1:
-            cg_id = own[0][0]
-        else:
-            choices = own or everything
-            if not choices:
-                QMessageBox.information(
-                    self, "Нет групп", "Сначала создайте группу в разделе «Группы характеристик»."
-                )
-                return
-            cg_id = pick_group(self, choices)
-            if cg_id is None:
-                return
+        cg_id = choose_cg_for_item(self, self._engine, item_id)
+        if cg_id is None:
+            return
 
         MappingDialog.run(self._engine, item_id, cg_id, self)
         self.reload()

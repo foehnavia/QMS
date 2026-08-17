@@ -37,12 +37,14 @@ def test_main_window_builds(seeded_engine, qt_app: QApplication) -> None:
     window.show()
     qt_app.processEvents()
 
-    assert window.sections.count() >= 3
-    assert window.pages.count() == 3
+    assert window.sections.count() >= 4
+    assert window.pages.count() == 4
     window.sections.setCurrentRow(1)
     assert window.pages.currentWidget() is window.cg_view
     window.sections.setCurrentRow(2)
     assert window.pages.currentWidget() is window.item_view
+    window.sections.setCurrentRow(3)
+    assert window.pages.currentWidget() is window.deviation_view
     window.close()
 
 
@@ -233,3 +235,80 @@ def test_the_layering_check_actually_detects_an_import(tmp_path: Path) -> None:
     probe = tmp_path / "probe.py"
     probe.write_text("from PySide6.QtWidgets import QWidget\n", encoding="utf-8")
     assert "PySide6.QtWidgets" in _imported_modules(probe)
+
+
+# --- Критерий 3 наряда 0004: находки создаются только через make_finding ----------
+
+
+def _finding_constructions(path: Path) -> list[int]:
+    """Строки, где файл конструирует `Finding(...)` напрямую.
+
+    Ловим и голое имя (`Finding(...)`), и обращение через модуль
+    (`models.Finding(...)`) — оба обходят доменный гард принадлежности.
+    """
+    lines: list[int] = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = (
+            func.id
+            if isinstance(func, ast.Name)
+            else func.attr
+            if isinstance(func, ast.Attribute)
+            else None
+        )
+        if name == "Finding":
+            lines.append(node.lineno)
+    return lines
+
+
+def _finding_constructors(package: str) -> list[str]:
+    offenders: list[str] = []
+    for path in (SRC / package).rglob("*.py"):
+        for line in _finding_constructions(path):
+            offenders.append(f"{path.relative_to(SRC).as_posix()}:{line}")
+    return offenders
+
+
+def test_ui_never_constructs_a_finding_directly() -> None:
+    """Единственная точка создания находки — `domain.findings.make_finding`.
+
+    Прямой `Finding(...)` в форме обошёл бы гард «находка ∈ деталь отклонения»,
+    который схемой SQLite не выражается (перенос гейта из S2).
+    """
+    offenders = _finding_constructors("ui")
+    assert offenders == [], f"Находка создаётся мимо make_finding: {offenders}"
+
+
+def test_the_finding_guard_actually_detects_a_violation(tmp_path: Path) -> None:
+    """Страховка от «зелёного» гарда, который ничего не проверяет."""
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "from db.models import Finding\n"
+        "def bad(deviation, characteristic):\n"
+        "    return Finding(deviation=deviation, characteristic=characteristic)\n",
+        encoding="utf-8",
+    )
+    assert _finding_constructions(probe) == [3]
+
+    through_module = tmp_path / "probe_module.py"
+    through_module.write_text(
+        "from db import models\n"
+        "def bad(deviation):\n"
+        "    return models.Finding(deviation=deviation)\n",
+        encoding="utf-8",
+    )
+    assert _finding_constructions(through_module) == [3]
+
+
+def test_the_finding_guard_ignores_mere_mentions(tmp_path: Path) -> None:
+    """Импорт и аннотация — не создание: гард не должен ловить их."""
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "from db.models import Finding\n"
+        "def show(finding: Finding) -> str:\n"
+        "    return str(finding.finding_id)\n",
+        encoding="utf-8",
+    )
+    assert _finding_constructions(probe) == []

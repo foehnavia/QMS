@@ -1,6 +1,6 @@
-"""Главное окно: навигация «Справочники» / «Детали».
+"""Главное окно: навигация по разделам приложения.
 
-Разделы карточки, ввода отклонения и поиска — S3+ и здесь отсутствуют
+Карточка отклонения и поиск прецедентов — S5 и здесь отсутствуют
 (`docs/staging.md`); навигация показывает их как недоступные, чтобы порядок
 сборки был виден оператору.
 """
@@ -20,12 +20,12 @@ from PySide6.QtWidgets import (
 from sqlalchemy import Engine
 
 from .cg_view import CgView
+from .deviation_view import DeviationView
 from .item_view import ItemView
 from .reference_view import ReferenceView
 
 #: Разделы будущих спринтов — видимы, но неактивны.
 PLANNED_SECTIONS = (
-    ("Отклонения", "S4"),
     ("Карточка отклонения", "S5"),
     ("Поиск", "S5"),
 )
@@ -43,9 +43,11 @@ class MainWindow(QMainWindow):
         self.reference_view = ReferenceView(engine)
         self.cg_view = CgView(engine)
         self.item_view = ItemView(engine)
+        self.deviation_view = DeviationView(engine)
         self._add_section("Справочники", self.reference_view)
         self._add_section("Группы характеристик", self.cg_view)
         self._add_section("Детали", self.item_view)
+        self._add_section("Отклонения", self.deviation_view)
 
         for title, sprint in PLANNED_SECTIONS:
             item = QListWidgetItem(f"{title}  ({sprint})")

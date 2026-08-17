@@ -1,10 +1,11 @@
-"""Мелкие общие детали UI: показ доменных ошибок, RTL-хелперы."""
+"""Мелкие общие детали UI: показ доменных ошибок, RTL-хелперы, подписи словарей."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox, QWidget
 
+from db.models import Direction
 from domain.errors import DomainError
 
 
@@ -62,3 +63,61 @@ def russian_buttons(box) -> None:
         button = box.button(standard)
         if button is not None:
             button.setText(label)
+
+
+# --- Подписи контролируемых словарей (наряд 0004) ---------------------------------
+
+#: Исходы отклонения — человеческие подписи из `model/Deviation.md` (Outcomes).
+#: Порядок фиксирован: он же порядок списка в диалоге решения.
+DECISION_DEV_LABELS = {
+    "approved": "Одобрено — использовать как есть",
+    "rejected": "Не одобрено — брак",
+    "sorting": "Сортировка — 100 % контроль",
+    "repair": "Ремонт — узаконенное отклонение",
+}
+
+#: `decision_dev IS NULL` — регистрация прошла, шаг 8 ещё нет.
+NO_DECISION_LABEL = "решение не принято"
+
+#: Вердикт исследования. Отвечает «можно ли принять это отклонение»,
+#: а не «что делать с партией» — потому и формулировки такие.
+DECISION_INSP_LABELS = {
+    "approved": "Отклонение одобрено",
+    "not_approved": "Отклонение не одобрено",
+}
+
+
+def decision_dev_label(decision: str | None) -> str:
+    """Подпись исхода отклонения; `None` — «решение не принято»."""
+    if decision is None:
+        return NO_DECISION_LABEL
+    return DECISION_DEV_LABELS.get(decision, decision)
+
+
+def direction_label(direction: str) -> str:
+    """Знак направления для показа: типографский минус, всегда в изоляте.
+
+    В базе хранится ASCII-дефис (единая точка для парсера S6), а оператору
+    показываем `−` (U+2212), как пишет канон. Изолят обязателен: одиночный знак
+    в RTL-строке иначе прилипает к соседней ячейке не той стороной.
+    """
+    return iso("+" if direction == Direction.PLUS else "−")
+
+
+def number_label(value: float | None) -> str:
+    """Величина для показа: пусто вместо `None`, ведущий минус в изоляте."""
+    return "" if value is None else iso(f"{value:g}")
+
+
+def ltr_field(widget: QWidget) -> QWidget:
+    """Заставить поле с числовым содержимым рисоваться слева направо.
+
+    Изолят (`iso`) спасает только текст, который мы формируем сами. Внутри
+    редакторов — `QDateEdit`, `QSpinBox` — текст рисует Qt, обернуть его нечем, и
+    в RTL-окне числовые группы, разделённые нейтральными символами,
+    переставляются: `17.08.2026` показывается как `2026.08.17`, а оператор
+    читает это как дату. Разворачиваем сам виджет — содержимое у него
+    гарантированно латинско-цифровое.
+    """
+    widget.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+    return widget
