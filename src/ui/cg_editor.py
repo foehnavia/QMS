@@ -86,7 +86,7 @@ class CgEditor(QDialog):
             lambda row, *_: self.canvas.select(self._rows[row].g_index if 0 <= row < len(self._rows) else None)
         )
 
-        directional(self.table, numeric_columns=(0, 1, 2, 3))
+        directional(self.table, numeric_columns=(0,), magnitude_columns=(1, 2, 3))
 
         load_drawing = QPushButton(iso("Load drawing…"))
         drop_drawing = QPushButton("Remove drawing")

@@ -69,7 +69,7 @@ class ItemDialog(QDialog):
         self.positions = QTableWidget(0, len(COLUMNS))
         self.positions.setHorizontalHeaderLabels(COLUMNS)
         self.positions.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        directional(self.positions, numeric_columns=(0, 2, 3))
+        directional(self.positions, numeric_columns=(0,), magnitude_columns=(2, 3))
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel

@@ -34,7 +34,7 @@ from db.models import DECISION_DEV, Deviation
 from db.session import session_scope
 from domain.deviations import set_decision
 
-from .common import DECISION_DEV_LABELS, bind_direction, joined, numeric_field, show_error
+from .common import DECISION_DEV_LABELS, joined, numeric_field, show_error
 
 NOT_DECIDED = "— no decision yet —"
 
@@ -61,8 +61,8 @@ class DecisionDialog(QDialog):
         self.explanation.setPlaceholderText(
             "explanation — on approval it goes into אישור חריגה"
         )
-        # Обоснование пишут и на иврите, и по-английски: направление за текстом.
-        bind_direction(self.explanation)
+        # Обоснование пишут и на иврите, и по-английски. Хелпер не нужен:
+        # текстовой области Qt резолвит направление по абзацу (ревью Р-2).
         self.ncr = QLineEdit()
         self.ncr.setPlaceholderText("NCR number (may arrive after the decision)")
         self.decision_date = numeric_field(QDateEdit())

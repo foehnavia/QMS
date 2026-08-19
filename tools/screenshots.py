@@ -107,12 +107,12 @@ def build_database():
     engine = create_db_engine(url)
     with session_scope(engine) as session:
         seed_reference(session)
-        # Зона и тип отклонения — ивритские: справочники ведёт администратор,
-        # и в производстве они на иврите (уточнение пользователя, прогон шаг 2).
-        for name in ("אזור הברגה", "קצה חותך", "קוטר פנימי"):
+        # Справочники — English (решение того же дня). Одно ивритское значение
+        # заведено намеренно: оператор может ввести любое, и экран обязан это
+        # пережить — на нём и виден RTL-путь делегата.
+        for name in ("inner diameter", "thread root", "אזור הברגה"):
             add_value(session, RefZone, name)
-        for name in ("זיז בהברגה", "אורך הברגה"):
-            add_value(session, RefDeviationType, name)
+        add_value(session, RefDeviationType, "thread depth")
 
         group = create_group(session, "Implant_Con_375_C1", POSITIONS)
         set_drawing(session, group, _png(), "implant.png")
@@ -135,9 +135,9 @@ def build_database():
         bind(session, item, group.positions[1], "19")
         bind(session, other, group.positions[0], "77")
 
-        zone = [v for v in list_values(session, RefZone) if v.name == "אזור הברגה"][0]
+        zone = [v for v in list_values(session, RefZone) if v.name == "thread root"][0]
         kind = [
-            v for v in list_values(session, RefDeviationType) if v.name == "זיז בהברגה"
+            v for v in list_values(session, RefDeviationType) if v.name == "thread burr"
         ][0]
 
         # Прецедент — с решением: без решения он в выдачу не попадает.
@@ -253,7 +253,7 @@ def main() -> int:
         if window.reference_view.picker.itemText(index) == "Zone"
     )
     window.reference_view.picker.setCurrentIndex(zone_index)
-    shoot(window, "01-section-1b-reference-zone-hebrew")
+    shoot(window, "01-section-1b-reference-zone")
 
     shoot(ItemDialog(engine), "02-dialog-item")
     shoot(CgDialog(engine), "03-dialog-cg-new")

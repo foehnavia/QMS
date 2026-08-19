@@ -24,7 +24,7 @@ from sqlalchemy import Engine
 from db.session import session_scope
 from domain.items import groups_of, list_items
 
-from .common import directional, iso
+from .common import directional, iso, joined
 from .item_dialog import ItemDialog
 from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
@@ -72,7 +72,10 @@ class ItemView(QWidget):
                     item.connection_type.name,
                     item.size.name,
                     str(len(item.characteristics)),
-                    ", ".join(group.name for group in groups_of(item)),
+                    # Составная ячейка: имена групп — самостоятельные токены
+                    # (ревью Р-1). Обычный join оставлял запятые нейтральными,
+                    # и при ивритском имени порядок групп читался неверно.
+                    joined(*(group.name for group in groups_of(item)), sep=", "),
                 )
                 for item in list_items(session)
             ]

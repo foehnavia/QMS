@@ -34,7 +34,7 @@ from domain.errors import ValidationError
 from domain.reference import list_values
 
 from .cg_dialog import parse_optional_number
-from .common import bind_direction, iso, show_error
+from .common import iso, show_error
 
 NOT_SET = "— not set —"
 
@@ -101,8 +101,8 @@ class FindingDialog(QDialog):
         self.comment_edit = QPlainTextEdit()
         self.comment_edit.setPlaceholderText("qualitative marks: GO / מדיד, pin…")
         self.comment_edit.setFixedHeight(70)
-        # Свободный текст: чаще всего ивритский, направление — за содержимым.
-        bind_direction(self.comment_edit)
+        # Свободный текст, чаще всего ивритский. Хелпер здесь не нужен:
+        # направление абзаца Qt резолвит по содержимому сам (ревью Р-2).
 
         self.zone = QComboBox()
         self.deviation_type = QComboBox()

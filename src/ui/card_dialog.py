@@ -62,6 +62,7 @@ from .common import (
 from .decision_dialog import DecisionDialog
 from .deviation_dialog import (
     FINDING_COLUMNS,
+    FINDING_MAGNITUDE_COLUMNS,
     FINDING_NUMERIC_COLUMNS,
     DeviationDialog,
 )
@@ -83,6 +84,9 @@ PRECEDENT_COLUMNS = (
 
 #: Числовые колонки прецедента: дата, знак с величиной, счётчик исследований.
 PRECEDENT_NUMERIC_COLUMNS = (1, 5, 8)
+
+#: Вправо — только «знак · величина»: её и сравнивают вниз по столбцу.
+PRECEDENT_MAGNITUDE_COLUMNS = (5,)
 
 #: Подписи для колонки «совпало по» вкладки L2.
 MATCH_LABELS = {
@@ -117,7 +121,7 @@ class PrecedentTable(QTableWidget):
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        directional(self, PRECEDENT_NUMERIC_COLUMNS)
+        directional(self, PRECEDENT_NUMERIC_COLUMNS, PRECEDENT_MAGNITUDE_COLUMNS)
 
     def fill(self, rows: list[PrecedentRow]) -> None:
         # Выбор сбрасываем: строки другие, а уцелевшее выделение делало бы вид,
@@ -239,7 +243,7 @@ class CardDialog(QDialog):
         self.findings.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.findings.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.findings.currentCellChanged.connect(lambda *_: self.refresh_precedents())
-        directional(self.findings, FINDING_NUMERIC_COLUMNS)
+        directional(self.findings, FINDING_NUMERIC_COLUMNS, FINDING_MAGNITUDE_COLUMNS)
 
         self.inspect_button = QPushButton(iso("Inspection…"))
         self.map_button = QPushButton(iso("Bind to canon…"))

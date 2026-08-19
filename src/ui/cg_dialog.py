@@ -57,8 +57,9 @@ class CgDialog(QDialog):
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        # Вся таблица числовая: индекс, номинал и оба допуска.
-        directional(self.table, numeric_columns=(0, 1, 2, 3))
+        # Вся таблица числовая; вправо выравниваются величины — номинал и
+        # оба допуска. Индекс позиции — идентификатор, он влево.
+        directional(self.table, numeric_columns=(0,), magnitude_columns=(1, 2, 3))
 
         add_row = QPushButton("Add position")
         drop_row = QPushButton("Remove position")

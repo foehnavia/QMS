@@ -134,25 +134,36 @@ def build_atomic_table() -> QTableWidget:
 
 
 def build_editors() -> QGroupBox:
-    """Те же строки в редакторах: направление следует за содержимым."""
-    box = QGroupBox("Editors — direction follows the content (bind_direction)")
+    """Поля и текстовые области — два разных механизма (ревью Р-2).
+
+    `QLineEdit` берёт базу абзаца из `layoutDirection` виджета, поэтому ему нужен
+    `bind_direction`. Текстовая область резолвит направление **по абзацу** сама —
+    нижние два примера стоят без хелпера и раскладываются верно, причём в одном
+    поле уживаются абзацы разных направлений.
+    """
+    box = QGroupBox("Editors — line edits bound, text areas resolved per paragraph")
     form = QFormLayout(box)
 
     hebrew = bind_direction(QLineEdit())
     hebrew.setText("אזור הברגה")
     latin = bind_direction(QLineEdit())
     latin.setText("thread burr")
-    mixed = bind_direction(QPlainTextEdit())
-    mixed.setPlainText('אין השפעה על ההרכבה — נבדק ב-Solidworks assembly, 0.05 מ"מ')
-    mixed.setFixedHeight(60)
-    latin_first = bind_direction(QPlainTextEdit())
-    latin_first.setPlainText("Solidworks assembly — אין השפעה על ההרכבה, 0.05 mm")
-    latin_first.setFixedHeight(60)
 
-    form.addRow("Hebrew value:", hebrew)
-    form.addRow("Latin value:", latin)
-    form.addRow("Hebrew-first free text:", mixed)
-    form.addRow("Latin-first free text:", latin_first)
+    mixed = QPlainTextEdit()
+    mixed.setPlainText(
+        "\n".join(
+            (
+                'אין השפעה על ההרכבה — נבדק ב-Solidworks assembly, 0.05 מ"מ',
+                "Solidworks assembly — אין השפעה על ההרכבה, 0.05 mm",
+                r"\\srv\qa\SW-2026-14.docx",
+            )
+        )
+    )
+    mixed.setFixedHeight(80)
+
+    form.addRow("QLineEdit, Hebrew (bound):", hebrew)
+    form.addRow("QLineEdit, Latin (bound):", latin)
+    form.addRow("QPlainTextEdit, mixed (no helper):", mixed)
     return box
 
 

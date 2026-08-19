@@ -6,7 +6,8 @@
 * **шасси** — навигация, кнопки, заголовки, рамки диалогов — жёстко LTR
   (`app.setLayoutDirection`, `app.py`);
 * **ячейка / поле данных** — по содержимому: `DirectionalDelegate` для таблиц,
-  `bind_direction` для редакторов свободного текста;
+  `bind_direction` для однострочных полей; текстовым областям Qt резолвит
+  направление **по абзацу** сам (ревью Р-2);
 * **вкрапление** — чужой по направлению токен внутри строки — изолят (`iso`).
 
 Уровня «ячейка» до наряда 0007 в коде не было вовсе: направление было одно на всё
@@ -19,7 +20,7 @@ import re
 import unicodedata
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMessageBox, QStyledItemDelegate, QWidget
+from PySide6.QtWidgets import QLineEdit, QMessageBox, QStyledItemDelegate, QWidget
 
 from db.models import Direction
 from domain.errors import DomainError
@@ -104,57 +105,98 @@ def apply_direction(widget: QWidget, text: str) -> QWidget:
     return widget
 
 
-def bind_direction(widget: QWidget) -> QWidget:
-    """Редактор свободного текста: направление следует за тем, что набирают.
+def bind_direction(editor: QLineEdit) -> QLineEdit:
+    """Однострочное поле: направление следует за тем, что набирают.
 
     Ни LTR, ни RTL не форсируется (наряд 0007, §4а) — оператор пишет на иврите
     или на английском, и поле разворачивается под первый сильный символ уже
-    введённого текста. Поддержаны `QLineEdit` и `QPlainTextEdit`.
+    введённого текста. У `QLineEdit` базой абзаца служит именно `layoutDirection`
+    виджета, поэтому здесь хелпер и нужен.
+
+    **Только `QLineEdit`.** Текстовой области (`QPlainTextEdit`, `QTextEdit`) он не
+    нужен и вреден — ревью Р-2, подтверждено исполнением:
+
+    * направление там резолвится **по абзацу** самим Qt: `block.textDirection()`
+      даёт RTL для ивритской строки и в LTR-поле, и в RTL-поле, а
+      `document().defaultTextOption()` остаётся `LayoutDirectionAuto`;
+    * `layoutDirection` двигает только хром — полоса прокрутки перепрыгивает на
+      другую сторону, стоит набрать первый ивритский символ;
+    * текстовая область держит абзацы **разных** направлений сразу (ивритское
+      обоснование и латинский путь к протоколу в одном поле), поэтому одно
+      направление на виджет там просто неверная единица.
     """
-    read = widget.toPlainText if hasattr(widget, "toPlainText") else widget.text
+    if not isinstance(editor, QLineEdit):
+        raise TypeError(
+            "bind_direction is for QLineEdit only: a text area resolves direction "
+            "per paragraph on its own (naryad 0007, review R-2)"
+        )
 
     def sync(*_args) -> None:
-        widget.setLayoutDirection(base_direction(read()))
+        editor.setLayoutDirection(base_direction(editor.text()))
 
-    widget.textChanged.connect(sync)
+    editor.textChanged.connect(sync)
     sync()
-    return widget
+    return editor
 
 
 class DirectionalDelegate(QStyledItemDelegate):
-    """Направление и выравнивание ячейки таблицы — **по её значению**.
+    """Направление и выравнивание ячейки таблицы — по её значению и по колонке.
 
-    Первый сильный символ иврит → RTL и выравнивание вправо; латиница → LTR и
-    влево. Числовые колонки (дата, количество, величина, счётчик) заданы списком
-    и всегда LTR: сильных символов у них нет, а базу они обязаны иметь свою — не
-    от соседа-иврита по строке.
+    **Направление и выравнивание — два разных вопроса** (решение Cowork по ревью
+    наряда 0007), и списки колонок у них разные.
 
-    Выравнивание задаётся **логически** — всегда `AlignLeft`, то есть «к началу
-    строки». Поверх него Qt накладывает `QStyle.visualAlignment(direction, …)`,
-    которая под RTL сама меняет левое на правое. Написать `AlignRight` для
-    ивритской ячейки значит получить после этого превращения выравнивание
-    **влево** — ошибка, найденная снимком ивритского справочника: порядок слов
-    уже был RTL, а строка всё равно липла к левому краю.
+    *Направление.* Первый сильный символ иврит → RTL, латиница → LTR.
+    `numeric_columns` (дата, счётчик, идентификатор, величина) — всегда LTR:
+    сильных символов у них нет, а базу они обязаны иметь свою, не от
+    соседа-иврита по строке.
+
+    *Выравнивание.* Вправо — только то, что глаз сравнивает **по величине** вниз
+    по столбцу: номинал, допуски, величина отклонения, «знак · величина»
+    (`magnitude_columns`). Там выравнивание ставит разряды в столбик и делает
+    разброс видимым без чтения. Всё остальное — влево: у дат, счётчиков и
+    номеров сравнивать нечего, а левый край держит их у подписи колонки.
+
+    Выравнивание текстовых колонок задаётся **логически** — `AlignLeft`, то есть
+    «к началу строки»: поверх него Qt накладывает
+    `QStyle.visualAlignment(direction, …)`, которая под RTL сама меняет левое на
+    правое. Написать `AlignRight` для ивритской ячейки значит получить после
+    этого превращения выравнивание **влево** — ошибка, найденная снимком
+    ивритского справочника. Для `magnitude_columns` такой двусмысленности нет:
+    они всегда LTR, и `AlignRight` там означает ровно правый край.
     """
 
     def __init__(
-        self, numeric_columns: tuple[int, ...] = (), parent: QWidget | None = None
+        self,
+        numeric_columns: tuple[int, ...] = (),
+        magnitude_columns: tuple[int, ...] = (),
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._numeric = frozenset(numeric_columns)
+        # Величина — частный случай числовой колонки: перечислять её дважды
+        # незачем, и рассинхронизировать два списка тоже незачем.
+        self._magnitude = frozenset(magnitude_columns)
+        self._numeric = frozenset(numeric_columns) | self._magnitude
 
     def initStyleOption(self, option, index) -> None:  # noqa: N802 - имя от Qt
         super().initStyleOption(option, index)
-        numeric = index.column() in self._numeric
+        column = index.column()
+        numeric = column in self._numeric
         option.direction = LTR if numeric or not is_rtl(option.text) else RTL
-        option.displayAlignment = (
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        horizontal = (
+            Qt.AlignmentFlag.AlignRight
+            if column in self._magnitude
+            else Qt.AlignmentFlag.AlignLeft
         )
+        option.displayAlignment = horizontal | Qt.AlignmentFlag.AlignVCenter
 
 
-def directional(table, numeric_columns: tuple[int, ...] = ()):
+def directional(
+    table,
+    numeric_columns: tuple[int, ...] = (),
+    magnitude_columns: tuple[int, ...] = (),
+):
     """Повесить на таблицу делегат направления. Возвращает саму таблицу."""
-    table.setItemDelegate(DirectionalDelegate(numeric_columns, table))
+    table.setItemDelegate(DirectionalDelegate(numeric_columns, magnitude_columns, table))
     return table
 
 

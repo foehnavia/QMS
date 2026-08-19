@@ -88,8 +88,14 @@ FINDING_COLUMNS = (
 )
 
 #: Числовые колонки таблицы находок: знак, величина, точка замера, счётчик.
-#: Зона и тип отклонения сюда не входят — там ивритские значения.
+#: Зона и тип отклонения сюда не входят потому, что это **текст**, а не число:
+#: направление им считается по содержимому, как любой текстовой ячейке.
 FINDING_NUMERIC_COLUMNS = (2, 3, 4, 7)
+
+#: Из них выравниваются вправо только **величины** (решение Cowork по ревью
+#: наряда 0007): разряды встают в столбик, и разброс виден без чтения. Знак
+#: живёт отдельной колонкой слева от величины и сюда не входит.
+FINDING_MAGNITUDE_COLUMNS = (3,)
 
 INSPECTION_COLUMNS = ("Number", "Characteristic", "Type", "Verdict", "Protocol")
 
@@ -144,7 +150,8 @@ class DeviationDialog(QDialog):
         self.attachment = QPlainTextEdit()
         self.attachment.setPlaceholderText("one link per line")
         self.attachment.setFixedHeight(60)
-        bind_direction(self.attachment)
+        # Направление текстовой области резолвит Qt по абзацу — вложения
+        # бывают и ивритскими, и путями сразу (ревью Р-2).
         attach_button = QPushButton("Choose file…")
         attach_button.clicked.connect(self.pick_attachment)
         attach_row = QVBoxLayout()
@@ -168,7 +175,7 @@ class DeviationDialog(QDialog):
         self.findings.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.findings.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.findings.currentCellChanged.connect(lambda *_: self._refresh_actions())
-        directional(self.findings, FINDING_NUMERIC_COLUMNS)
+        directional(self.findings, FINDING_NUMERIC_COLUMNS, FINDING_MAGNITUDE_COLUMNS)
 
         self.add_finding = QPushButton(iso("Add finding…"))
         self.edit_finding = QPushButton(iso("Edit…"))

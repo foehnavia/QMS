@@ -62,11 +62,15 @@ def _drawn_alignment(option: QStyleOptionViewItem) -> Qt.AlignmentFlag:
     return QApplication.style().visualAlignment(option.direction, option.displayAlignment)
 
 
-def _table(values: list[str], numeric_columns: tuple[int, ...] = ()) -> QTableWidget:
+def _table(
+    values: list[str],
+    numeric_columns: tuple[int, ...] = (),
+    magnitude_columns: tuple[int, ...] = (),
+) -> QTableWidget:
     table = QTableWidget(1, len(values))
     for column, value in enumerate(values):
         table.setItem(0, column, QTableWidgetItem(value))
-    directional(table, numeric_columns)
+    directional(table, numeric_columns, magnitude_columns)
     return table
 
 
@@ -147,6 +151,34 @@ def test_a_numeric_column_wins_over_hebrew_content() -> None:
     assert _option(table, 0, 0).direction == LTR
 
 
+def test_a_magnitude_column_is_right_aligned() -> None:
+    """Величины сравнивают вниз по столбцу — разряды обязаны встать в столбик.
+
+    Решение Cowork по ревью наряда 0007: направление и выравнивание — два
+    разных вопроса. Вправо идут номинал, допуски и величина; счётчики, даты и
+    номера остаются влево, у подписи колонки.
+    """
+    table = _table(["3.75", "12"], magnitude_columns=(0,))
+
+    assert _drawn_alignment(_option(table, 0, 0)) & Qt.AlignmentFlag.AlignRight
+    assert _drawn_alignment(_option(table, 0, 1)) & Qt.AlignmentFlag.AlignLeft
+
+
+def test_a_magnitude_column_is_numeric_without_being_listed_twice() -> None:
+    """Величина — частный случай числовой колонки: LTR ей полагается сама."""
+    table = _table([HEBREW], magnitude_columns=(0,))
+
+    assert _option(table, 0, 0).direction == LTR
+
+
+def test_counters_and_dates_stay_left() -> None:
+    """Числовая, но не величина: сравнивать нечего, левый край держит подпись."""
+    table = _table([NUMBER, "3"], numeric_columns=(0, 1))
+
+    assert _drawn_alignment(_option(table, 0, 0)) & Qt.AlignmentFlag.AlignLeft
+    assert _drawn_alignment(_option(table, 0, 1)) & Qt.AlignmentFlag.AlignLeft
+
+
 def test_the_delegate_is_wired_into_the_deviation_list(seeded_session) -> None:
     """Механизм должен стоять на боевом экране, а не только в этом тесте."""
     from ui.common import DirectionalDelegate
@@ -156,6 +188,8 @@ def test_the_delegate_is_wired_into_the_deviation_list(seeded_session) -> None:
     view = DeviationView(seeded_session.get_bind())
 
     assert isinstance(view.table.itemDelegate(), DirectionalDelegate)
+    # Дата, количество и два счётчика — числовые; величин в списке нет,
+    # поэтому вправо здесь не выравнивается ничего.
     assert NUMERIC_COLUMNS == (3, 4, 6, 7)
 
 
@@ -186,6 +220,37 @@ def test_a_signed_value_stays_one_isolate() -> None:
     assert cell.count("⁨") == 1
 
 
+def test_the_groups_column_isolates_every_group_name(seeded_session) -> None:
+    """Р-1: имена групп — самостоятельные токены, а не один склеенный текст.
+
+    Деталь входит в две CG, одна названа на иврите. Обычный `", ".join` оставлял
+    запятые нейтральными, порядок доставался базе ячейки, и оператор читал
+    принадлежность детали неверно.
+    """
+    from conftest import make_item
+    from db.session import session_scope
+    from domain.groups import GPositionSpec, create_group
+    from domain.mappings import bind
+    from ui.item_view import ItemView
+
+    engine = seeded_session.get_bind()
+    with session_scope(engine) as session:
+        hebrew = create_group(session, "קבוצת הברגה", (GPositionSpec(1, 3.75),))
+        latin = create_group(session, "Implant_Con_375_C1", (GPositionSpec(1, 2.0),))
+        item = make_item(session, "C1-08375A")
+        bind(session, item, hebrew.positions[0], "12")
+        bind(session, item, latin.positions[0], "19")
+
+    view = ItemView(engine)
+    cell = view.table.item(0, 5).text()
+
+    # Порядок задаёт домен (`groups_of`), проверяем не его, а изоляцию токенов:
+    # каждое имя обёрнуто отдельно, склеенного текста в ячейке нет.
+    names = strip_iso(cell).split(", ")
+    assert sorted(names) == sorted(["קבוצת הברגה", "Implant_Con_375_C1"])
+    assert cell == joined(*names, sep=", ")
+
+
 # --- поля и редакторы ---------------------------------------------------------------
 
 
@@ -193,17 +258,63 @@ def test_numeric_field_forces_ltr() -> None:
     assert numeric_field(QDateEdit()).layoutDirection() == LTR
 
 
-@pytest.mark.parametrize("factory", [QLineEdit, QPlainTextEdit])
-def test_free_text_editor_follows_what_is_typed(factory) -> None:
-    """Ни LTR, ни RTL не форсируется — направление за содержимым (§4а)."""
-    editor = bind_direction(factory())
-    write = editor.setPlainText if hasattr(editor, "setPlainText") else editor.setText
+def test_a_line_edit_follows_what_is_typed() -> None:
+    """У `QLineEdit` базой абзаца служит `layoutDirection` — хелпер здесь нужен."""
+    editor = bind_direction(QLineEdit())
 
-    write(HEBREW)
+    editor.setText(HEBREW)
     assert editor.layoutDirection() == RTL
 
-    write(LATIN)
+    editor.setText(LATIN)
     assert editor.layoutDirection() == LTR
 
-    write("")
+    editor.setText("")
     assert editor.layoutDirection() == LTR
+
+
+def _block_directions(area: QPlainTextEdit) -> list:
+    """Направление **каждого абзаца** — то, что Qt действительно рисует.
+
+    Сверять `layoutDirection` текстовой области бессмысленно: это свойство,
+    которое код сам же и выставил, а на раскладку текста оно не влияет
+    (ревью Р-2 — тот же класс ошибки, что был найден в делегате снимком).
+    """
+    document = area.document()
+    block, directions = document.firstBlock(), []
+    while block.isValid():
+        directions.append(block.textDirection())
+        block = block.next()
+    return directions
+
+
+@pytest.mark.parametrize("widget_direction", [LTR, RTL])
+def test_a_text_area_resolves_direction_per_paragraph(widget_direction) -> None:
+    """Абзац берёт направление по содержимому — при любом `layoutDirection`.
+
+    Поэтому `bind_direction` текстовой области не нужен: он не влияет на текст,
+    зато перебрасывает полосу прокрутки на другую сторону на первом ивритском
+    символе. И главное — абзацы в одном поле бывают разных направлений сразу,
+    так что одно направление на виджет там неверная единица.
+    """
+    area = QPlainTextEdit()
+    area.setLayoutDirection(widget_direction)
+    area.setPlainText(f"{LATIN}\n{HEBREW}\n{NUMBER}")
+
+    assert _block_directions(area) == [LTR, RTL, LTR]
+
+
+def test_bind_direction_refuses_a_text_area() -> None:
+    """Молча-бесполезный вызов хуже громкого отказа: ошибка повторилась бы."""
+    with pytest.raises(TypeError):
+        bind_direction(QPlainTextEdit())
+
+
+def test_the_comment_field_resolves_direction_per_paragraph(seeded_session) -> None:
+    """То же на боевом виджете: комментарий находки — ивритский абзац RTL."""
+    from ui.finding_dialog import FindingDialog
+
+    seeded_session.commit()
+    dialog = FindingDialog(seeded_session.get_bind(), None)
+    dialog.comment_edit.setPlainText(f"{HEBREW}\n{LATIN}")
+
+    assert _block_directions(dialog.comment_edit) == [RTL, LTR]
