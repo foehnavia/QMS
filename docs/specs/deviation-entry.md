@@ -3,8 +3,8 @@ part_of: MIS-QMS/docs/specs
 spec: deviation-entry
 status: as-built
 task: QMS-014
-amended_by: QMS-015
-updated: 2026-08-17
+amended_by: QMS-015, QMS-016
+updated: 2026-08-19
 ---
 
 # Deviation entry — findings, decision, inspection — as-built spec (S4 / QMS-014)
@@ -22,14 +22,14 @@ search are S5; the Excel import is S6. Neither is even partially anticipated her
 
 | Entry point | Opens | Note |
 |---|---|---|
-| Section **"Отклонения"** (main window) | deviation list | active nav item since S4 |
-| List → **"Добавить отклонение…" / "Открыть…"** | deviation form | registration and edit, same form |
-| List → **"Карточка…"** or double-click | deviation card | added in S5; double-click **used to** open the form for editing — that path is now the "Открыть…" button (`deviation-card.md` §1) |
-| List → **"Решение…"** | decision dialog | step 8, **separate action**; since S5 the same dialog is also reachable from the card |
-| Deviation form → finding row → **"Исследование…"** | inspection dialog | inspection belongs to a finding |
-| Deviation form → **"Привязать к канону…"** | `MappingDialog.run(...)` | the R2 "early buttons" |
+| Section **"Deviations"** (main window) | deviation list | active nav item since S4 |
+| List → **"Add deviation…" / "Open…"** | deviation form | registration and edit, same form |
+| List → **"Card…"** or double-click | deviation card | added in S5; double-click **used to** open the form for editing — that path is now the "Open…" button (`deviation-card.md` §1) |
+| List → **"Decision…"** | decision dialog | step 8, **separate action**; since S5 the same dialog is also reachable from the card |
+| Deviation form → finding row → **"Inspection…"** | inspection dialog | inspection belongs to a finding |
+| Deviation form → **"Bind to canon…"** | `MappingDialog.run(...)` | the R2 "early buttons" |
 
-The "Поиск" section stays disabled — a standalone search screen is the stage-1.5 query
+The "Search" section stays disabled — a standalone search screen is the stage-1.5 query
 constructor (S8). The card never became a section: it is always about one deviation
 (`deviation-card.md` §1).
 
@@ -43,21 +43,21 @@ moves into the card unchanged.
 
 ## 3. Deviation form
 
-- Header: item (+ **"Создать деталь…"**, the existing `ItemDialog`), WO, machine, quantity,
+- Header: item (+ **"Create item…"**, the existing `ItemDialog`), WO, machine, quantity,
   date, NCR, attachment.
-- **Attachment** is a multi-line field, one link per line, plus "Выбрать файл…" which inserts a
+- **Attachment** is a multi-line field, one link per line, plus "Choose file…" which inserts a
   path. Files are **not copied** into the database — the blob exception covers CG drawings only
   (`../architecture.md` §4).
 - **Item is chosen at registration and frozen afterwards.** The dimensions of the findings
   belong to that item; moving the deviation would orphan them. Enforced by the form; the domain
   simply does not accept an item on update.
-- Findings table with **"Добавить находку…" · "Править…" · "Убрать" · "Привязать к канону…" ·
-  "Исследование…"**; columns: local number, canon, direction, value, point, zone, deviation
+- Findings table with **"Add finding…" · "Edit…" · "Remove" · "Bind to canon…" ·
+  "Inspection…"**; columns: local number, canon, direction, value, point, zone, deviation
   type, inspection count.
 - **Save is blocked until an item and at least one finding exist**, and the status line says
   which of the two is missing. A deviation without a dimension is invisible to precedent search,
   i.e. useless (canon `1..N`).
-- **Deviation + all its findings are written in one transaction** on "Сохранить".
+- **Deviation + all its findings are written in one transaction** on "Save".
 
 ### 3.1 Write order inside the transaction (fix of the review)
 
@@ -85,10 +85,10 @@ the findings just created. Removal still goes through `remove_finding`, so both 
 | Shown | Meaning |
 |---|---|
 | `g5` | the dimension is mapped to that g-position |
-| «не привязан» | the dimension exists on the item, no mapping yet |
-| «размер ещё не заведён» | new finding, the characteristic does not exist yet |
+| "not bound" | the dimension exists on the item, no mapping yet |
+| "not created yet" | new finding, the characteristic does not exist yet |
 
-> **"Нет у детали (99)" is not among them, by construction.** Code 99 marks a g-position the
+> **"Absent from item (99)" is not among them, by construction.** Code 99 marks a g-position the
 > item *lacks*; a finding is always about a dimension the item *has* — that is what deviated.
 > The naryad's three-value wording was wrong; this table is the ratified set.
 
@@ -117,7 +117,7 @@ the findings just created. Removal still goes through `remove_finding`, so both 
 - `decision_insp` is **independent** of `decision_dev`. An approved inspection under a rejected
   deviation is a valid combination, and no check ties them.
 - **Cannot be created on an unsaved finding** — it references a `finding` row, and findings are
-  written on "Сохранить". The button is disabled with the reason in the status line.
+  written on "Save". The button is disabled with the reason in the status line.
 - **Mirror lookup** `inspections_for(item, characteristic)` returns every inspection for the
   pair (Item, dimension). The pair is **derived** through the finding; no columns were added to
   the schema. Both halves are filtered explicitly — a local number is unique only within an item.

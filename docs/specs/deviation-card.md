@@ -3,7 +3,8 @@ part_of: MIS-QMS/docs/specs
 spec: deviation-card
 status: as-built
 task: QMS-015
-updated: 2026-08-17
+amended_by: QMS-016
+updated: 2026-08-19
 ---
 
 # Deviation card & precedent search L1/L2 — as-built spec (S5 / QMS-015)
@@ -22,15 +23,15 @@ anticipated here.
 
 | Entry point | Opens | Note |
 |---|---|---|
-| Deviation list → **"Карточка…"**, or double-click a row | the card | double-click **replaced** its S4 meaning (edit); "Открыть…" keeps the old path |
+| Deviation list → **"Card…"**, or double-click a row | the card | double-click **replaced** its S4 meaning (edit); "Open…" keeps the old path |
 | Saving a **new** deviation | the card, by itself | canon: "opens as soon as a deviation is entered" |
-| Card → **"Править…"** | `DeviationDialog` (S4) | the card re-reads itself on return |
-| Card → **"Решение…"** | `DecisionDialog` (S4) | moved in **untouched**; the list keeps its own button |
-| Card → finding row → **"Исследование…" / "Привязать к канону…"** | `InspectionDialog` / `MappingDialog.run(...)` | enabled by row selection |
-| Precedent row → **"Открыть прецедент…"** or double-click | that deviation's card, on top | depth is not limited |
+| Card → **"Edit…"** | `DeviationDialog` (S4) | the card re-reads itself on return |
+| Card → **"Decision…"** | `DecisionDialog` (S4) | moved in **untouched**; the list keeps its own button |
+| Card → finding row → **"Inspection…" / "Bind to canon…"** | `InspectionDialog` / `MappingDialog.run(...)` | enabled by row selection |
+| Precedent row → **"Open precedent…"** or double-click | that deviation's card, on top | depth is not limited |
 
 There is **no "Deviation card" navigation section**: a card is always about one deviation,
-and an empty card has nothing to show. The "Поиск" section stays disabled and is marked S8.
+and an empty card has nothing to show. The "Search" section stays disabled and is marked S8.
 
 Editing an existing deviation does **not** pop the card — the operator already knows what
 is in it.
@@ -48,20 +49,20 @@ has rows*").
 
 ## 3. Two levels, two tabs
 
-**Точные (L1)** — two titled sections, each with its row count:
+**Exact precedents (L1)** — two titled sections, each with its row count:
 
-- **"Эта деталь, тот же размер"** — the same characteristic, i.e. the same physical
+- **"Same item, same characteristic"** — the same characteristic, i.e. the same physical
   dimension of the same part. The strongest match.
-- **"Другие детали, та же позиция `gN`"** — other items bound to the **same g-position**.
+- **"Other items, same position `gN`"** — other items bound to the **same g-position**.
   This is what the canon exists for: the same constructive location is comparable across
   parts whose local dimension numbers differ. The current item is excluded (it is already
   the first section), and items marked **code 99** never appear — code 99 is not a search
   key (`../model/CharacteristicGroup.md`).
   When the dimension has no mapping, the section is replaced by an explanation plus a
-  **"Привязать к канону…"** button: binding is precisely what makes this search possible,
+  **"Bind to canon…"** button: binding is precisely what makes this search possible,
   so the dead end offers its own exit.
 
-**Похожие (L2)** — descriptive search by **zone or deviation type**, with a "совпало по"
+**Descriptive precedents (L2)** — descriptive search by **zone or deviation type**, with a "matched on"
 column (zone / type / both). The condition is deliberately `OR`: L2 earns its keep exactly
 where an exact match is missing, and demanding both labels would switch it off. Rows
 matching both rank first. A finding carrying neither label gets an explanation instead of a
@@ -79,7 +80,7 @@ sign and magnitude, decision, explanation, inspection count.
 
 **L2 is collapsed by deviation**, keeping the strongest match: the query runs over findings,
 so a deviation with two dimensions in one zone would otherwise appear twice and the
-"похожих: N" counter would count findings instead of cases. L1a and L1b need no collapsing
+"descriptive: N" counter would count findings instead of cases. L1a and L1b need no collapsing
 by construction — one dimension yields one finding per deviation, and one g-position holds
 exactly one dimension per item ("1 balloon = 1 dimension").
 
@@ -108,9 +109,15 @@ A composite cell — "sign · magnitude" — showed `0.05 −`. Isolating the si
 right-to-left inside an RTL cell. **One isolate around the assembled string** is the rule;
 "print it through an isolate" is insufficient wording once a cell holds more than one token.
 
+> **Refined again by QMS-016** (naryad 0007, mixed-cell stand). The S5 rule holds for what it
+> was derived on — an **atomic** token with no strong character inside (`− 0.05`, `⌀ 3.75`).
+> It does **not** carry over to a cell built of several independent tokens: one isolate around
+> the whole string leaves the tokens themselves reordered. There the rule is **one isolate per
+> token** (`ui.common.joined`). See `../decisions.md` and repo `CLAUDE.md` §9.
+
 ## 7. Selection ownership (follow-up fix)
 
-"Открыть прецедент…" and double-click must open the row the operator actually chose. Three
+"Open precedent…" and double-click must open the row the operator actually chose. Three
 independent tables each keep their own current row, so preferring "the first table that has
 a selection" opened a row from the first section while the operator was double-clicking in
 the second. Double-click now carries its source table explicitly, and — because a button has

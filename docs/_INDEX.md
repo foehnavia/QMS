@@ -66,6 +66,18 @@ python tools/build_mirror.py --out build/mirror/CONCEPT_full_rev1.00_EN.md
 python tools/build_mirror.py --check build/mirror/CONCEPT_full_rev1.00_EN.md
 ```
 
+## Инструменты прогона (QMS-016)
+
+> Оба пишут **артефакты внутрь репо** (`build/screens/`, в `.gitignore`) — та же схема, что
+> у зеркала: в волт переносит Cowork. Снимки делаются на **нативной** платформе и **без**
+> `show()`: offscreen для снимков непригоден (база шрифтов пуста), а окна на экран не
+> всплывают — раскладку доводит `layout().activate()` (`CLAUDE.md` §9).
+
+```
+python tools/screenshots.py     # все разделы и диалоги на своей демо-базе в build/
+python tools/bidi_stand.py      # стенд смешанных ивритско-английско-числовых строк
+```
+
 ## Сущности (сводка) — rev 1.00
 
 | Сущность | Что это | Ключевое |
