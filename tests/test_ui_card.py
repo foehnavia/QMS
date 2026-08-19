@@ -99,7 +99,7 @@ def test_card_shows_header_and_findings(engine) -> None:
 
     assert "W26007336" in _text(card.wo)
     assert "C1-08375A" in _text(card.item_label)
-    assert card.decision.text() == "Сортировка — 100 % контроль"
+    assert card.decision.text() == "Sorting — 100 % inspection"
     assert card.findings.rowCount() == 1
     assert _text(card.findings.item(0, 0)) == "12"
     assert _text(card.findings.item(0, 1)) == CANON_UNBOUND
@@ -160,7 +160,7 @@ def test_l1a_section_excludes_the_current_deviation(engine) -> None:
 
     assert card.same_dimension.rowCount() == 1
     assert _text(card.same_dimension.item(0, 3)) == "W-PAST"
-    assert "тот же размер №12 (1)" in _text(card.same_dimension_title)
+    assert "same characteristic no. 12 (1)" in _text(card.same_dimension_title)
 
 
 def test_l1b_section_shows_another_item_on_the_same_position(engine) -> None:
@@ -177,7 +177,7 @@ def test_l1b_section_shows_another_item_on_the_same_position(engine) -> None:
 
     assert card.same_position.rowCount() == 1
     assert _text(card.same_position.item(0, 2)) == "IT-002"
-    assert "та же позиция g1 (1)" in _text(card.same_position_title)
+    assert "same position g1 (1)" in _text(card.same_position_title)
     assert card.position_hint_box.isHidden() is True
 
 
@@ -192,7 +192,7 @@ def test_unbound_dimension_explains_instead_of_showing_an_empty_table(engine) ->
 
     assert card.position_hint_box.isHidden() is False
     assert card.same_position.isHidden() is True
-    assert "не привязан к канону" in card.position_hint.text()
+    assert "not bound to the canon" in card.position_hint.text()
 
 
 def test_binding_from_the_card_revives_the_position_section(engine, monkeypatch) -> None:
@@ -241,7 +241,7 @@ def test_undecided_precedents_are_not_shown(engine) -> None:
 
     assert card.same_dimension.rowCount() == 1
     assert _text(card.same_dimension.item(0, 3)) == "W-DECIDED"
-    assert "только отклонения с внесённым решением" in card.status.text()
+    assert "already carry a decision" in card.status.text()
 
 
 # --- Критерии 6-7: вкладка L2 и вкладка по умолчанию -------------------------------
@@ -261,8 +261,8 @@ def test_descriptive_tab_shows_the_match_column(engine) -> None:
 
     assert card.descriptive.rowCount() == 2
     assert _text(card.descriptive.item(0, 3)) == "W-BOTH"
-    assert card.descriptive.item(0, 9).text() == "зона и тип"
-    assert card.descriptive.item(1, 9).text() == "зона"
+    assert card.descriptive.item(0, 9).text() == "zone and type"
+    assert card.descriptive.item(1, 9).text() == "zone"
 
 
 def test_card_opens_on_l2_when_l1_is_empty(engine) -> None:
@@ -333,11 +333,11 @@ def test_decision_from_the_card_uses_the_untouched_dialog(engine, monkeypatch) -
     monkeypatch.setattr(module.DecisionDialog, "run", staticmethod(decide))
 
     card = CardDialog(engine, deviation_id)
-    assert card.decision.text() == "решение не принято"
+    assert card.decision.text() == "no decision yet"
 
     card.set_decision()
 
-    assert card.decision.text() == "Одобрено — использовать как есть"
+    assert card.decision.text() == "Approved — use as is"
     assert card.explanation.text() == "обоснование"
 
 
@@ -520,7 +520,7 @@ def test_precedent_row_carries_the_whole_deviation(engine) -> None:
     assert _text(card.same_dimension.item(row, 0)) == past_number
     assert _text(card.same_dimension.item(row, 2)) == "C1-08375A"
     assert _text(card.same_dimension.item(row, 3)) == "W26007336"
-    assert card.same_dimension.item(row, 6).text() == "Ремонт — узаконенное отклонение"
+    assert card.same_dimension.item(row, 6).text() == "Repair — legalised deviation"
     assert "доработка по месту" in card.same_dimension.item(row, 7).text()
     # Обоснование целиком — в подсказке, чтобы длинный текст не рвал вёрстку.
     assert card.same_dimension.item(row, 7).toolTip().startswith("доработка")
@@ -536,14 +536,14 @@ def test_navigation_has_no_card_section(engine) -> None:
     window = MainWindow(engine)
     titles = [window.sections.item(i).text() for i in range(window.sections.count())]
 
-    assert not any("Карточка" in title for title in titles)
-    assert PLANNED_SECTIONS == (("Поиск", "S8"),)
-    assert any("Поиск" in title and "S8" in title for title in titles)
+    assert not any("Card" in title for title in titles)
+    assert PLANNED_SECTIONS == (("Search", "S8"),)
+    assert any("Search" in title and "S8" in title for title in titles)
     # Выключенный пункт — без флагов, кликнуть нельзя.
     search = next(
         window.sections.item(i)
         for i in range(window.sections.count())
-        if "Поиск" in window.sections.item(i).text()
+        if "Search" in window.sections.item(i).text()
     )
     assert search.flags() == Qt.ItemFlag.NoItemFlags
     window.close()
@@ -638,7 +638,7 @@ def test_switching_the_finding_drops_a_stale_selection(engine, monkeypatch) -> N
         module.CardDialog, "run", staticmethod(lambda e, dev_id, parent=None: opened.append(dev_id))
     )
     card.open_precedent()
-    assert opened == [] and "Сначала выберите" in card.status.text()
+    assert opened == [] and "Select a precedent" in card.status.text()
 
 
 def test_status_counts_deviations_not_findings(engine) -> None:
@@ -656,7 +656,7 @@ def test_status_counts_deviations_not_findings(engine) -> None:
     card = CardDialog(engine, current_id)
 
     assert card.descriptive.rowCount() == 1
-    assert "похожих: 1" in card.status.text()
+    assert "descriptive: 1" in card.status.text()
 
 
 def test_tab_stays_where_the_operator_put_it(engine) -> None:

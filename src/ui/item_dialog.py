@@ -33,11 +33,11 @@ from domain.items import create_item, seed_cg_characteristics
 from domain.reference import list_values
 
 from .cg_dialog import CgDialog
-from .common import iso, russian_buttons, show_error
+from .common import bind_direction, directional, iso, show_error
 
-NO_GROUP = "— без группы —"
-NO_TYPE = "— не задан —"
-COLUMNS = ("g-позиция", "Номер размера", "Номинал", "Допуск")
+NO_GROUP = "— no group —"
+NO_TYPE = "— not set —"
+COLUMNS = ("g-position", "Local number", "Nominal", "Tolerance")
 
 
 class ItemDialog(QDialog):
@@ -47,10 +47,11 @@ class ItemDialog(QDialog):
         super().__init__(parent)
         self._engine = engine
         self.created_number: str | None = None
-        self.setWindowTitle("Добавить деталь")
+        self.setWindowTitle("Add item")
 
         self.number_edit = QLineEdit()
-        self.number_edit.setPlaceholderText('например C1-08375A (מק"ט)')
+        self.number_edit.setPlaceholderText('e.g. C1-08375A (מק"ט)')
+        bind_direction(self.number_edit)
 
         self.item_type = _combo()
         self.connection_type = _combo()
@@ -58,7 +59,7 @@ class ItemDialog(QDialog):
         self.group = _combo()
         self.group.currentIndexChanged.connect(self.reload_positions)
 
-        new_group = QPushButton(iso("Создать группу…"))
+        new_group = QPushButton(iso("Create group…"))
         new_group.clicked.connect(self.create_group)
 
         group_row = QHBoxLayout()
@@ -68,25 +69,25 @@ class ItemDialog(QDialog):
         self.positions = QTableWidget(0, len(COLUMNS))
         self.positions.setHorizontalHeaderLabels(COLUMNS)
         self.positions.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        directional(self.positions, numeric_columns=(0, 2, 3))
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
-        russian_buttons(self.buttons)
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
         form = QFormLayout()
-        form.addRow("Номер детали:", self.number_edit)
-        form.addRow("Тип детали:", self.item_type)
-        form.addRow("Тип соединения:", self.connection_type)
-        form.addRow("Размерный класс:", self.size)
-        form.addRow("Группа характеристик:", group_row)
+        form.addRow("Item number:", self.number_edit)
+        form.addRow("Item type:", self.item_type)
+        form.addRow("Connection type:", self.connection_type)
+        form.addRow("Size class:", self.size)
+        form.addRow("Characteristic group:", group_row)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(
-            QLabel("Размеры группы — проставьте номер размера по чертежу для каждой позиции:")
+            QLabel("Group positions — set the local number from the item drawing for each:")
         )
         layout.addWidget(self.positions, 1)
         layout.addWidget(self.buttons)

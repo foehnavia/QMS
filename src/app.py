@@ -56,24 +56,26 @@ def prepare_database(engine: Engine) -> None:
         current = MigrationContext.configure(connection).get_current_revision()
 
     if current != head:
-        print(f"Схема: {current or 'пусто'} → {head}, накатываю миграции…")
+        print(f"Schema: {current or 'empty'} -> {head}, applying migrations...")
         command.upgrade(config, "head")
 
     with session_scope(engine) as session:
         inserted = sum(seed_reference(session).values())
     if inserted:
-        print(f"Справочники: досеяно значений — {inserted}")
+        print(f"Reference data: values inserted - {inserted}")
 
 
 def main(argv: list[str] | None = None) -> int:
     url = default_db_url()
     engine = create_db_engine(url)
-    print(f"База: {url}")
+    print(f"Database: {url}")
     prepare_database(engine)
 
     app = QApplication(argv if argv is not None else sys.argv)
-    # RTL из коробки: иврит — основной язык данных (`architecture.md` §3).
-    app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+    # Шасси окна — LTR (наряд 0007, `architecture.md` §3). Направление **данных**
+    # живёт на уровне ячейки и поля (`ui.common`), а не на уровне приложения:
+    # глобальный RTL склеивал два разных вопроса и породил класс дефектов S2-S5.
+    app.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 
     window = MainWindow(engine)
     window.show()

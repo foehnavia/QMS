@@ -43,9 +43,9 @@ from domain.groups import (
 
 from .balloon_canvas import MODE_EDIT, Balloon, BalloonCanvas
 from .cg_dialog import parse_optional_number
-from .common import iso, russian_buttons, show_error, strip_iso
+from .common import directional, iso, show_error, strip_iso
 
-COLUMNS = ("g-позиция", "Номинал", "Допуск +", "Допуск −")
+COLUMNS = ("g-position", "Nominal", "Tolerance +", "Tolerance −")
 
 
 @dataclass
@@ -72,7 +72,7 @@ class CgEditor(QDialog):
         self._drawing: bytes | None = None
         self._drawing_name: str | None = None
         self._drawing_changed = False
-        self.setWindowTitle("Редактор группы характеристик")
+        self.setWindowTitle("Characteristic group editor")
         self.resize(980, 620)
 
         self.name_edit = QLineEdit()
@@ -86,10 +86,12 @@ class CgEditor(QDialog):
             lambda row, *_: self.canvas.select(self._rows[row].g_index if 0 <= row < len(self._rows) else None)
         )
 
-        load_drawing = QPushButton(iso("Загрузить чертёж…"))
-        drop_drawing = QPushButton("Убрать чертёж")
-        add_row = QPushButton("Добавить позицию")
-        drop_row = QPushButton("Убрать позицию")
+        directional(self.table, numeric_columns=(0, 1, 2, 3))
+
+        load_drawing = QPushButton(iso("Load drawing…"))
+        drop_drawing = QPushButton("Remove drawing")
+        add_row = QPushButton("Add position")
+        drop_row = QPushButton("Remove position")
         load_drawing.clicked.connect(self.load_drawing)
         drop_drawing.clicked.connect(self.drop_drawing)
         add_row.clicked.connect(self.add_position)
@@ -101,7 +103,6 @@ class CgEditor(QDialog):
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
-        russian_buttons(self.buttons)
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
@@ -116,14 +117,14 @@ class CgEditor(QDialog):
         row_buttons.addStretch(1)
 
         form = QFormLayout()
-        form.addRow("Название группы:", self.name_edit)
+        form.addRow("Group name:", self.name_edit)
 
         side = QWidget()
         side_layout = QVBoxLayout(side)
         side_layout.setContentsMargins(0, 0, 0, 0)
         side_layout.addLayout(form)
         side_layout.addLayout(drawing_buttons)
-        side_layout.addWidget(QLabel("Позиции (номинал и допуск — с чертежа):"))
+        side_layout.addWidget(QLabel("Positions (nominal and tolerance come from the drawing):"))
         side_layout.addWidget(self.table, 1)
         side_layout.addLayout(row_buttons)
         side_layout.addWidget(self.status)
@@ -164,7 +165,7 @@ class CgEditor(QDialog):
 
     def _refresh(self) -> None:
         if not self.canvas.set_drawing(self._drawing):
-            self.status.setText("Чертёж не удалось отобразить — файл повреждён?")
+            self.status.setText("The drawing could not be displayed — is the file damaged?")
 
         self.canvas.set_balloons(
             [Balloon(g_index=row.g_index, x=row.x, y=row.y) for row in self._rows]
@@ -181,8 +182,8 @@ class CgEditor(QDialog):
 
         placed = sum(1 for row in self._rows if row.x is not None)
         self.status.setText(
-            f"Позиций: {len(self._rows)} · размещено на чертеже: {placed}. "
-            "Баллоны перетаскиваются мышью; координаты сохраняются по «Сохранить»."
+            f"Positions: {len(self._rows)} · placed on the drawing: {placed}. "
+            "Drag the balloons with the mouse; coordinates are stored on Save."
         )
 
     def _on_moved(self, g_index: int, x: float, y: float) -> None:
@@ -195,14 +196,14 @@ class CgEditor(QDialog):
 
     def load_drawing(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Чертёж группы", "", "Изображения (*.png *.jpg *.jpeg);;Все файлы (*)"
+            self, "Group drawing", "", "Images (*.png *.jpg *.jpeg);;All files (*)"
         )
         if not path:
             return
         try:
             data = open(path, "rb").read()
         except OSError as error:
-            show_error(self, error, title="Файл не прочитан")
+            show_error(self, error, title="File not read")
             return
 
         self._drawing, self._drawing_name = data, path.rsplit("/", 1)[-1]
@@ -223,7 +224,7 @@ class CgEditor(QDialog):
     def remove_position(self) -> None:
         current = self.table.currentRow()
         if not 0 <= current < len(self._rows):
-            self.status.setText("Сначала выберите позицию в таблице.")
+            self.status.setText("Select a position in the table first.")
             return
 
         row = self._rows[current]
@@ -236,7 +237,7 @@ class CgEditor(QDialog):
                     if used:
                         raise _in_use(position.g_index, used)
             except Exception as error:
-                show_error(self, error, title="Позиция занята")
+                show_error(self, error, title="Position in use")
                 return
 
         self._rows.pop(current)
@@ -254,7 +255,7 @@ class CgEditor(QDialog):
                 ).strip()
                 if not raw_index.isdigit() or int(raw_index) < 1:
                     raise ValidationError(
-                        f"Строка {index + 1}: индекс позиции должен быть числом ≥ 1."
+                        f"Row {index + 1}: the position index must be a number ≥ 1."
                     )
                 g_index = int(raw_index)
             else:
@@ -267,9 +268,9 @@ class CgEditor(QDialog):
             rows.append(
                 _Row(
                     g_index=g_index,
-                    nominal=parse_optional_number(cell(1), f"Строка {index + 1}, номинал"),
-                    tol_plus=parse_optional_number(cell(2), f"Строка {index + 1}, допуск +"),
-                    tol_minus=parse_optional_number(cell(3), f"Строка {index + 1}, допуск −"),
+                    nominal=parse_optional_number(cell(1), f"Row {index + 1}, nominal"),
+                    tol_plus=parse_optional_number(cell(2), f"Row {index + 1}, tolerance +"),
+                    tol_minus=parse_optional_number(cell(3), f"Row {index + 1}, tolerance −"),
                     x=row.x,
                     y=row.y,
                     position_id=row.position_id,
@@ -277,7 +278,7 @@ class CgEditor(QDialog):
             )
         indexes = [row.g_index for row in rows]
         if len(set(indexes)) != len(indexes):
-            raise ValidationError("Индексы g-позиций внутри группы не должны повторяться.")
+            raise ValidationError("The g-position indexes inside a group must not repeat.")
         return rows
 
     def save(self) -> None:
@@ -314,7 +315,7 @@ class CgEditor(QDialog):
                             y=row.y,
                         )
         except Exception as error:
-            show_error(self, error, title="Группа не сохранена")
+            show_error(self, error, title="Group not saved")
             return
         self.accept()
 
@@ -331,8 +332,8 @@ def _index_cell(row: _Row) -> QTableWidgetItem:
     if row.position_id is not None:
         cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
         cell.setToolTip(
-            "Номер позиции менять нельзя: на него ссылаются привязки размеров. "
-            "Нужен другой номер — добавьте позицию и снимите старую."
+            "The position number cannot be changed: characteristic mappings point at it. "
+            "Need another number — add a position and drop the old one."
         )
     return cell
 
@@ -346,6 +347,6 @@ def _in_use(g_index: int, used: int) -> Exception:
     from domain.errors import ValueInUse
 
     return ValueInUse(
-        f"Позиция g{g_index} используется в {used} записях "
-        "(привязки размеров или отметки «нет у детали») — сначала снимите их."
+        f"Position g{g_index} is used by {used} records "
+        "(characteristic mappings or “absent from item” marks) — clear them first."
     )

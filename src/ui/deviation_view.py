@@ -28,20 +28,24 @@ from db.session import session_scope
 from domain.deviations import delete_deviation, list_deviations
 
 from .card_dialog import CardDialog
-from .common import decision_dev_label, iso, show_error
+from .common import decision_dev_label, directional, iso, show_error
 from .decision_dialog import DecisionDialog
 from .deviation_dialog import DeviationDialog
 
 COLUMNS = (
-    "Номер",
-    "Деталь",
+    "Number",
+    "Item",
     "WO",
-    "Дата",
-    "Кол-во",
-    "Решение",
-    "Находок",
-    "Исследований",
+    "Date",
+    "Quantity",
+    "Decision",
+    "Findings",
+    "Inspections",
 )
+
+#: Колонки, которым направление задаётся не по содержимому: дата, количество
+#: и счётчики читаются слева направо в любой строке (наряд 0007, §4а).
+NUMERIC_COLUMNS = (3, 4, 6, 7)
 
 
 class DeviationView(QWidget):
@@ -59,12 +63,13 @@ class DeviationView(QWidget):
         # Двойной клик ведёт в карточку, а не в правку: карточка — рабочий
         # экран отклонения, правка из неё в одном нажатии (решение Cowork 1).
         self.table.doubleClicked.connect(self.open_card)
+        directional(self.table, NUMERIC_COLUMNS)
 
-        self.add_button = QPushButton(iso("Добавить отклонение…"))
-        self.card_button = QPushButton(iso("Карточка…"))
-        self.open_button = QPushButton(iso("Открыть…"))
-        self.decision_button = QPushButton(iso("Решение…"))
-        self.delete_button = QPushButton("Удалить")
+        self.add_button = QPushButton(iso("Add deviation…"))
+        self.card_button = QPushButton(iso("Card…"))
+        self.open_button = QPushButton(iso("Open…"))
+        self.decision_button = QPushButton(iso("Decision…"))
+        self.delete_button = QPushButton("Delete")
         self.add_button.clicked.connect(self.add_deviation)
         self.card_button.clicked.connect(self.open_card)
         self.open_button.clicked.connect(self.open_deviation)
@@ -115,7 +120,7 @@ class DeviationView(QWidget):
 
         undecided = sum(1 for row in rows if row.decision_dev is None)
         self.status.setText(
-            f"Отклонений в базе: {len(rows)} · без решения: {undecided}"
+            f"Deviations in the database: {len(rows)} · undecided: {undecided}"
         )
 
     # --- действия ---------------------------------------------------------------
@@ -124,7 +129,7 @@ class DeviationView(QWidget):
         row = self.table.currentRow()
         if row < 0:
             QMessageBox.information(
-                self, "Не выбрано", "Сначала выберите отклонение в списке."
+                self, "Nothing selected", "Select a deviation in the list first."
             )
             return None
         return self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
@@ -185,9 +190,9 @@ class DeviationView(QWidget):
         if (
             QMessageBox.question(
                 self,
-                "Удалить отклонение?",
-                f"Удалить {number}? Вместе с ним исчезнут находок: {findings}, "
-                f"исследований: {inspections}.",
+                "Delete deviation?",
+                f"Delete {number}? It takes with it findings: {findings}, "
+                f"inspections: {inspections}.",
             )
             != QMessageBox.StandardButton.Yes
         ):
@@ -197,6 +202,6 @@ class DeviationView(QWidget):
             with session_scope(self._engine) as session:
                 delete_deviation(session, session.get(Deviation, deviation_id))
         except Exception as error:
-            show_error(self, error, title="Отклонение не удалено")
+            show_error(self, error, title="Deviation not deleted")
             return
         self.reload()

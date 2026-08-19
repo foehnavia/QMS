@@ -85,12 +85,16 @@ def seeded_session(session: Session) -> Session:
 
 @pytest.fixture(scope="session")
 def qt_app():
-    """Единственный `QApplication` на прогон — RTL, как в боевом запуске."""
+    """Единственный `QApplication` на прогон — LTR-шасси, как в боевом запуске.
+
+    Направление данных живёт на уровне ячейки и поля (`ui.common`), поэтому
+    приложению остаётся только шасси (наряд 0007, §4).
+    """
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication([])
-    app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+    app.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
     yield app
     app.processEvents()
 

@@ -54,7 +54,7 @@ def _next_number(
     ).scalar_one_or_none()
     seq = 1 if last is None else int(last[len(stem) :]) + 1
     if seq >= 10**width:
-        raise NumberSpaceExhausted(f"{stem}: суточный счётчик исчерпан")
+        raise NumberSpaceExhausted(f"{stem}: the daily counter is exhausted")
     return f"{stem}{seq:0{width}d}"
 
 

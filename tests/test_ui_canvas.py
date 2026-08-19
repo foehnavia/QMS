@@ -284,8 +284,8 @@ def test_mapping_dialog_shows_states_and_blocks_save(group_engine) -> None:
     assert "g1" in dialog.status.text()
 
     # Ревью S3: диалог пишет сразу, откатывать нечего — подписи это признают.
-    assert save.text() == "Готово"
-    assert dialog.buttons.button(QDialogButtonBox.StandardButton.Cancel).text() == "Закрыть"
+    assert save.text() == "Done"
+    assert dialog.buttons.button(QDialogButtonBox.StandardButton.Cancel).text() == "Close"
 
 
 def test_mapping_dialog_enables_save_when_every_balloon_is_decided(group_engine) -> None:
@@ -372,4 +372,4 @@ def test_cg_view_lists_groups(group_engine) -> None:
     with session_scope(group_engine) as session:
         set_drawing(session, session.query(CharacteristicGroup).one(), make_png(), "cg.png")
     view.reload()
-    assert view.table.item(0, 2).text() == "есть"
+    assert view.table.item(0, 2).text() == "yes"

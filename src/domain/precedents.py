@@ -54,8 +54,8 @@ Match = Literal["dimension", "position", "zone+type", "zone", "type"]
 #: Состояния размера в каноне. Достижимых ровно три, и «нет у детали (99)» среди
 #: них нет по построению: код 99 отмечает g-позицию, которой у детали **нет**, а
 #: находка всегда про размер, который у детали **есть** (ратифицировано в S4).
-CANON_UNBOUND = "не привязан"
-CANON_NEW = "размер ещё не заведён"
+CANON_UNBOUND = "not bound"
+CANON_NEW = "not created yet"
 
 
 @dataclass(frozen=True)

@@ -61,12 +61,13 @@ from domain.precedents import CANON_NEW, canon_labels_for_item
 
 from .common import (
     DECISION_INSP_LABELS,
+    bind_direction,
     dimension_sort_key,
     direction_label,
+    directional,
     iso,
-    ltr_field,
     number_label,
-    russian_buttons,
+    numeric_field,
     show_error,
 )
 from .finding_dialog import FindingDialog, FindingRow
@@ -76,19 +77,23 @@ from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
 
 FINDING_COLUMNS = (
-    "Номер размера",
-    "Канон",
-    "Направление",
-    "Величина",
-    "Точка",
-    "Зона",
-    "Тип отклонения",
-    "Исследований",
+    "Local number",
+    "Canon",
+    "Direction",
+    "Value",
+    "Point",
+    "Zone",
+    "Deviation type",
+    "Inspections",
 )
 
-INSPECTION_COLUMNS = ("Номер", "Размер", "Вид", "Вердикт", "Протокол")
+#: Числовые колонки таблицы находок: знак, величина, точка замера, счётчик.
+#: Зона и тип отклонения сюда не входят — там ивритские значения.
+FINDING_NUMERIC_COLUMNS = (2, 3, 4, 7)
 
-NO_ITEM = "— выберите деталь —"
+INSPECTION_COLUMNS = ("Number", "Characteristic", "Type", "Verdict", "Protocol")
+
+NO_ITEM = "— pick an item —"
 
 
 class DeviationDialog(QDialog):
@@ -102,13 +107,13 @@ class DeviationDialog(QDialog):
         self._deviation_id = deviation_id
         self._rows: list[FindingRow] = []
         self.setWindowTitle(
-            "Новое отклонение" if deviation_id is None else "Отклонение — правка"
+            "New deviation" if deviation_id is None else "Deviation — edit"
         )
         self.resize(1040, 720)
 
         # --- шапка ---
         self.item = QComboBox()
-        self.new_item = QPushButton(iso("Создать деталь…"))
+        self.new_item = QPushButton(iso("Create item…"))
         self.new_item.clicked.connect(self.create_item)
         self.item.currentIndexChanged.connect(self._refresh_actions)
 
@@ -117,26 +122,30 @@ class DeviationDialog(QDialog):
         item_row.addWidget(self.new_item)
 
         self.wo = QLineEdit()
-        self.wo.setPlaceholderText('פק"ע — например W26007336')
+        self.wo.setPlaceholderText('פק"ע — e.g. W26007336')
         self.machine = QLineEdit()
-        self.machine.setPlaceholderText("станок (необязательно)")
-        self.quantity = ltr_field(QSpinBox())
+        self.machine.setPlaceholderText("machine (optional)")
+        # WO и станок приходят с ивритского бланка — направление за текстом.
+        bind_direction(self.wo)
+        bind_direction(self.machine)
+        self.quantity = numeric_field(QSpinBox())
         # Потолок с запасом: 9999 — сентинел выборки из импорта S6 (заметка А),
         # он должен вводиться и руками, а не упираться в границу.
         self.quantity.setRange(1, 999_999)
         self.quantity.setValue(1)
-        self.date = ltr_field(QDateEdit())
+        self.date = numeric_field(QDateEdit())
         self.date.setCalendarPopup(True)
         self.date.setDisplayFormat("dd.MM.yyyy")
         self.date.setDate(QDate.currentDate())
         self.date.setMaximumDate(QDate.currentDate())  # дата не в будущем
         self.ncr = QLineEdit()
-        self.ncr.setPlaceholderText("номер NCR (может прийти позже)")
+        self.ncr.setPlaceholderText("NCR number (may arrive later)")
 
         self.attachment = QPlainTextEdit()
-        self.attachment.setPlaceholderText("по одной ссылке на строку")
+        self.attachment.setPlaceholderText("one link per line")
         self.attachment.setFixedHeight(60)
-        attach_button = QPushButton(iso("Выбрать файл…"))
+        bind_direction(self.attachment)
+        attach_button = QPushButton("Choose file…")
         attach_button.clicked.connect(self.pick_attachment)
         attach_row = QVBoxLayout()
         attach_row.addWidget(self.attachment)
@@ -145,13 +154,13 @@ class DeviationDialog(QDialog):
         attach_box.setLayout(attach_row)
 
         header = QFormLayout()
-        header.addRow("Деталь:", item_row)
+        header.addRow("Item:", item_row)
         header.addRow("WO:", self.wo)
-        header.addRow("Станок:", self.machine)
-        header.addRow("Количество:", self.quantity)
-        header.addRow("Дата:", self.date)
+        header.addRow("Machine:", self.machine)
+        header.addRow("Quantity:", self.quantity)
+        header.addRow("Date:", self.date)
         header.addRow("NCR:", self.ncr)
-        header.addRow("Вложения:", attach_box)
+        header.addRow("Attachments:", attach_box)
 
         # --- находки ---
         self.findings = QTableWidget(0, len(FINDING_COLUMNS))
@@ -159,12 +168,13 @@ class DeviationDialog(QDialog):
         self.findings.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.findings.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.findings.currentCellChanged.connect(lambda *_: self._refresh_actions())
+        directional(self.findings, FINDING_NUMERIC_COLUMNS)
 
-        self.add_finding = QPushButton(iso("Добавить находку…"))
-        self.edit_finding = QPushButton(iso("Править…"))
-        self.drop_finding = QPushButton("Убрать")
-        self.map_canon = QPushButton(iso("Привязать к канону…"))
-        self.inspect = QPushButton(iso("Исследование…"))
+        self.add_finding = QPushButton(iso("Add finding…"))
+        self.edit_finding = QPushButton(iso("Edit…"))
+        self.drop_finding = QPushButton("Remove")
+        self.map_canon = QPushButton(iso("Bind to canon…"))
+        self.inspect = QPushButton(iso("Inspection…"))
         self.add_finding.clicked.connect(self.on_add_finding)
         self.edit_finding.clicked.connect(self.on_edit_finding)
         self.drop_finding.clicked.connect(self.on_drop_finding)
@@ -182,7 +192,7 @@ class DeviationDialog(QDialog):
             finding_buttons.addWidget(button)
         finding_buttons.addStretch(1)
 
-        findings_box = QGroupBox("Находки — отклонения по размерам")
+        findings_box = QGroupBox("Findings — deviations by characteristic")
         findings_layout = QVBoxLayout(findings_box)
         findings_layout.addWidget(self.findings, 1)
         findings_layout.addLayout(finding_buttons)
@@ -194,8 +204,9 @@ class DeviationDialog(QDialog):
         self.inspections.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.inspections.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.inspections.currentCellChanged.connect(lambda *_: self._refresh_actions())
-        self.edit_inspection = QPushButton(iso("Править исследование…"))
-        self.drop_inspection = QPushButton("Удалить исследование")
+        directional(self.inspections)
+        self.edit_inspection = QPushButton(iso("Edit inspection…"))
+        self.drop_inspection = QPushButton("Delete inspection")
         self.edit_inspection.clicked.connect(self.on_edit_inspection)
         self.drop_inspection.clicked.connect(self.on_drop_inspection)
 
@@ -204,7 +215,7 @@ class DeviationDialog(QDialog):
         inspection_buttons.addWidget(self.drop_inspection)
         inspection_buttons.addStretch(1)
 
-        inspections_box = QGroupBox("Исследования отклонения")
+        inspections_box = QGroupBox("Inspections of this deviation")
         inspections_layout = QVBoxLayout(inspections_box)
         inspections_layout.addWidget(self.inspections, 1)
         inspections_layout.addLayout(inspection_buttons)
@@ -216,7 +227,6 @@ class DeviationDialog(QDialog):
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
-        russian_buttons(self.buttons)
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
@@ -271,7 +281,10 @@ class DeviationDialog(QDialog):
             # ей, перенос осиротил бы их (`Characteristic.md`).
             self.item.setEnabled(False)
             self.new_item.setEnabled(False)
-            self.item.setToolTip("Деталь отклонения не меняется — размеры находок её.")
+            self.item.setToolTip(
+                "The item of a deviation does not change — "
+                "the characteristics of its findings belong to it."
+            )
 
             self.wo.setText(deviation.wo)
             self.machine.setText(deviation.machine or "")
@@ -389,20 +402,22 @@ class DeviationDialog(QDialog):
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(complete)
 
         if not has_item:
-            self.status.setText("Выберите деталь — отклонение без детали не адресуемо.")
+            self.status.setText(
+                "Pick an item — a deviation without an item cannot be addressed."
+            )
         elif not self._rows:
             self.status.setText(
-                "Добавьте хотя бы одну находку: отклонение без размера невидимо "
-                "для поиска прецедентов."
+                "Add at least one finding: a deviation with no characteristic is "
+                "invisible to precedent search."
             )
         elif row is not None and row.finding_id is None:
             self.status.setText(
-                "Исследование заводится на сохранённой находке — сначала сохраните отклонение."
+                "An inspection is created on a saved finding — save the deviation first."
             )
         else:
             self.status.setText(
-                f"Находок: {len(self._rows)}. Решение вносится отдельным действием "
-                "из списка отклонений."
+                f"Findings: {len(self._rows)}. The decision is entered as a separate "
+                "action from the deviation list."
             )
 
     def _current_row(self) -> FindingRow | None:
@@ -420,7 +435,7 @@ class DeviationDialog(QDialog):
 
     def pick_attachment(self) -> None:
         """Путь вставляем строкой: файлы в базу не копируются (`architecture.md` §4)."""
-        path, _ = QFileDialog.getOpenFileName(self, "Вложение", "", "Все файлы (*)")
+        path, _ = QFileDialog.getOpenFileName(self, "Attachment", "", "All files (*)")
         if not path:
             return
         existing = self.attachment.toPlainText().rstrip()
@@ -434,8 +449,9 @@ class DeviationDialog(QDialog):
             if any(row.local_number == dialog.row.local_number for row in self._rows):
                 QMessageBox.warning(
                     self,
-                    "Размер уже в списке",
-                    f"Находка по размеру №{dialog.row.local_number} в этом отклонении уже есть.",
+                    "Characteristic already listed",
+                    f"A finding on characteristic no. {dialog.row.local_number} "
+                    "already exists in this deviation.",
                 )
                 return
             self._rows.append(dialog.row)
@@ -462,17 +478,17 @@ class DeviationDialog(QDialog):
         if row.finding_id is not None and row.inspections:
             QMessageBox.warning(
                 self,
-                "Находка занята",
-                f"На находке по размеру №{row.local_number} висит исследований: "
-                f"{row.inspections} — сначала удалите их.",
+                "Finding is in use",
+                f"The finding on characteristic no. {row.local_number} carries "
+                f"inspections: {row.inspections} — delete them first.",
             )
             return
         if len(self._rows) == 1:
             QMessageBox.warning(
                 self,
-                "Последняя находка",
-                "У отклонения должна остаться хотя бы одна находка — "
-                "удалите отклонение целиком из списка.",
+                "Last finding",
+                "A deviation must keep at least one finding — "
+                "delete the whole deviation from the list instead.",
             )
             return
 
@@ -511,7 +527,7 @@ class DeviationDialog(QDialog):
         inspection_id = self._selected_inspection()
         if inspection_id is None:
             QMessageBox.information(
-                self, "Не выбрано", "Сначала выберите исследование в списке."
+                self, "Nothing selected", "Select an inspection in the list first."
             )
             return
         with session_scope(self._engine) as session:
@@ -523,11 +539,13 @@ class DeviationDialog(QDialog):
         inspection_id = self._selected_inspection()
         if inspection_id is None:
             QMessageBox.information(
-                self, "Не выбрано", "Сначала выберите исследование в списке."
+                self, "Nothing selected", "Select an inspection in the list first."
             )
             return
         if (
-            QMessageBox.question(self, "Удалить исследование?", "Удалить выбранное исследование?")
+            QMessageBox.question(
+                self, "Delete inspection?", "Delete the selected inspection?"
+            )
             != QMessageBox.StandardButton.Yes
         ):
             return
@@ -535,7 +553,7 @@ class DeviationDialog(QDialog):
             with session_scope(self._engine) as session:
                 remove_inspection(session, session.get(Inspection, inspection_id))
         except Exception as error:
-            show_error(self, error, title="Исследование не удалено")
+            show_error(self, error, title="Inspection not deleted")
             return
         self._reload_inspection_counts()
         self._refresh()
@@ -578,7 +596,7 @@ class DeviationDialog(QDialog):
                 self._write_findings(session, deviation)
                 self._deviation_id = deviation.deviation_id
         except Exception as error:
-            show_error(self, error, title="Отклонение не сохранено")
+            show_error(self, error, title="Deviation not saved")
             return
         self.accept()
 

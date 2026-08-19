@@ -21,12 +21,12 @@ def _pick(parent: QWidget | None, title: str, prompt: str, rows: list[tuple[int,
 
 def pick_item(parent: QWidget | None, items: list[tuple[int, str]]) -> int | None:
     """Выбрать деталь из списка `(item_id, item_number)`."""
-    return _pick(parent, "Выбор детали", "Деталь:", items)
+    return _pick(parent, "Pick an item", "Item:", items)
 
 
 def pick_group(parent: QWidget | None, groups: list[tuple[int, str]]) -> int | None:
     """Выбрать группу характеристик из списка `(cg_id, name)`."""
-    return _pick(parent, "Выбор группы", "Группа характеристик:", groups)
+    return _pick(parent, "Pick a characteristic group", "Characteristic group:", groups)
 
 
 def choose_cg_for_item(parent: QWidget | None, engine: Engine, item_id: int) -> int | None:
@@ -51,8 +51,8 @@ def choose_cg_for_item(parent: QWidget | None, engine: Engine, item_id: int) -> 
     if not choices:
         QMessageBox.information(
             parent,
-            "Нет групп",
-            "Сначала создайте группу в разделе «Группы характеристик».",
+            "No groups",
+            "Create a characteristic group first — section “Characteristic groups”.",
         )
         return None
     return pick_group(parent, choices)

@@ -53,59 +53,71 @@ from .common import (
     decision_dev_label,
     dimension_sort_key,
     direction_label,
+    directional,
     iso,
+    joined,
     number_label,
     show_error,
 )
 from .decision_dialog import DecisionDialog
-from .deviation_dialog import FINDING_COLUMNS, DeviationDialog
+from .deviation_dialog import (
+    FINDING_COLUMNS,
+    FINDING_NUMERIC_COLUMNS,
+    DeviationDialog,
+)
 from .inspection_dialog import InspectionDialog
 from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
 
 PRECEDENT_COLUMNS = (
-    "Отклонение",
-    "Дата",
-    "Деталь",
+    "Deviation",
+    "Date",
+    "Item",
     "WO",
-    "Размер",
-    "Знак · величина",
-    "Решение",
-    "Обоснование",
-    "Исслед.",
+    "Characteristic",
+    "Sign · value",
+    "Decision",
+    "Explanation",
+    "Insp.",
 )
+
+#: Числовые колонки прецедента: дата, знак с величиной, счётчик исследований.
+PRECEDENT_NUMERIC_COLUMNS = (1, 5, 8)
 
 #: Подписи для колонки «совпало по» вкладки L2.
 MATCH_LABELS = {
-    "zone+type": "зона и тип",
-    "zone": "зона",
-    "type": "тип отклонения",
+    "zone+type": "zone and type",
+    "zone": "zone",
+    "type": "deviation type",
 }
 
 UNBOUND_HINT = (
-    "Размер не привязан к канону — поиск по позиции недоступен. "
-    "Привязка и нужна затем, чтобы находить тот же конструктивный узел у других деталей."
+    "This characteristic is not bound to the canon — search by position is "
+    "unavailable. Binding is exactly what finds the same design node on other items."
 )
 
 NO_LABELS_HINT = (
-    "У находки не заполнены ни зона, ни тип отклонения — описательный поиск "
-    "опирается ровно на эти два поля. Проставьте их в находке, и вкладка оживёт."
+    "The finding carries neither a zone nor a deviation type — descriptive search "
+    "rests on exactly these two fields. Fill them in and this tab comes alive."
 )
 
-NO_SELECTION_HINT = "Выберите находку в таблице выше — прецеденты ищутся по размеру."
+NO_SELECTION_HINT = (
+    "Pick a finding in the table above — precedents are searched by its characteristic."
+)
 
 
 class PrecedentTable(QTableWidget):
     """Таблица прецедентов. Единица строки — **отклонение целиком** (`Search.md`)."""
 
     def __init__(self, *, with_match: bool = False, parent: QWidget | None = None) -> None:
-        columns = PRECEDENT_COLUMNS + (("Совпало по",) if with_match else ())
+        columns = PRECEDENT_COLUMNS + (("Matched on",) if with_match else ())
         super().__init__(0, len(columns), parent)
         self._with_match = with_match
         self.setHorizontalHeaderLabels(columns)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        directional(self, PRECEDENT_NUMERIC_COLUMNS)
 
     def fill(self, rows: list[PrecedentRow]) -> None:
         # Выбор сбрасываем: строки другие, а уцелевшее выделение делало бы вид,
@@ -114,7 +126,9 @@ class PrecedentTable(QTableWidget):
         self.setCurrentCell(-1, -1)
         self.setRowCount(len(rows))
         for index, row in enumerate(rows):
-            size = iso(f"{row.local_number} · {row.g_label}") if row.g_label else iso(row.local_number)
+            # Составная ячейка: номер размера и g-подпись — самостоятельные
+            # токены, каждый в своём изоляте (наряд 0007, §4а).
+            size = joined(row.local_number, row.g_label)
             values = [
                 iso(row.dev_number),
                 iso(f"{row.date:%d.%m.%Y}"),
@@ -180,15 +194,15 @@ class CardDialog(QDialog):
         # Поля не растягиваются на всю ширину: иначе значение уезжает от своей
         # подписи через полэкрана и липнет к подписи соседней колонки.
         head_left = _compact_form()
-        head_left.addRow("Отклонение:", self.number)
-        head_left.addRow("Деталь:", self.item_label)
+        head_left.addRow("Deviation:", self.number)
+        head_left.addRow("Item:", self.item_label)
         head_left.addRow("WO:", self.wo)
-        head_left.addRow("Станок:", self.machine)
+        head_left.addRow("Machine:", self.machine)
         head_right = _compact_form()
-        head_right.addRow("Количество:", self.quantity)
-        head_right.addRow("Дата:", self.date)
+        head_right.addRow("Quantity:", self.quantity)
+        head_right.addRow("Date:", self.date)
         head_right.addRow("NCR:", self.ncr)
-        head_right.addRow("Вложения:", self.attachment)
+        head_right.addRow("Attachments:", self.attachment)
 
         # Каждая колонка — в своём виджете: соседние QFormLayout иначе делят
         # ширину так, что значение левой оказывается вплотную к подписи правой.
@@ -197,12 +211,12 @@ class CardDialog(QDialog):
         head_columns.addWidget(_boxed(head_right), 1)
 
         decision_form = _compact_form()
-        decision_form.addRow("Решение:", self.decision)
-        decision_form.addRow("Обоснование:", self.explanation)
+        decision_form.addRow("Decision:", self.decision)
+        decision_form.addRow("Explanation:", self.explanation)
 
-        self.edit_button = QPushButton(iso("Править…"))
-        self.decision_button = QPushButton(iso("Решение…"))
-        self.close_button = QPushButton("Закрыть")
+        self.edit_button = QPushButton(iso("Edit…"))
+        self.decision_button = QPushButton(iso("Decision…"))
+        self.close_button = QPushButton("Close")
         self.edit_button.clicked.connect(self.edit_deviation)
         self.decision_button.clicked.connect(self.set_decision)
         self.close_button.clicked.connect(self.reject)
@@ -212,7 +226,7 @@ class CardDialog(QDialog):
         head_buttons.addWidget(self.decision_button)
         head_buttons.addStretch(1)
 
-        header_box = QGroupBox("Отклонение")
+        header_box = QGroupBox("Deviation")
         header_layout = QVBoxLayout(header_box)
         header_layout.addLayout(head_columns)
         header_layout.addLayout(decision_form)
@@ -225,9 +239,10 @@ class CardDialog(QDialog):
         self.findings.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.findings.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.findings.currentCellChanged.connect(lambda *_: self.refresh_precedents())
+        directional(self.findings, FINDING_NUMERIC_COLUMNS)
 
-        self.inspect_button = QPushButton(iso("Исследование…"))
-        self.map_button = QPushButton(iso("Привязать к канону…"))
+        self.inspect_button = QPushButton(iso("Inspection…"))
+        self.map_button = QPushButton(iso("Bind to canon…"))
         self.inspect_button.clicked.connect(self.open_inspection)
         self.map_button.clicked.connect(self.bind_canon)
 
@@ -236,7 +251,9 @@ class CardDialog(QDialog):
         finding_buttons.addWidget(self.map_button)
         finding_buttons.addStretch(1)
 
-        findings_box = QGroupBox("Находки — выберите размер, прецеденты ищутся по нему")
+        findings_box = QGroupBox(
+            "Findings — pick a characteristic; precedents are searched by it"
+        )
         findings_layout = QVBoxLayout(findings_box)
         findings_layout.addWidget(self.findings, 1)
         findings_layout.addLayout(finding_buttons)
@@ -262,7 +279,7 @@ class CardDialog(QDialog):
         self.same_position_title = QLabel()
         self.position_hint = QLabel(UNBOUND_HINT)
         self.position_hint.setWordWrap(True)
-        self.position_hint_button = QPushButton(iso("Привязать к канону…"))
+        self.position_hint_button = QPushButton(iso("Bind to canon…"))
         self.position_hint_button.clicked.connect(self.bind_canon)
         hint_row = QHBoxLayout()
         hint_row.addWidget(self.position_hint, 1)
@@ -286,10 +303,10 @@ class CardDialog(QDialog):
         similar_layout.addWidget(self.descriptive, 1)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(exact, "Точные (L1)")
-        self.tabs.addTab(similar, "Похожие (L2)")
+        self.tabs.addTab(exact, "Exact precedents (L1)")
+        self.tabs.addTab(similar, "Descriptive precedents (L2)")
 
-        self.open_button = QPushButton(iso("Открыть прецедент…"))
+        self.open_button = QPushButton(iso("Open precedent…"))
         self.open_button.clicked.connect(lambda: self.open_precedent())
         self.status = QLabel()
         self.status.setWordWrap(True)
@@ -322,7 +339,7 @@ class CardDialog(QDialog):
         with session_scope(self._engine) as session:
             deviation = session.get(Deviation, self._deviation_id)
             self.setWindowTitle(
-                f"Карточка отклонения — {deviation.dev_number} · {deviation.item.item_number}"
+                f"Deviation card — {deviation.dev_number} · {deviation.item.item_number}"
             )
             self.number.setText(iso(deviation.dev_number))
             self.item_label.setText(iso(deviation.item.item_number))
@@ -421,16 +438,16 @@ class CardDialog(QDialog):
 
         self.same_dimension.fill(same_dimension)
         self.same_dimension_title.setText(
-            iso(f"Эта деталь, тот же размер №{local_number} ({len(same_dimension)})")
+            iso(f"Same item, same characteristic no. {local_number} ({len(same_dimension)})")
         )
 
         self.same_position.fill(same_position)
         self.position_hint_box.setVisible(not bound)
         self.same_position.setVisible(bound)
         self.same_position_title.setText(
-            iso(f"Другие детали, та же позиция {position_label} ({len(same_position)})")
+            iso(f"Other items, same position {position_label} ({len(same_position)})")
             if bound
-            else "Другие детали, та же позиция"
+            else "Other items, same position"
         )
 
         self.descriptive.fill(descriptive)
@@ -447,8 +464,8 @@ class CardDialog(QDialog):
         self._first_render = False
 
         self.status.setText(
-            f"Точных совпадений: {exact_total} · похожих: {len(descriptive)}. "
-            "В выдачу входят только отклонения с внесённым решением."
+            f"Exact matches: {exact_total} · descriptive: {len(descriptive)}. "
+            "Only deviations that already carry a decision are listed."
         )
 
     def _refresh_buttons(self, finding_id: int | None) -> None:
@@ -533,12 +550,12 @@ class CardDialog(QDialog):
         source = table if isinstance(table, PrecedentTable) else self._current_table()
         deviation_id = source.selected_deviation() if source else None
         if deviation_id is None:
-            self.status.setText("Сначала выберите прецедент в таблице.")
+            self.status.setText("Select a precedent row in the table first.")
             return
         try:
             CardDialog.run(self._engine, deviation_id, self)
         except Exception as error:  # pragma: no cover - защита от битой ссылки
-            show_error(self, error, title="Прецедент не открыт")
+            show_error(self, error, title="Precedent not opened")
 
     def _current_table(self) -> PrecedentTable | None:
         """Таблица для кнопки: последняя, где меняли выбор, в пределах вкладки."""

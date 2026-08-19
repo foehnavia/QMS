@@ -34,9 +34,9 @@ from domain.errors import ValidationError
 from domain.reference import list_values
 
 from .cg_dialog import parse_optional_number
-from .common import iso, russian_buttons, show_error
+from .common import bind_direction, iso, show_error
 
-NOT_SET = "— не задано —"
+NOT_SET = "— not set —"
 
 #: Что показывать в колонке «канон» и в подсказке диалога.
 #:
@@ -44,8 +44,8 @@ NOT_SET = "— не задано —"
 #: g-позицию, которой у детали **нет**, а находка всегда про размер, который у
 #: детали **есть** — он же и отклонился. Расхождение с описанием колонки в
 #: наряде вынесено в отчёт исполнителя.
-CANON_UNBOUND = "не привязан"
-CANON_NEW = "размер ещё не заведён"
+CANON_UNBOUND = "not bound"
+CANON_NEW = "not created yet"
 
 
 @dataclass
@@ -84,23 +84,25 @@ class FindingDialog(QDialog):
         self._item_id = item_id
         self._source = row
         self.row: FindingRow | None = None
-        self.setWindowTitle("Находка — отклонение по размеру")
+        self.setWindowTitle("Finding — deviation on a characteristic")
 
         self.number_edit = QLineEdit()
-        self.number_edit.setPlaceholderText("номер размера по чертежу детали, например 12")
+        self.number_edit.setPlaceholderText("local number from the item drawing, e.g. 12")
         self.number_edit.textChanged.connect(self._refresh_canon)
 
         # Умолчания у направления нет: оператор выбирает знак осознанно (заметка Б).
-        self.plus = QRadioButton(iso("+  выше максимума"))
-        self.minus = QRadioButton(iso("−  ниже минимума"))
+        self.plus = QRadioButton(iso("+  above maximum"))
+        self.minus = QRadioButton(iso("−  below minimum"))
 
         self.value_edit = QLineEdit()
-        self.value_edit.setPlaceholderText("величина отклонения, например 0,08")
+        self.value_edit.setPlaceholderText("deviation value, e.g. 0,08")
         self.point_edit = QLineEdit()
-        self.point_edit.setPlaceholderText("индекс точки замера (в поиске не участвует)")
+        self.point_edit.setPlaceholderText("measurement point index (not used in search)")
         self.comment_edit = QPlainTextEdit()
-        self.comment_edit.setPlaceholderText("качественные признаки: GO / מדיד, пин…")
+        self.comment_edit.setPlaceholderText("qualitative marks: GO / מדיד, pin…")
         self.comment_edit.setFixedHeight(70)
+        # Свободный текст: чаще всего ивритский, направление — за содержимым.
+        bind_direction(self.comment_edit)
 
         self.zone = QComboBox()
         self.deviation_type = QComboBox()
@@ -111,7 +113,6 @@ class FindingDialog(QDialog):
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
-        russian_buttons(self.buttons)
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
@@ -122,14 +123,14 @@ class FindingDialog(QDialog):
         direction_box.setLayout(directions)
 
         form = QFormLayout()
-        form.addRow("Номер размера:", self.number_edit)
-        form.addRow("Привязка к канону:", self.canon_label)
-        form.addRow("Направление:", direction_box)
-        form.addRow("Величина:", self.value_edit)
-        form.addRow("Точка замера:", self.point_edit)
-        form.addRow("Зона:", self.zone)
-        form.addRow("Тип отклонения:", self.deviation_type)
-        form.addRow("Комментарий:", self.comment_edit)
+        form.addRow("Local number:", self.number_edit)
+        form.addRow("Canon mapping:", self.canon_label)
+        form.addRow("Direction:", direction_box)
+        form.addRow("Value:", self.value_edit)
+        form.addRow("Measurement point:", self.point_edit)
+        form.addRow("Zone:", self.zone)
+        form.addRow("Deviation type:", self.deviation_type)
+        form.addRow("Comment:", self.comment_edit)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
@@ -164,7 +165,8 @@ class FindingDialog(QDialog):
         if row.finding_id is not None:
             self.number_edit.setReadOnly(True)
             self.number_edit.setToolTip(
-                "Размер находки не меняется: другой размер — другая находка."
+                "The characteristic of a finding does not change: "
+                "another characteristic means another finding."
             )
         self.plus.setChecked(row.direction == Direction.PLUS)
         self.minus.setChecked(row.direction == Direction.MINUS)
@@ -184,16 +186,17 @@ class FindingDialog(QDialog):
         try:
             local_number = self.number_edit.text().strip()
             if not local_number:
-                raise ValidationError("Номер размера обязателен.")
+                raise ValidationError("Local number is required.")
             if not (self.plus.isChecked() or self.minus.isChecked()):
                 raise ValidationError(
-                    "Направление обязательно: знак берётся из слова max/min источника."
+                    "Direction is required: the sign comes from the max/min wording "
+                    "of the source."
                 )
 
             row = FindingRow(
                 local_number=local_number,
                 direction=Direction.PLUS if self.plus.isChecked() else Direction.MINUS,
-                value=parse_optional_number(self.value_edit.text(), "Величина"),
+                value=parse_optional_number(self.value_edit.text(), "Value"),
                 dimension_point=_parse_point(self.point_edit.text()),
                 comment=self.comment_edit.toPlainText().strip() or None,
                 zone_id=self.zone.currentData(),
@@ -204,7 +207,7 @@ class FindingDialog(QDialog):
                 inspections=self._source.inspections if self._source else 0,
             )
         except Exception as error:
-            show_error(self, error, title="Находка не принята")
+            show_error(self, error, title="Finding not accepted")
             return
 
         row.canon = canon_state(self._engine, self._item_id, row.local_number)
@@ -244,7 +247,7 @@ def _parse_point(text: str) -> int | None:
     if not cleaned:
         return None
     if not cleaned.isdigit():
-        raise ValidationError(f"Точка замера: «{cleaned}» — не целое число.")
+        raise ValidationError(f"Measurement point: “{cleaned}” is not a whole number.")
     return int(cleaned)
 
 

@@ -34,9 +34,9 @@ from db.models import DECISION_DEV, Deviation
 from db.session import session_scope
 from domain.deviations import set_decision
 
-from .common import DECISION_DEV_LABELS, iso, ltr_field, russian_buttons, show_error
+from .common import DECISION_DEV_LABELS, bind_direction, joined, numeric_field, show_error
 
-NOT_DECIDED = "— решение не принято —"
+NOT_DECIDED = "— no decision yet —"
 
 
 class DecisionDialog(QDialog):
@@ -46,7 +46,7 @@ class DecisionDialog(QDialog):
         super().__init__(parent)
         self._engine = engine
         self._deviation_id = deviation_id
-        self.setWindowTitle("Решение по отклонению")
+        self.setWindowTitle("Deviation decision")
         self.resize(560, 420)
 
         self.decision = QComboBox()
@@ -59,11 +59,13 @@ class DecisionDialog(QDialog):
 
         self.explanation = QPlainTextEdit()
         self.explanation.setPlaceholderText(
-            "обоснование — на одобрении уходит в אישור חריגה"
+            "explanation — on approval it goes into אישור חריגה"
         )
+        # Обоснование пишут и на иврите, и по-английски: направление за текстом.
+        bind_direction(self.explanation)
         self.ncr = QLineEdit()
-        self.ncr.setPlaceholderText("номер NCR (может прийти позже решения)")
-        self.decision_date = ltr_field(QDateEdit())
+        self.ncr.setPlaceholderText("NCR number (may arrive after the decision)")
+        self.decision_date = numeric_field(QDateEdit())
         self.decision_date.setCalendarPopup(True)
         self.decision_date.setDisplayFormat("dd.MM.yyyy")
 
@@ -74,16 +76,15 @@ class DecisionDialog(QDialog):
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
-        russian_buttons(self.buttons)
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
         form = QFormLayout()
-        form.addRow("Отклонение:", self.header)
-        form.addRow("Исход:", self.decision)
-        form.addRow("Обоснование:", self.explanation)
+        form.addRow("Deviation:", self.header)
+        form.addRow("Outcome:", self.decision)
+        form.addRow("Explanation:", self.explanation)
         form.addRow("NCR:", self.ncr)
-        form.addRow("Дата решения:", self.decision_date)
+        form.addRow("Decision date:", self.decision_date)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
@@ -102,7 +103,11 @@ class DecisionDialog(QDialog):
         with session_scope(self._engine) as session:
             deviation = session.get(Deviation, self._deviation_id)
             self.header.setText(
-                iso(f"{deviation.dev_number} · {deviation.item.item_number} · WO {deviation.wo}")
+                joined(
+                    deviation.dev_number,
+                    deviation.item.item_number,
+                    f"WO {deviation.wo}",
+                )
             )
             index = self.decision.findData(deviation.decision_dev)
             self.decision.setCurrentIndex(index if index >= 0 else 0)
@@ -116,11 +121,12 @@ class DecisionDialog(QDialog):
         """Правило одобрения показываем до нажатия, а не только в ошибке."""
         if self.decision.currentData() == "approved":
             self.hint.setText(
-                "Одобрение требует обоснования: текст уходит в אישור חריגה (DS-QC.2-2)."
+                "Approval requires an explanation: the text goes into "
+                "אישור חריגה (DS-QC.2-2)."
             )
         else:
             self.hint.setText(
-                "Вердикт исследования на исход не влияет — решение принимает инженер."
+                "The inspection verdict does not drive the outcome — the engineer decides."
             )
 
     def save(self) -> None:
@@ -129,7 +135,7 @@ class DecisionDialog(QDialog):
             show_error(
                 self,
                 _not_chosen(),
-                title="Решение не внесено",
+                title="Decision not saved",
             )
             return
 
@@ -146,7 +152,7 @@ class DecisionDialog(QDialog):
                     decision_date=_stamp(chosen),
                 )
         except Exception as error:
-            show_error(self, error, title="Решение не внесено")
+            show_error(self, error, title="Decision not saved")
             return
         self.accept()
 
@@ -166,4 +172,4 @@ def _stamp(chosen: QDate) -> datetime:
 def _not_chosen() -> Exception:
     from domain.errors import ValidationError
 
-    return ValidationError("Выберите исход из списка — это и есть решение.")
+    return ValidationError("Pick an outcome from the list — that is the decision.")

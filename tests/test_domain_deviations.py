@@ -56,7 +56,7 @@ def test_registration_creates_a_numbered_deviation_without_a_decision(
 def test_registration_refuses_empty_wo(seeded_session: Session) -> None:
     with pytest.raises(ValidationError) as excinfo:
         _register(seeded_session, _item(seeded_session), wo="   ")
-    assert "WO" in str(excinfo.value)
+    assert "Work order" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("quantity", [0, -3])
@@ -77,7 +77,7 @@ def test_registration_refuses_a_future_date(seeded_session: Session) -> None:
     tomorrow = datetime.now().date() + timedelta(days=1)
     with pytest.raises(ValidationError) as excinfo:
         _register(seeded_session, _item(seeded_session), date=tomorrow)
-    assert "будущем" in str(excinfo.value)
+    assert "in the future" in str(excinfo.value)
 
 
 def test_registration_refuses_a_deviation_without_an_item(seeded_session: Session) -> None:

@@ -35,11 +35,11 @@ def create_item(
     """Создать деталь. `connection_type`/`size` обязательны (дефолт — `General`)."""
     item_number = (item_number or "").strip()
     if not item_number:
-        raise ValidationError("Номер детали обязателен.")
+        raise ValidationError("Item number is required.")
     if connection_type is None or size is None:
-        raise ValidationError("Тип соединения и размерный класс обязательны.")
+        raise ValidationError("Connection type and size class are required.")
     if session.scalar(select(Item).where(Item.item_number == item_number)):
-        raise DuplicateValue(f"Деталь «{item_number}» уже есть в базе.")
+        raise DuplicateValue(f"Item “{item_number}” already exists in the database.")
 
     item = Item(
         item_number=item_number,
@@ -74,18 +74,18 @@ def seed_cg_characteristics(
         local = (numbers.get(position.g_index) or "").strip()
         if not local:
             raise ValidationError(
-                f"Не задан номер размера для позиции g{position.g_index}."
+                f"No local number given for position g{position.g_index}."
             )
         cleaned[position.g_index] = local
 
     if len(set(cleaned.values())) != len(cleaned):
-        raise DuplicateValue("Номера размеров внутри детали не должны повторяться.")
+        raise DuplicateValue("Local numbers inside one item must not repeat.")
 
     existing = {char.local_number for char in item.characteristics}
     clash = existing & set(cleaned.values())
     if clash:
         raise DuplicateValue(
-            f"У детали уже есть размеры с номерами: {', '.join(sorted(clash))}."
+            f"The item already has characteristics numbered: {', '.join(sorted(clash))}."
         )
 
     created: list[Characteristic] = []

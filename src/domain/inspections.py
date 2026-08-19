@@ -36,7 +36,7 @@ def create_inspection(
 ) -> Inspection:
     """Завести исследование на находке; отклонение выводится из неё."""
     if finding is None:
-        raise ValidationError("Исследование заводится на находке — находка обязательна.")
+        raise ValidationError("An inspection is created on a finding — the finding is required.")
 
     _check_type(inspection_type)
     _check_verdict(decision_insp)
@@ -119,14 +119,14 @@ def inspections_for(
 def _check_type(inspection_type) -> None:
     if inspection_type is None:
         raise ValidationError(
-            "Вид исследования обязателен — выберите значение из справочника."
+            "Inspection type is required — pick a value from the reference list."
         )
 
 
 def _check_verdict(decision_insp: str) -> None:
     if decision_insp not in DECISION_INSP:
         raise ValidationError(
-            f"Вердикт исследования должен быть одним из: {', '.join(DECISION_INSP)}."
+            f"The inspection verdict must be one of: {', '.join(DECISION_INSP)}."
         )
 
 
@@ -134,7 +134,7 @@ def _check_protocol(protocol: str) -> str:
     cleaned = (protocol or "").strip()
     if not cleaned:
         raise ValidationError(
-            "Протокол обязателен: исследование заводится только когда есть "
-            "письменный переиспользуемый анализ."
+            "Protocol is required: an inspection is recorded only when a written, "
+            "reusable analysis exists."
         )
     return cleaned

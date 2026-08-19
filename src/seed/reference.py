@@ -61,5 +61,5 @@ def ref(session: Session, model: type, name: str):
     """
     obj = session.scalar(select(model).where(model.name == name))
     if obj is None:
-        raise KeyError(f"{model.__tablename__}: нет значения {name!r}")
+        raise KeyError(f"{model.__tablename__}: no value {name!r}")
     return obj

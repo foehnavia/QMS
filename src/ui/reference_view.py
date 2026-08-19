@@ -2,6 +2,10 @@
 
 Защиты (`domain.reference`) поднимаются сюда сообщением, а не отказом молча:
 занятое по FK значение и структурный дефолт `General` остаются на месте.
+
+Наряд 0007 закрывает здесь находки прогона В-1…В-4: подпись справочника стоит
+рядом со своим полем, подсказка изолирована и **зависит от выбранного словаря**,
+а воздух между списком и подсказкой распределён.
 """
 
 from __future__ import annotations
@@ -9,6 +13,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QFormLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -24,6 +29,7 @@ from sqlalchemy import Engine
 from db.models import REFERENCE_MODELS
 from db.session import session_scope
 from domain.reference import (
+    PROTECTED_NAMES,
     REFERENCE_TITLES,
     add_value,
     delete_value,
@@ -33,7 +39,16 @@ from domain.reference import (
     usage_count,
 )
 
-from .common import iso, show_error
+from .common import directional, iso, show_error
+
+#: Общая часть подсказки — верна для всех шести словарей.
+IN_USE_HINT = "A value referenced by records cannot be deleted."
+
+#: Про `General` говорим **только там, где он есть** (находка прогона В-3):
+#: на «Item type» структурного дефолта нет, и текст был не про этот экран.
+GENERAL_HINT = (
+    "“General” is a structural default: it is neither renamed nor deleted. "
+)
 
 
 class ReferenceView(QWidget):
@@ -49,12 +64,15 @@ class ReferenceView(QWidget):
         self.picker.currentIndexChanged.connect(self.reload)
 
         self.values = QListWidget()
+        # Значения справочников бывают ивритскими: направление строки — по её
+        # содержимому, а не по окну (наряд 0007, §4а).
+        directional(self.values)
         self.hint = QLabel()
         self.hint.setWordWrap(True)
 
-        self.add_button = QPushButton(iso("Добавить…"))
-        self.rename_button = QPushButton(iso("Переименовать…"))
-        self.delete_button = QPushButton("Удалить")
+        self.add_button = QPushButton(iso("Add…"))
+        self.rename_button = QPushButton(iso("Rename…"))
+        self.delete_button = QPushButton("Delete")
         self.add_button.clicked.connect(self.add)
         self.rename_button.clicked.connect(self.rename)
         self.delete_button.clicked.connect(self.delete)
@@ -65,12 +83,20 @@ class ReferenceView(QWidget):
         buttons.addWidget(self.delete_button)
         buttons.addStretch(1)
 
+        # Подпись и её поле — одной строкой формы (находка прогона В-1): раньше
+        # подпись стояла отдельным виджетом над списком и прижималась к одному
+        # краю, а поле — к другому.
+        picker_form = QFormLayout()
+        picker_form.addRow("Reference list:", self.picker)
+
+        # Подсказка идёт сразу за списком, кнопки — внизу (находка прогона В-4):
+        # прежде подсказка была прижата к нижнему краю через ряд кнопок, и взгляд
+        # шёл к ней через пустое поле.
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Справочник:"))
-        layout.addWidget(self.picker)
+        layout.addLayout(picker_form)
         layout.addWidget(self.values, 1)
-        layout.addLayout(buttons)
         layout.addWidget(self.hint)
+        layout.addLayout(buttons)
 
         self.reload()
 
@@ -92,23 +118,29 @@ class ReferenceView(QWidget):
 
                 label = name
                 if protected:
-                    label += "  · дефолт"
+                    label += "  · default"
                 if used:
-                    label += f"  · ссылок: {used}"
+                    label += f"  · references: {used}"
 
                 item = QListWidgetItem(label)
                 item.setData(Qt.ItemDataRole.UserRole, name)
                 self.values.addItem(item)
 
-        self.hint.setText(
-            "«General» — структурный дефолт: не переименовывается и не удаляется. "
-            "Значение, на которое ссылаются записи, удалить нельзя."
-        )
+        self.hint.setText(iso(self._hint_for(model)))
+
+    @staticmethod
+    def _hint_for(model: type) -> str:
+        """Текст подсказки под выбранный словарь, а не «вообще»."""
+        if PROTECTED_NAMES.get(model):
+            return GENERAL_HINT + IN_USE_HINT
+        return IN_USE_HINT
 
     def _selected_name(self) -> str | None:
         item = self.values.currentItem()
         if item is None:
-            QMessageBox.information(self, "Не выбрано", "Сначала выберите значение в списке.")
+            QMessageBox.information(
+                self, "Nothing selected", "Select a value in the list first."
+            )
             return None
         return item.data(Qt.ItemDataRole.UserRole)
 
@@ -116,7 +148,7 @@ class ReferenceView(QWidget):
 
     def add(self) -> None:
         name, accepted = QInputDialog.getText(
-            self, "Новое значение", f"{REFERENCE_TITLES[self.model]} — название:"
+            self, "New value", f"{REFERENCE_TITLES[self.model]} — name:"
         )
         if not accepted:
             return
@@ -132,9 +164,7 @@ class ReferenceView(QWidget):
         current = self._selected_name()
         if current is None:
             return
-        name, accepted = QInputDialog.getText(
-            self, "Переименовать", "Новое название:", text=current
-        )
+        name, accepted = QInputDialog.getText(self, "Rename", "New name:", text=current)
         if not accepted:
             return
         try:
@@ -151,7 +181,7 @@ class ReferenceView(QWidget):
         if current is None:
             return
         confirmed = QMessageBox.question(
-            self, "Удалить значение", f"Удалить «{current}» из справочника?"
+            self, "Delete value", f"Delete “{current}” from this reference list?"
         )
         if confirmed != QMessageBox.StandardButton.Yes:
             return
@@ -160,7 +190,7 @@ class ReferenceView(QWidget):
                 value = self._fetch(session, current)
                 delete_value(session, self.model, value)
         except Exception as error:
-            show_error(self, error, title="Не удалено")
+            show_error(self, error, title="Not deleted")
             return
         self.reload()
 

@@ -23,11 +23,11 @@ from domain.items import list_items
 
 from .cg_dialog import CgDialog
 from .cg_editor import CgEditor
-from .common import iso
+from .common import directional, iso
 from .mapping_dialog import MappingDialog
 from .pickers import pick_item
 
-COLUMNS = ("Группа", "Позиций", "Чертёж")
+COLUMNS = ("Group", "Positions", "Drawing")
 
 
 class CgView(QWidget):
@@ -40,10 +40,11 @@ class CgView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.doubleClicked.connect(self.open_editor)
+        directional(self.table, numeric_columns=(1,))
 
-        self.create_button = QPushButton(iso("Создать…"))
-        self.editor_button = QPushButton(iso("Редактор…"))
-        self.bind_button = QPushButton(iso("Привязать деталь…"))
+        self.create_button = QPushButton(iso("Create…"))
+        self.editor_button = QPushButton(iso("Editor…"))
+        self.bind_button = QPushButton(iso("Bind item…"))
         self.create_button.clicked.connect(self.create_group)
         self.editor_button.clicked.connect(self.open_editor)
         self.bind_button.clicked.connect(self.bind_item)
@@ -76,14 +77,14 @@ class CgView(QWidget):
             first.setData(Qt.ItemDataRole.UserRole, cg_id)
             self.table.setItem(row, 0, first)
             self.table.setItem(row, 1, QTableWidgetItem(str(positions)))
-            self.table.setItem(row, 2, QTableWidgetItem("есть" if has_drawing else "—"))
+            self.table.setItem(row, 2, QTableWidgetItem("yes" if has_drawing else "—"))
 
-        self.status.setText(f"Групп в базе: {len(rows)}")
+        self.status.setText(f"Groups in the database: {len(rows)}")
 
     def _selected_cg_id(self) -> int | None:
         row = self.table.currentRow()
         if row < 0:
-            QMessageBox.information(self, "Не выбрано", "Сначала выберите группу в списке.")
+            QMessageBox.information(self, "Nothing selected", "Select a group in the list first.")
             return None
         return self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
 
@@ -108,7 +109,7 @@ class CgView(QWidget):
             items = [(item.item_id, item.item_number) for item in list_items(session)]
         if not items:
             QMessageBox.information(
-                self, "Нет деталей", "Сначала заведите деталь в разделе «Детали»."
+                self, "No items", "Create an item first — section “Items”."
             )
             return
 

@@ -48,9 +48,9 @@ def test_main_window_builds(seeded_engine, qt_app: QApplication) -> None:
     window.close()
 
 
-def test_application_is_right_to_left(qt_app: QApplication) -> None:
-    """RTL из коробки — иврит основной язык данных."""
-    assert qt_app.layoutDirection() == Qt.LayoutDirection.RightToLeft
+def test_application_shell_is_left_to_right(qt_app: QApplication) -> None:
+    """Шасси окна — LTR (наряд 0007): направление данных живёт в ячейке."""
+    assert qt_app.layoutDirection() == Qt.LayoutDirection.LeftToRight
 
 
 def test_reference_view_lists_all_six_dictionaries(seeded_engine) -> None:
@@ -63,7 +63,7 @@ def test_reference_view_lists_all_six_dictionaries(seeded_engine) -> None:
         names.append([view.values.item(row).text() for row in range(view.values.count())])
 
     flat = [label for group in names for label in group]
-    assert any("General" in label and "дефолт" in label for label in flat)
+    assert any("General" in label and "default" in label for label in flat)
 
 
 def test_item_dialog_preselects_general(seeded_engine) -> None:

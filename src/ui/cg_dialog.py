@@ -26,9 +26,9 @@ from db.session import session_scope
 from domain.errors import ValidationError
 from domain.groups import GPositionSpec, create_group
 
-from .common import russian_buttons, show_error, strip_iso
+from .common import directional, show_error, strip_iso
 
-COLUMNS = ("g-позиция", "Номинал", "Допуск +", "Допуск −")
+COLUMNS = ("g-position", "Nominal", "Tolerance +", "Tolerance −")
 
 
 def parse_optional_number(text: str, field: str) -> float | None:
@@ -39,7 +39,7 @@ def parse_optional_number(text: str, field: str) -> float | None:
     try:
         return float(cleaned)
     except ValueError:
-        raise ValidationError(f"{field}: «{cleaned}» — не число.") from None
+        raise ValidationError(f"{field}: “{cleaned}” is not a number.") from None
 
 
 class CgDialog(QDialog):
@@ -49,17 +49,19 @@ class CgDialog(QDialog):
         super().__init__(parent)
         self._engine = engine
         self.created_name: str | None = None
-        self.setWindowTitle("Новая группа характеристик")
+        self.setWindowTitle("New characteristic group")
 
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("например Implant_Con_375_C1")
+        self.name_edit.setPlaceholderText("e.g. Implant_Con_375_C1")
 
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # Вся таблица числовая: индекс, номинал и оба допуска.
+        directional(self.table, numeric_columns=(0, 1, 2, 3))
 
-        add_row = QPushButton("Добавить позицию")
-        drop_row = QPushButton("Убрать позицию")
+        add_row = QPushButton("Add position")
+        drop_row = QPushButton("Remove position")
         add_row.clicked.connect(self.add_row)
         drop_row.clicked.connect(self.drop_row)
 
@@ -71,16 +73,15 @@ class CgDialog(QDialog):
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
-        russian_buttons(self.buttons)
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
         form = QFormLayout()
-        form.addRow("Название группы:", self.name_edit)
+        form.addRow("Group name:", self.name_edit)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
-        layout.addWidget(QLabel("Канонические позиции (номинал и допуск — с чертежа):"))
+        layout.addWidget(QLabel("Canonical positions (nominal and tolerance come from the drawing):"))
         layout.addWidget(self.table, 1)
         layout.addLayout(row_buttons)
         layout.addWidget(self.buttons)
@@ -107,9 +108,9 @@ class CgDialog(QDialog):
         for row in range(self.table.rowCount()):
             raw_index = (self.table.item(row, 0).text() if self.table.item(row, 0) else "").strip()
             if not raw_index:
-                raise ValidationError(f"Строка {row + 1}: не задан индекс g-позиции.")
+                raise ValidationError(f"Row {row + 1}: no g-position index given.")
             if not raw_index.isdigit():
-                raise ValidationError(f"Строка {row + 1}: индекс «{raw_index}» — не целое число.")
+                raise ValidationError(f"Row {row + 1}: index “{raw_index}” is not a whole number.")
 
             def cell(column: int) -> str:
                 item = self.table.item(row, column)
@@ -118,9 +119,9 @@ class CgDialog(QDialog):
             specs.append(
                 GPositionSpec(
                     g_index=int(raw_index),
-                    nominal=parse_optional_number(cell(1), f"Строка {row + 1}, номинал"),
-                    tol_plus=parse_optional_number(cell(2), f"Строка {row + 1}, допуск +"),
-                    tol_minus=parse_optional_number(cell(3), f"Строка {row + 1}, допуск −"),
+                    nominal=parse_optional_number(cell(1), f"Row {row + 1}, nominal"),
+                    tol_plus=parse_optional_number(cell(2), f"Row {row + 1}, tolerance +"),
+                    tol_minus=parse_optional_number(cell(3), f"Row {row + 1}, tolerance −"),
                 )
             )
         return specs
@@ -132,6 +133,6 @@ class CgDialog(QDialog):
                 group = create_group(session, self.name_edit.text(), specs)
                 self.created_name = group.name
         except Exception as error:
-            show_error(self, error, title="Группа не создана")
+            show_error(self, error, title="Group not created")
             return
         self.accept()

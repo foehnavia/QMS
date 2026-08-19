@@ -27,7 +27,7 @@ def get_or_create_characteristic(
     """
     local_number = (local_number or "").strip()
     if not local_number:
-        raise ValidationError("Номер размера обязателен.")
+        raise ValidationError("Local number is required.")
 
     existing = session.scalar(
         select(Characteristic)

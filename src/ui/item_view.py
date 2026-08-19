@@ -24,12 +24,12 @@ from sqlalchemy import Engine
 from db.session import session_scope
 from domain.items import groups_of, list_items
 
-from .common import iso
+from .common import directional, iso
 from .item_dialog import ItemDialog
 from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
 
-COLUMNS = ("Номер детали", "Тип", "Соединение", "Размерный класс", "Размеров", "Группы")
+COLUMNS = ("Item number", "Item type", "Connection", "Size class", "Characteristics", "Groups")
 
 
 class ItemView(QWidget):
@@ -41,10 +41,12 @@ class ItemView(QWidget):
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        # Число размеров — колонка счётчика: направление ей задаём явно.
+        directional(self.table, numeric_columns=(4,))
 
-        self.add_button = QPushButton(iso("Добавить деталь…"))
+        self.add_button = QPushButton(iso("Add item…"))
         self.add_button.clicked.connect(self.add_item)
-        self.map_button = QPushButton(iso("Привязка к канону…"))
+        self.map_button = QPushButton(iso("Bind to canon…"))
         self.map_button.clicked.connect(self.map_item)
         self.status = QLabel()
 
@@ -83,7 +85,7 @@ class ItemView(QWidget):
                     cell.setData(Qt.ItemDataRole.UserRole, item_id)
                 self.table.setItem(row, column, cell)
 
-        self.status.setText(f"Деталей в базе: {len(rows)}")
+        self.status.setText(f"Items in the database: {len(rows)}")
 
     def add_item(self) -> None:
         dialog = ItemDialog(self._engine, self)
@@ -94,7 +96,7 @@ class ItemView(QWidget):
         """Привязка размеров выбранной детали к канону — тот же диалог, что и в CG."""
         row = self.table.currentRow()
         if row < 0:
-            QMessageBox.information(self, "Не выбрано", "Сначала выберите деталь в списке.")
+            QMessageBox.information(self, "Nothing selected", "Select an item in the list first.")
             return
         item_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
 

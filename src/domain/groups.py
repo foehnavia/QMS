@@ -52,17 +52,17 @@ def create_group(
     """Создать CG с набором g-позиций (R3 — можно прямо при заведении детали)."""
     name = (name or "").strip()
     if not name:
-        raise ValidationError("Название группы не может быть пустым.")
+        raise ValidationError("Group name cannot be empty.")
     if not positions:
-        raise ValidationError("У группы должна быть хотя бы одна g-позиция.")
+        raise ValidationError("A group must have at least one g-position.")
 
     indexes = [spec.g_index for spec in positions]
     if any(index < 1 for index in indexes):
-        raise ValidationError("Индекс g-позиции должен быть положительным.")
+        raise ValidationError("The g-position index must be positive.")
     if len(set(indexes)) != len(indexes):
-        raise DuplicateValue("Индексы g-позиций внутри группы не должны повторяться.")
+        raise DuplicateValue("The g-position indexes inside a group must not repeat.")
     if session.scalar(select(CharacteristicGroup).where(CharacteristicGroup.name == name)):
-        raise DuplicateValue(f"Группа «{name}» уже есть.")
+        raise DuplicateValue(f"Group “{name}” already exists.")
 
     group = CharacteristicGroup(name=name)
     group.positions = [_position_from_spec(spec) for spec in sorted(positions, key=_by_index)]
@@ -83,7 +83,7 @@ def _check_coordinate(value: float | None, axis: str) -> float | None:
     if value is None:
         return None
     if not 0.0 <= value <= 1.0:
-        raise ValidationError(f"Координата {axis} должна быть в диапазоне 0..1, получено {value}.")
+        raise ValidationError(f"Coordinate {axis} must be within 0..1, got {value}.")
     return float(value)
 
 
@@ -102,11 +102,11 @@ def update_group(session: Session, group: CharacteristicGroup, *, name: str) -> 
     """Переименовать группу."""
     name = (name or "").strip()
     if not name:
-        raise ValidationError("Название группы не может быть пустым.")
+        raise ValidationError("Group name cannot be empty.")
     if name != group.name and session.scalar(
         select(CharacteristicGroup).where(CharacteristicGroup.name == name)
     ):
-        raise DuplicateValue(f"Группа «{name}» уже есть.")
+        raise DuplicateValue(f"Group “{name}” already exists.")
     group.name = name
     session.flush()
     return group
@@ -115,9 +115,9 @@ def update_group(session: Session, group: CharacteristicGroup, *, name: str) -> 
 def add_position(session: Session, group: CharacteristicGroup, spec: GPositionSpec) -> GPosition:
     """Добавить g-позицию в существующую группу."""
     if spec.g_index < 1:
-        raise ValidationError("Индекс g-позиции должен быть положительным.")
+        raise ValidationError("The g-position index must be positive.")
     if any(position.g_index == spec.g_index for position in group.positions):
-        raise DuplicateValue(f"Позиция g{spec.g_index} в группе уже есть.")
+        raise DuplicateValue(f"Position g{spec.g_index} already exists in this group.")
 
     position = _position_from_spec(spec)
     position.cg = group
@@ -173,8 +173,8 @@ def remove_position(session: Session, position: GPosition) -> None:
     used = position_usage(session, position)
     if used:
         raise ValueInUse(
-            f"Позиция g{position.g_index} используется в {used} записях "
-            "(привязки размеров или отметки «нет у детали») — сначала снимите их."
+            f"Position g{position.g_index} is used by {used} records "
+            "(characteristic mappings or “absent from item” marks) — clear them first."
         )
     # Через коллекцию группы: `delete-orphan` удалит строку и уберёт позицию из
     # уже загруженного графа — иначе вызывающий код видит удалённую позицию.
@@ -209,11 +209,11 @@ def set_drawing(
 
     if len(data) > MAX_DRAWING_BYTES:
         raise ValidationError(
-            f"Чертёж больше {MAX_DRAWING_BYTES // (1024 * 1024)} МБ "
-            f"({len(data) / (1024 * 1024):.1f} МБ) — сожмите файл или уменьшите разрешение."
+            f"The drawing is larger than {MAX_DRAWING_BYTES // (1024 * 1024)} MB "
+            f"({len(data) / (1024 * 1024):.1f} MB) — compress it or lower the resolution."
         )
     if detect_image_format(data) is None:
-        raise ValidationError("Чертёж должен быть картинкой PNG или JPEG.")
+        raise ValidationError("The drawing must be a PNG or JPEG image.")
 
     group.drawing = data
     group.drawing_name = (name or "").strip() or None

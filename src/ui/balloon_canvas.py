@@ -158,7 +158,7 @@ class BalloonCanvas(QWidget):
             painter.drawRect(rect)
             painter.setPen(QColor("#9e9e9e"))
             painter.drawText(
-                rect, Qt.AlignmentFlag.AlignCenter, "Чертёж не загружен — баллоны в сетке"
+                rect, Qt.AlignmentFlag.AlignCenter, "No drawing loaded — balloons laid out in a grid"
             )
 
         font = QFont(painter.font())

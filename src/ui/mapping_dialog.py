@@ -36,14 +36,14 @@ from db.session import session_scope
 from domain.mappings import bind, binding_state, clear, is_complete, mark_absent
 
 from .balloon_canvas import MODE_SELECT, Balloon, BalloonCanvas
-from .common import iso, russian_buttons, show_error
+from .common import directional, iso, show_error
 
-COLUMNS = ("Позиция", "Состояние", "Номер размера")
+COLUMNS = ("Position", "State", "Local number")
 
 STATE_LABELS = {
-    "linked": "привязан",
-    "absent": "нет у детали (99)",
-    "none": "не рассмотрено",
+    "linked": "bound",
+    "absent": "absent from item (99)",
+    "none": "not decided",
 }
 
 
@@ -68,10 +68,11 @@ class MappingDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.currentCellChanged.connect(self._on_row)
+        directional(self.table, numeric_columns=(0,))
 
-        self.bind_button = QPushButton(iso("Указать номер размера…"))
-        self.absent_button = QPushButton("Нет у детали (99)")
-        self.clear_button = QPushButton("Очистить")
+        self.bind_button = QPushButton(iso("Set local number…"))
+        self.absent_button = QPushButton("Absent from item (99)")
+        self.clear_button = QPushButton("Clear")
         self.bind_button.clicked.connect(lambda: self._on_balloon(self._current_index()))
         self.absent_button.clicked.connect(self.mark_absent)
         self.clear_button.clicked.connect(self.clear_position)
@@ -82,12 +83,11 @@ class MappingDialog(QDialog):
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
-        russian_buttons(self.buttons)
         # Диалог пишет каждое действие в базу сразу, поэтому «Сохранить»/«Отмена»
         # врали бы: откатывать нечего. «Готово» лишь подтверждает, что все позиции
         # получили состояние (потому и включается по полноте), «Закрыть» — уход.
-        self.buttons.button(QDialogButtonBox.StandardButton.Save).setText("Готово")
-        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Закрыть")
+        self.buttons.button(QDialogButtonBox.StandardButton.Save).setText("Done")
+        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Close")
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
 
@@ -135,7 +135,7 @@ class MappingDialog(QDialog):
         with session_scope(self._engine) as session:
             item = session.get(Item, self._item_id)
             group = session.get(CharacteristicGroup, self._cg_id)
-            self.setWindowTitle(f"Привязка к канону — {item.item_number} · {group.name}")
+            self.setWindowTitle(f"Bind to canon — {item.item_number} · {group.name}")
             drawing = group.drawing
             self._states = binding_state(session, item, group)
 
@@ -163,9 +163,9 @@ class MappingDialog(QDialog):
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(complete)
         undecided = [f"g{s.g_index}" for s in self._states if not s.is_decided]
         self.status.setText(
-            "Все позиции получили состояние — можно сохранять."
+            "Every position has a state — the mapping can be finished."
             if complete
-            else "Ждут решения: " + ", ".join(iso(name) for name in undecided)
+            else "Awaiting a decision: " + ", ".join(iso(name) for name in undecided)
         )
 
     def _coordinates(self) -> list[tuple[float | None, float | None]]:
@@ -196,15 +196,15 @@ class MappingDialog(QDialog):
     def _on_balloon(self, g_index: int | None) -> None:
         """Клик по баллону — ввод локального номера размера (§4)."""
         if g_index is None:
-            self.status.setText("Сначала выберите позицию.")
+            self.status.setText("Select a position first.")
             return
         self._sync_row(g_index)
         state = self._state_of(g_index)
 
         number, accepted = QInputDialog.getText(
             self,
-            f"Позиция g{g_index}",
-            "Номер размера детали (с чертежа):",
+            f"Position g{g_index}",
+            "Item local number (from the drawing):",
             text=state.local_number or "",
         )
         if not accepted:
@@ -215,14 +215,14 @@ class MappingDialog(QDialog):
                 position = session.get(GPosition, state.g_position_id)
                 bind(session, item, position, number)
         except Exception as error:
-            show_error(self, error, title="Не привязано")
+            show_error(self, error, title="Not bound")
             return
         self.reload()
 
     def mark_absent(self) -> None:
         g_index = self._current_index()
         if g_index is None:
-            self.status.setText("Сначала выберите позицию.")
+            self.status.setText("Select a position first.")
             return
         state = self._state_of(g_index)
         try:
@@ -231,14 +231,14 @@ class MappingDialog(QDialog):
                 position = session.get(GPosition, state.g_position_id)
                 mark_absent(session, item, position)
         except Exception as error:
-            show_error(self, error, title="Не отмечено")
+            show_error(self, error, title="Not marked")
             return
         self.reload()
 
     def clear_position(self) -> None:
         g_index = self._current_index()
         if g_index is None:
-            self.status.setText("Сначала выберите позицию.")
+            self.status.setText("Select a position first.")
             return
         state = self._state_of(g_index)
         try:
@@ -247,7 +247,7 @@ class MappingDialog(QDialog):
                 position = session.get(GPosition, state.g_position_id)
                 clear(session, item, position)
         except Exception as error:
-            show_error(self, error, title="Не очищено")
+            show_error(self, error, title="Not cleared")
             return
         self.reload()
 

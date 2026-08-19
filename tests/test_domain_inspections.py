@@ -115,7 +115,7 @@ def test_empty_protocol_is_refused(seeded_session: Session) -> None:
             protocol="   ",
         )
 
-    assert "Протокол" in str(excinfo.value)
+    assert "Protocol" in str(excinfo.value)
 
 
 def test_missing_type_is_refused(seeded_session: Session) -> None:

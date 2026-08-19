@@ -51,12 +51,12 @@ PROTECTED_NAMES: dict[type, frozenset[str]] = {
 
 #: Человеческие имена справочников для UI и сообщений.
 REFERENCE_TITLES: dict[type, str] = {
-    RefItemType: "Тип детали",
-    RefConnectionType: "Тип соединения",
-    RefSize: "Размерный класс",
-    RefZone: "Зона",
-    RefDeviationType: "Тип отклонения",
-    RefInspectionType: "Тип исследования",
+    RefItemType: "Item type",
+    RefConnectionType: "Connection type",
+    RefSize: "Size class",
+    RefZone: "Zone",
+    RefDeviationType: "Deviation type",
+    RefInspectionType: "Inspection type",
 }
 
 
@@ -67,7 +67,7 @@ def _pk(model: type) -> InstrumentedAttribute:
 def _clean_name(name: str) -> str:
     cleaned = (name or "").strip()
     if not cleaned:
-        raise ValidationError("Название не может быть пустым.")
+        raise ValidationError("The name cannot be empty.")
     return cleaned
 
 
@@ -95,7 +95,7 @@ def add_value(session: Session, model: type, name: str):
     """Добавить значение. Дубль — понятной ошибкой, не `IntegrityError`."""
     name = _clean_name(name)
     if session.scalar(select(model).where(model.name == name)):
-        raise DuplicateValue(f"«{name}» уже есть в справочнике.")
+        raise DuplicateValue(f"“{name}” already exists in this reference list.")
     value = model(name=name)
     session.add(value)
     session.flush()
@@ -107,12 +107,12 @@ def rename_value(session: Session, model: type, value, new_name: str):
     new_name = _clean_name(new_name)
     if is_protected(model, value.name):
         raise ProtectedValue(
-            f"«{value.name}» — структурный дефолт справочника, переименовать нельзя."
+            f"“{value.name}” is a structural default of the reference list — cannot be renamed."
         )
     if new_name == value.name:
         return value
     if session.scalar(select(model).where(model.name == new_name)):
-        raise DuplicateValue(f"«{new_name}» уже есть в справочнике.")
+        raise DuplicateValue(f"“{new_name}” already exists in this reference list.")
     value.name = new_name
     session.flush()
     return value
@@ -121,11 +121,11 @@ def rename_value(session: Session, model: type, value, new_name: str):
 def delete_value(session: Session, model: type, value) -> None:
     """Удалить значение; занятое по FK и структурный дефолт — не удаляются."""
     if is_protected(model, value.name):
-        raise ProtectedValue(f"«{value.name}» — структурный дефолт справочника, удалить нельзя.")
+        raise ProtectedValue(f"“{value.name}” is a structural default of the reference list — cannot be deleted.")
     used = usage_count(session, model, value)
     if used:
         raise ValueInUse(
-            f"«{value.name}» используется в {used} записях — сначала переназначьте их."
+            f"“{value.name}” is used by {used} records — reassign them first."
         )
     session.delete(value)
     session.flush()

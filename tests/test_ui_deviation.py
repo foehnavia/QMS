@@ -78,12 +78,12 @@ def test_form_blocks_saving_until_an_item_and_a_finding_exist(engine_with_item) 
     save = dialog.buttons.button(QDialogButtonBox.StandardButton.Save)
 
     assert save.isEnabled() is False
-    assert "деталь" in dialog.status.text().lower()
+    assert "item" in dialog.status.text().lower()
 
     _fill_header(dialog)
     dialog._refresh()
     assert save.isEnabled() is False
-    assert "находку" in dialog.status.text()
+    assert "finding" in dialog.status.text()
 
     dialog._rows.append(_row())
     dialog._refresh()
@@ -127,7 +127,7 @@ def test_form_reports_a_domain_error_instead_of_an_integrity_error(
 
     dialog.save()
 
-    assert shown and "WO" in str(shown[0])
+    assert shown and "Work order" in str(shown[0])
     with session_scope(engine_with_item) as session:
         assert session.query(Deviation).count() == 0
 
@@ -215,7 +215,7 @@ def test_the_form_refuses_to_remove_the_last_finding(engine_with_item, monkeypat
 
     dialog.on_drop_finding()
 
-    assert dialog._rows and "хотя бы одна" in warned[0]
+    assert dialog._rows and "at least one finding" in warned[0]
 
 
 def test_the_form_refuses_a_duplicate_dimension(engine_with_item, monkeypatch) -> None:
@@ -320,7 +320,7 @@ def test_finding_dialog_demands_a_direction(engine_with_item, monkeypatch) -> No
     dialog.save()
 
     assert dialog.row is None
-    assert shown and "аправление" in str(shown[0])
+    assert shown and "Direction" in str(shown[0])
 
 
 def test_finding_dialog_collects_every_field(engine_with_item) -> None:
@@ -427,7 +427,7 @@ def test_decision_dialog_refuses_an_unset_outcome(engine_with_item, monkeypatch)
     dialog = DecisionDialog(engine_with_item, _register(engine_with_item))
     dialog.save()
 
-    assert shown and "исход" in str(shown[0]).lower()
+    assert shown and "outcome" in str(shown[0]).lower()
 
 
 def test_decision_dialog_lists_all_four_outcomes(engine_with_item) -> None:
@@ -462,7 +462,7 @@ def test_inspection_button_needs_a_saved_finding(engine_with_item) -> None:
     dialog.findings.setCurrentCell(0, 0)
 
     assert dialog.inspect.isEnabled() is False
-    assert "сохраните отклонение" in dialog.status.text()
+    assert "save the deviation first" in dialog.status.text()
 
     dialog.save()
     reopened = DeviationDialog(engine_with_item, _deviation_id(engine_with_item))
@@ -497,7 +497,7 @@ def test_inspection_dialog_refuses_an_empty_protocol(engine_with_item, monkeypat
     dialog.protocol.setText("   ")
     dialog.save()
 
-    assert shown and "Протокол" in str(shown[0])
+    assert shown and "Protocol" in str(shown[0])
     with session_scope(engine_with_item) as session:
         assert session.query(Inspection).count() == 0
 
@@ -544,7 +544,7 @@ def test_the_form_refuses_to_remove_a_studied_finding(engine_with_item, monkeypa
 
     dialog.on_drop_finding()
 
-    assert warned and "исследований: 1" in warned[0]
+    assert warned and "inspections: 1" in warned[0]
     assert len(dialog._rows) == 2
 
 
@@ -557,9 +557,9 @@ def test_view_lists_deviations_with_counts_and_decision(engine_with_item) -> Non
     view = DeviationView(engine_with_item)
 
     assert view.table.rowCount() == 1
-    assert view.table.item(0, 5).text() == "решение не принято"
+    assert view.table.item(0, 5).text() == "no decision yet"
     assert view.table.item(0, 6).text() == "1"
-    assert "без решения: 1" in view.status.text()
+    assert "undecided: 1" in view.status.text()
 
 
 def test_view_deletes_a_deviation_with_its_children(engine_with_item, monkeypatch) -> None:
@@ -588,7 +588,7 @@ def test_view_deletes_a_deviation_with_its_children(engine_with_item, monkeypatc
     view.delete_deviation()
 
     # Цену удаления показываем до, а не после.
-    assert "находок: 1" in asked[0] and "исследований: 1" in asked[0]
+    assert "findings: 1" in asked[0] and "inspections: 1" in asked[0]
     assert view.table.rowCount() == 0
     with session_scope(engine_with_item) as session:
         assert session.query(Finding).count() == 0
@@ -637,9 +637,10 @@ def _finding_id(engine, local_number: str = "12", extra: str | None = None) -> i
 def test_date_and_quantity_editors_are_left_to_right(engine_with_item) -> None:
     """Внутри QDateEdit текст рисует Qt — изолятом его не обернуть.
 
-    В RTL-окне `17.08.2026` показывалось как `2026.08.17`: числовые группы,
-    разделённые точками, переставляются алгоритмом bidi, и оператор читает
-    другую дату. Разворачиваем сами виджеты (`ui.common.ltr_field`).
+    Рядом с ивритской строкой `19.08.2026` показывалось как `2026.08.19`:
+    числовые группы, разделённые точками, переставляются алгоритмом bidi, и
+    оператор читает другую дату. Разворачиваем сами виджеты
+    (`ui.common.numeric_field`).
     """
     from PySide6.QtCore import Qt
 
@@ -732,7 +733,7 @@ def test_replacing_findings_keeps_the_inspection_guard(engine_with_item, monkeyp
     dialog.findings.setCurrentCell(studied, 0)
     dialog.on_drop_finding()
 
-    assert warned and "исследований: 1" in warned[0]
+    assert warned and "inspections: 1" in warned[0]
     assert len(dialog._rows) == 2
 
 
@@ -757,6 +758,6 @@ def test_saving_stays_blocked_when_the_last_finding_is_removed(engine_with_item)
     reopened._refresh()
 
     assert save.isEnabled() is False
-    assert "находку" in reopened.status.text()
+    assert "finding" in reopened.status.text()
     with session_scope(engine_with_item) as session:
         assert session.query(Finding).count() == 1

@@ -96,15 +96,15 @@ def bind(session: Session, item: Item, position: GPosition, local_number: str) -
         if existing.g_position_id == position.g_position_id:
             return existing
         raise InvariantViolation(
-            f"Размер №{characteristic.local_number} уже привязан к позиции "
-            f"g{existing.g_position.g_index}. Сначала очистите ту привязку."
+            f"Characteristic no. {characteristic.local_number} is already bound to position "
+            f"g{existing.g_position.g_index}. Clear that mapping first."
         )
 
     occupied = _mapping_for(session, item, position)
     if occupied is not None:
         raise DuplicateValue(
-            f"К позиции g{position.g_index} уже привязан размер "
-            f"№{occupied.characteristic.local_number} — на позицию идёт один размер."
+            f"Position g{position.g_index} already carries characteristic "
+            f"no. {occupied.characteristic.local_number} — one characteristic per position."
         )
 
     # Привязка отменяет прежнее «у детали этой позиции нет».

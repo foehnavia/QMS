@@ -67,21 +67,21 @@ def register(
     регистрацию нельзя было бы разложить на два шага.
     """
     if item is None:
-        raise ValidationError("Деталь обязательна: отклонение без детали не адресуемо.")
+        raise ValidationError("Item is required: a deviation without an item cannot be addressed.")
 
     wo = (wo or "").strip()
     if not wo:
-        raise ValidationError('Номер WO (פק"ע) обязателен.')
+        raise ValidationError('Work order number (פק"ע) is required.')
 
     if isinstance(quantity, bool) or not isinstance(quantity, int):
-        raise ValidationError("Количество должно быть целым числом.")
+        raise ValidationError("Quantity must be a whole number.")
     if quantity < 1:
-        raise ValidationError("Количество деталей в отклонении должно быть не меньше 1.")
+        raise ValidationError("Deviation quantity must be at least 1.")
 
     if date is None:
-        raise ValidationError("Дата отклонения обязательна.")
+        raise ValidationError("Deviation date is required.")
     if date > datetime.now().date():
-        raise ValidationError(f"Дата отклонения {date:%d.%m.%Y} — в будущем.")
+        raise ValidationError(f"Deviation date {date:%d.%m.%Y} is in the future.")
 
     # Номер берётся до создания объекта: он NOT NULL, и незаполненный Deviation
     # в сессии сорвал бы автофлаш перед SELECT счётчика (`db.ids`).
@@ -120,15 +120,15 @@ def update_registration(
     """
     wo = (wo or "").strip()
     if not wo:
-        raise ValidationError('Номер WO (פק"ע) обязателен.')
+        raise ValidationError('Work order number (פק"ע) is required.')
     if isinstance(quantity, bool) or not isinstance(quantity, int):
-        raise ValidationError("Количество должно быть целым числом.")
+        raise ValidationError("Quantity must be a whole number.")
     if quantity < 1:
-        raise ValidationError("Количество деталей в отклонении должно быть не меньше 1.")
+        raise ValidationError("Deviation quantity must be at least 1.")
     if date is None:
-        raise ValidationError("Дата отклонения обязательна.")
+        raise ValidationError("Deviation date is required.")
     if date > datetime.now().date():
-        raise ValidationError(f"Дата отклонения {date:%d.%m.%Y} — в будущем.")
+        raise ValidationError(f"Deviation date {date:%d.%m.%Y} is in the future.")
 
     deviation.wo = wo
     deviation.quantity = quantity
@@ -164,7 +164,7 @@ def set_decision(
     """
     if decision not in DECISION_DEV:
         raise ValidationError(
-            f"Неизвестный исход «{decision}»: допустимы {', '.join(DECISION_DEV)}."
+            f"Unknown decision “{decision}”: allowed values are {', '.join(DECISION_DEV)}."
         )
 
     explanation = (explanation or "").strip()
@@ -172,7 +172,7 @@ def set_decision(
     # обоснование уходит в `אישור חריגה` (DS-QC.2-2) и пустым быть не может.
     if decision == "approved" and not explanation:
         raise ValidationError(
-            "Одобрение требует обоснования: текст уходит в אישור חריגה."
+            "Approval requires an explanation: the text goes into אישור חריגה."
         )
 
     deviation.decision_dev = decision

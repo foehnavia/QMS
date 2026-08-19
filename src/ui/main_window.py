@@ -30,13 +30,13 @@ from .reference_view import ReferenceView
 #: самостоятельный раздел — показывать её пустой не от чего.
 #: «Поиск» — это конструктор произвольных запросов, Этап 1.5 (`Search.md` →
 #: deep search); S5 ищет только от отклонения, которое на руках.
-PLANNED_SECTIONS = (("Поиск", "S8"),)
+PLANNED_SECTIONS = (("Search", "S8"),)
 
 
 class MainWindow(QMainWindow):
     def __init__(self, engine: Engine) -> None:
         super().__init__()
-        self.setWindowTitle("MIS-QMS — база отклонений")
+        self.setWindowTitle("MIS-QMS — deviation database")
         self.resize(1000, 640)
 
         self.sections = QListWidget()
@@ -46,10 +46,10 @@ class MainWindow(QMainWindow):
         self.cg_view = CgView(engine)
         self.item_view = ItemView(engine)
         self.deviation_view = DeviationView(engine)
-        self._add_section("Справочники", self.reference_view)
-        self._add_section("Группы характеристик", self.cg_view)
-        self._add_section("Детали", self.item_view)
-        self._add_section("Отклонения", self.deviation_view)
+        self._add_section("Reference data", self.reference_view)
+        self._add_section("Characteristic groups", self.cg_view)
+        self._add_section("Items", self.item_view)
+        self._add_section("Deviations", self.deviation_view)
 
         for title, sprint in PLANNED_SECTIONS:
             item = QListWidgetItem(f"{title}  ({sprint})")
@@ -66,7 +66,7 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         self.setCentralWidget(splitter)
 
-        self.statusBar().addWidget(QLabel(f"База: {engine.url}"))
+        self.statusBar().addWidget(QLabel(f"Database: {engine.url}"))
 
     def _add_section(self, title: str, page: QWidget) -> None:
         self.sections.addItem(QListWidgetItem(title))

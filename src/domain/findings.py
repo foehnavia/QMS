@@ -24,8 +24,8 @@ def ensure_finding_target(deviation: Deviation, characteristic: Characteristic) 
     """Проверить, что размер принадлежит детали отклонения."""
     if characteristic.item_id != deviation.item_id:
         raise InvariantViolation(
-            f"Размер №{characteristic.local_number} принадлежит другой детали — "
-            f"находку к отклонению {deviation.dev_number} привязать нельзя."
+            f"Characteristic no. {characteristic.local_number} belongs to another item — "
+            f"it cannot carry a finding of deviation {deviation.dev_number}."
         )
 
 
@@ -45,7 +45,7 @@ def make_finding(
     ensure_finding_target(deviation, characteristic)
     if direction not in Direction.ALL:
         raise ValidationError(
-            f"Направление должно быть {Direction.PLUS} или {Direction.MINUS}."
+            f"Direction must be {Direction.PLUS} or {Direction.MINUS}."
         )
 
     finding = Finding(
@@ -85,7 +85,7 @@ def update_finding(
     """
     if direction not in Direction.ALL:
         raise ValidationError(
-            f"Направление должно быть {Direction.PLUS} или {Direction.MINUS}."
+            f"Direction must be {Direction.PLUS} or {Direction.MINUS}."
         )
 
     finding.direction = direction
@@ -140,15 +140,15 @@ def remove_finding(session: Session, finding: Finding) -> None:
     deviation = finding.deviation
     if len(deviation.findings) <= 1:
         raise InvariantViolation(
-            f"Это единственная находка отклонения {deviation.dev_number}. "
-            "У отклонения должна остаться хотя бы одна — удалите отклонение целиком."
+            f"This is the only finding of deviation {deviation.dev_number}. "
+            "A deviation must keep at least one — delete the deviation as a whole."
         )
 
     used = inspection_count(session, finding)
     if used:
         raise ValueInUse(
-            f"На находке по размеру №{finding.characteristic.local_number} "
-            f"висит исследований: {used} — сначала удалите их."
+            f"The finding on characteristic no. {finding.characteristic.local_number} "
+            f"carries inspections: {used} — delete them first."
         )
 
     # Через коллекцию владельца (`delete-orphan`): `session.delete` оставил бы
