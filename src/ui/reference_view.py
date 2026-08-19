@@ -39,7 +39,7 @@ from domain.reference import (
     usage_count,
 )
 
-from .common import directional, iso, show_error
+from .common import directional, iso, joined, show_error
 
 #: Общая часть подсказки — верна для всех шести словарей.
 IN_USE_HINT = "A value referenced by records cannot be deleted."
@@ -116,11 +116,14 @@ class ReferenceView(QWidget):
                 used = usage_count(session, model, value)
                 protected = is_protected(model, name)
 
-                label = name
-                if protected:
-                    label += "  · default"
-                if used:
-                    label += f"  · references: {used}"
+                # Составная строка: имя значения бывает ивритским, а пометки
+                # английские — каждый токен в своём изоляте, порядок за базой
+                # (наряд 0007, §4а).
+                label = joined(
+                    name,
+                    "default" if protected else "",
+                    f"references: {used}" if used else "",
+                )
 
                 item = QListWidgetItem(label)
                 item.setData(Qt.ItemDataRole.UserRole, name)

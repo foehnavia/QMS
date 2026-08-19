@@ -189,7 +189,7 @@ class BalloonCanvas(QWidget):
                 caption = QRectF(
                     centre.x() - 60, centre.y() + BALLOON_RADIUS + 2, 120, 18
                 )
-                painter.drawText(caption, Qt.AlignmentFlag.AlignCenter, iso(f"№{balloon.label}"))
+                painter.drawText(caption, Qt.AlignmentFlag.AlignCenter, iso(f"#{balloon.label}"))
 
         painter.end()
 

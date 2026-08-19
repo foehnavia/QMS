@@ -128,6 +128,13 @@ class DirectionalDelegate(QStyledItemDelegate):
     влево. Числовые колонки (дата, количество, величина, счётчик) заданы списком
     и всегда LTR: сильных символов у них нет, а базу они обязаны иметь свою — не
     от соседа-иврита по строке.
+
+    Выравнивание задаётся **логически** — всегда `AlignLeft`, то есть «к началу
+    строки». Поверх него Qt накладывает `QStyle.visualAlignment(direction, …)`,
+    которая под RTL сама меняет левое на правое. Написать `AlignRight` для
+    ивритской ячейки значит получить после этого превращения выравнивание
+    **влево** — ошибка, найденная снимком ивритского справочника: порядок слов
+    уже был RTL, а строка всё равно липла к левому краю.
     """
 
     def __init__(
@@ -138,13 +145,11 @@ class DirectionalDelegate(QStyledItemDelegate):
 
     def initStyleOption(self, option, index) -> None:  # noqa: N802 - имя от Qt
         super().initStyleOption(option, index)
-        vertical = Qt.AlignmentFlag.AlignVCenter
-        if index.column() in self._numeric or not is_rtl(option.text):
-            option.direction = LTR
-            option.displayAlignment = Qt.AlignmentFlag.AlignLeft | vertical
-        else:
-            option.direction = RTL
-            option.displayAlignment = Qt.AlignmentFlag.AlignRight | vertical
+        numeric = index.column() in self._numeric
+        option.direction = LTR if numeric or not is_rtl(option.text) else RTL
+        option.displayAlignment = (
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
 
 
 def directional(table, numeric_columns: tuple[int, ...] = ()):

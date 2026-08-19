@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -312,3 +313,73 @@ def test_the_finding_guard_ignores_mere_mentions(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert _finding_constructions(probe) == []
+
+
+# --- Критерий 1 наряда 0007: в `src/` нет кириллических строковых литералов -------
+
+
+CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+
+
+def _docstring_constants(tree: ast.AST) -> set[int]:
+    """`id()` узлов-докстрок: их гард пропускает намеренно."""
+    docstrings: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
+            continue
+        body = getattr(node, "body", None)
+        first = body[0] if body else None
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            docstrings.add(id(first.value))
+    return docstrings
+
+
+def _cyrillic_literals(path: Path) -> list[int]:
+    """Строки, где файл несёт строковый литерал с кириллицей (кроме докстрок).
+
+    Комментарии и docstring исключены **намеренно**: они внутренние, не
+    интерфейс, и остаются русскими (наряд 0007, п. 7). Разбираем AST, а не
+    текст: иначе гард ловил бы кириллицу в комментарии рядом с кодом.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    docstrings = _docstring_constants(tree)
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+        and CYRILLIC.search(node.value)
+    ]
+
+
+def test_src_carries_no_cyrillic_string_literals() -> None:
+    """Язык интерфейса — English, и он не уедет обратно на первом же спринте.
+
+    Первый раз русские подписи затекли из нарядов S2-S5 и прожили пять
+    спринтов: ревью язык не проверяло. Проверяет гард.
+    """
+    offenders = [
+        f"{path.relative_to(SRC).as_posix()}:{line}"
+        for path in sorted(SRC.rglob("*.py"))
+        for line in _cyrillic_literals(path)
+    ]
+    assert offenders == [], f"кириллица в строковых литералах src/: {offenders}"
+
+
+def test_the_cyrillic_guard_actually_detects_a_literal(tmp_path: Path) -> None:
+    """Страховка от «зелёного» гарда: докстроку пропускаем, подпись — ловим."""
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        '"""Русская докстрока — внутренний слой, гард её не трогает."""\n'
+        "# русский комментарий тоже\n"
+        'LABEL = "Сохранить"\n',
+        encoding="utf-8",
+    )
+    assert _cyrillic_literals(probe) == [3]
