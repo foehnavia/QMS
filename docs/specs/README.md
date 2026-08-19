@@ -13,8 +13,9 @@ Planned specs (from `50_MIS-QMS/PROPOSAL_MIS-QMS_structure` §4.1 and the concep
   **`deviation-entry.md` (as-built, S4 / QMS-014)**.
 - **Visual CG editor & mapping dialog** — balloons `g1…gN` over the CG drawing →
   **`cg-editor-and-mapping.md` (as-built, S3 / QMS-013)**.
-- **Deviation card** — automatic prior-deviation overview + query constructor
-  (`../model/DeviationCard.md`).
+- **Deviation card** — automatic prior-deviation overview, exact (L1) and descriptive (L2)
+  precedent search, decision taken from the card →
+  **`deviation-card.md` (as-built, S5 / QMS-015)**.
 - **Deep search** — query constructor, read-only, stage 1.5 (`../model/Search.md`,
   `../staging.md`).
 - **Document generation** — `אישור חריגה` export (later stage;

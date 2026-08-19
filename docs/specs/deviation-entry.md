@@ -3,6 +3,7 @@ part_of: MIS-QMS/docs/specs
 spec: deviation-entry
 status: as-built
 task: QMS-014
+amended_by: QMS-015
 updated: 2026-08-17
 ---
 
@@ -23,11 +24,14 @@ search are S5; the Excel import is S6. Neither is even partially anticipated her
 |---|---|---|
 | Section **"Отклонения"** (main window) | deviation list | active nav item since S4 |
 | List → **"Добавить отклонение…" / "Открыть…"** | deviation form | registration and edit, same form |
-| List → **"Решение…"** | decision dialog | step 8, **separate action** |
+| List → **"Карточка…"** or double-click | deviation card | added in S5; double-click **used to** open the form for editing — that path is now the "Открыть…" button (`deviation-card.md` §1) |
+| List → **"Решение…"** | decision dialog | step 8, **separate action**; since S5 the same dialog is also reachable from the card |
 | Deviation form → finding row → **"Исследование…"** | inspection dialog | inspection belongs to a finding |
 | Deviation form → **"Привязать к канону…"** | `MappingDialog.run(...)` | the R2 "early buttons" |
 
-Sections "Карточка отклонения" and "Поиск" stay disabled (S5).
+The "Поиск" section stays disabled — a standalone search screen is the stage-1.5 query
+constructor (S8). The card never became a section: it is always about one deviation
+(`deviation-card.md` §1).
 
 ## 2. Process order is enforced by the UI shape
 
@@ -135,13 +139,14 @@ the findings just created. Removal still goes through `remove_finding`, so both 
 - `decision_date` is NOT NULL with a `now()` default, so a freshly registered deviation carries
   a decision date while having no decision. "Undecided" is read from `decision_dev`, so
   behaviour is correct, but an export would mislead. Changing it is a migration → flagged on S7.
-- Canon state is queried per row (`N+1`); on S5 the precedent lists need a **batch** canon
-  lookup instead.
+- ~~Canon state is queried per row (`N+1`)~~ — **closed in S5**: the form uses the batch
+  `precedents.canon_labels_for_item`, and a query counter holds the number fixed
+  (`deviation-card.md` §5).
 - Zone and deviation type cannot be created from the finding dialog, unlike Item and CG. Their
   reference lists are curated by an administrator (`../model/reference/reference-data.md`);
   quick-add would breed synonym duplicates.
-- The inspection buttons are enabled by "the table has rows" rather than "a row is selected" —
-  cosmetic, to be fixed by the first naryad that touches this section (S5).
+- ~~The inspection buttons are enabled by "the table has rows" rather than "a row is
+  selected"~~ — **closed in S5**, in both the form and the card.
 
 ## 9. Related
 
