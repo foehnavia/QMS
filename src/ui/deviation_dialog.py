@@ -63,12 +63,11 @@ from .common import (
     DECISION_INSP_LABELS,
     bind_direction,
     dimension_sort_key,
-    direction_label,
     directional,
     iso,
-    number_label,
     numeric_field,
     show_error,
+    signed_label,
 )
 from .finding_dialog import FindingDialog, FindingRow
 from .inspection_dialog import InspectionDialog
@@ -76,26 +75,28 @@ from .item_dialog import ItemDialog
 from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
 
+#: Знак и величина — **одна** колонка, как в таблице прецедентов (решение
+#: Cowork). Раздельными колонками знак и его величина расходились по краям
+#: соседних столбцов и переставали читаться как одно число; слияние
+#: **отображательное** — таблица read-only, правка идёт диалогом находки.
 FINDING_COLUMNS = (
     "Local number",
     "Canon",
-    "Direction",
-    "Value",
+    "Sign · value",
     "Point",
     "Zone",
     "Deviation type",
     "Inspections",
 )
 
-#: Числовые колонки таблицы находок: знак, величина, точка замера, счётчик.
+#: Числовые колонки таблицы находок: величина со знаком, точка замера, счётчик.
 #: Зона и тип отклонения сюда не входят потому, что это **текст**, а не число:
 #: направление им считается по содержимому, как любой текстовой ячейке.
-FINDING_NUMERIC_COLUMNS = (2, 3, 4, 7)
+FINDING_NUMERIC_COLUMNS = (2, 3, 6)
 
-#: Из них выравниваются вправо только **величины** (решение Cowork по ревью
-#: наряда 0007): разряды встают в столбик, и разброс виден без чтения. Знак
-#: живёт отдельной колонкой слева от величины и сюда не входит.
-FINDING_MAGNITUDE_COLUMNS = (3,)
+#: Из них выравнивается вправо только **величина** (решение Cowork по ревью
+#: наряда 0007): разряды встают в столбик, и разброс виден без чтения.
+FINDING_MAGNITUDE_COLUMNS = (2,)
 
 INSPECTION_COLUMNS = ("Number", "Characteristic", "Type", "Verdict", "Protocol")
 
@@ -345,8 +346,7 @@ class DeviationDialog(QDialog):
             values = (
                 iso(row.local_number),
                 iso(row.canon),
-                direction_label(row.direction),
-                number_label(row.value),
+                signed_label(row.direction, row.value),
                 "" if row.dimension_point is None else iso(str(row.dimension_point)),
                 zones.get(row.zone_id, ""),
                 kinds.get(row.deviation_type_id, ""),

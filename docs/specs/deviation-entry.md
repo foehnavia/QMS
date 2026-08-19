@@ -52,7 +52,7 @@ moves into the card unchanged.
   belong to that item; moving the deviation would orphan them. Enforced by the form; the domain
   simply does not accept an item on update.
 - Findings table with **"Add finding…" · "Edit…" · "Remove" · "Bind to canon…" ·
-  "Inspection…"**; columns: local number, canon, direction, value, point, zone, deviation
+  "Inspection…"**; columns: local number, canon, sign · value, point, zone, deviation
   type, inspection count.
 - **Save is blocked until an item and at least one finding exist**, and the status line says
   which of the two is missing. A deviation without a dimension is invisible to precedent search,

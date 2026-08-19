@@ -211,13 +211,29 @@ def test_joined_drops_empty_tokens() -> None:
 
 def test_a_signed_value_stays_one_isolate() -> None:
     """Ратификация S5: два изолята подряд в RTL раскладываются справа налево."""
-    from ui.card_dialog import _signed
     from db.models import Direction
+    from ui.common import signed_label
 
-    cell = _signed(Direction.MINUS, 0.05)
+    cell = signed_label(Direction.MINUS, 0.05)
 
     assert strip_iso(cell) == "− 0.05"
     assert cell.count("⁨") == 1
+
+
+def test_both_tables_build_the_signed_cell_the_same_way() -> None:
+    """Одна сборка на обе таблицы: находки и прецеденты не должны разъехаться.
+
+    До слияния форма показывала знак и величину двумя колонками, а карточка —
+    одной; `_signed` жил в `card_dialog`, и обратная ссылка на него из формы дала
+    бы кольцевой импорт (`card_dialog` уже импортирует `FINDING_COLUMNS`).
+    Поэтому сборщик живёт в `ui.common`, а колонка называется одинаково.
+    """
+    from ui.card_dialog import PRECEDENT_COLUMNS
+    from ui.deviation_dialog import FINDING_COLUMNS
+
+    assert "Sign · value" in FINDING_COLUMNS
+    assert "Sign · value" in PRECEDENT_COLUMNS
+    assert "Direction" not in FINDING_COLUMNS and "Value" not in FINDING_COLUMNS
 
 
 def test_the_groups_column_isolates_every_group_name(seeded_session) -> None:

@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import selectinload
 
-from db.models import Characteristic, Deviation, Direction, Finding, Item
+from db.models import Characteristic, Deviation, Finding, Item
 from db.session import session_scope
 from domain.findings import inspection_counts
 from domain.precedents import (
@@ -52,12 +52,11 @@ from domain.precedents import (
 from .common import (
     decision_dev_label,
     dimension_sort_key,
-    direction_label,
     directional,
     iso,
     joined,
-    number_label,
     show_error,
+    signed_label,
 )
 from .decision_dialog import DecisionDialog
 from .deviation_dialog import (
@@ -139,7 +138,7 @@ class PrecedentTable(QTableWidget):
                 iso(row.item_number),
                 iso(row.wo),
                 size,
-                _signed(row.direction, row.value),
+                signed_label(row.direction, row.value),
                 decision_dev_label(row.decision),
                 _one_line(row.explanation),
                 str(row.inspection_count),
@@ -380,8 +379,7 @@ class CardDialog(QDialog):
             values = (
                 iso(row[1]),
                 iso(row[2]),
-                direction_label(row[3]),
-                number_label(row[4]),
+                signed_label(row[3], row[4]),
                 "" if row[5] is None else iso(str(row[5])),
                 row[6],
                 row[7],
@@ -606,19 +604,6 @@ def _boxed(layout: QFormLayout) -> QWidget:
     box = QWidget()
     box.setLayout(layout)
     return box
-
-
-def _signed(direction: str, value: float | None) -> str:
-    """Знак и величина одной ячейкой — **один** изолят на всю строку.
-
-    Изолировать знак и число по отдельности мало: два изолята подряд остаются
-    двумя runs, и в RTL-ячейке они раскладываются справа налево — `− 0.05`
-    показывалось как `0.05 −`. Изолят вокруг собранной строки держит и знак при
-    числе, и порядок токенов.
-    """
-    sign = "+" if direction == Direction.PLUS else "−"
-    number = "" if value is None else f"{value:g}"
-    return iso(f"{sign} {number}".strip())
 
 
 def _one_line(text: str | None) -> str:

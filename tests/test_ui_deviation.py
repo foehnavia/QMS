@@ -31,7 +31,7 @@ from domain.inspections import create_inspection
 from domain.mappings import bind
 from domain.reference import list_values
 from ui.decision_dialog import NOT_DECIDED, DecisionDialog
-from ui.deviation_dialog import DeviationDialog
+from ui.deviation_dialog import FINDING_COLUMNS, DeviationDialog
 from ui.deviation_view import DeviationView
 from ui.finding_dialog import CANON_NEW, CANON_UNBOUND, FindingDialog, FindingRow
 from ui.inspection_dialog import InspectionDialog
@@ -516,7 +516,8 @@ def test_deviation_form_lists_inspections_and_counts_them(engine_with_item) -> N
     dialog = DeviationDialog(engine_with_item, _deviation_id(engine_with_item))
 
     assert dialog.inspections.rowCount() == 1
-    assert dialog.findings.item(0, 7).text() == "1"
+    # Колонка «Inspections» — последняя; после слияния знака и величины это 6.
+    assert dialog.findings.item(0, len(FINDING_COLUMNS) - 1).text() == "1"
 
 
 def test_the_form_refuses_to_remove_a_studied_finding(engine_with_item, monkeypatch) -> None:
