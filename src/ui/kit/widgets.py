@@ -14,6 +14,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QButtonGroup,
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QTableWidget,
     QTabWidget,
     QVBoxLayout,
@@ -279,6 +281,63 @@ def slice_tabs() -> QTabWidget:
     tabs = QTabWidget()
     tabs.tabBar().setExpanding(False)
     return tabs
+
+
+# --- выбор одного из немногих ------------------------------------------------------
+
+
+class Choice(QWidget):
+    """Выбор одного из **не более пяти** взаимоисключающих значений — радиокнопками.
+
+    Канон §4: выпадающий список прячет варианты и стоит лишнего клика; там, где
+    оператор выбирает, **читая формулировки**, а не вспоминая их, варианты стоят
+    на экране разом. Правило про компонент, а не про экран: список остаётся для
+    открытых наборов — значений справочника, деталей, групп.
+
+    **Умолчания нет.** Предвыбранная радиокнопка — это ответ, которого оператор
+    не давал, а оба места применения (исход отклонения, вывод исследования)
+    попадают в документ. `value()` возвращает `None`, пока не выбрано.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._buttons: list[QRadioButton] = []
+        self._values: list[object] = []
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(t.GAP_PILL_ICON)
+
+    def add(self, value: object, label: str, note: str = "") -> QRadioButton:
+        """Добавить вариант; `note` — строка пояснения под ним."""
+        button = QRadioButton(iso(label))
+        self._group.addButton(button, len(self._buttons))
+        self._buttons.append(button)
+        self._values.append(value)
+        self._layout.addWidget(button)
+        if note:
+            explanation = hint(note)
+            explanation.setContentsMargins(t.PAD_SCREEN, 0, 0, 0)
+            self._layout.addWidget(explanation)
+        return button
+
+    def value(self) -> object | None:
+        """Что выбрано; `None` — ещё ничего."""
+        for button, value in zip(self._buttons, self._values):
+            if button.isChecked():
+                return value
+        return None
+
+    def set_value(self, value: object) -> None:
+        """Отметить вариант — при правке уже записанного решения."""
+        for button, candidate in zip(self._buttons, self._values):
+            if candidate == value:
+                button.setChecked(True)
+                return
+
+    def buttons(self) -> list[QRadioButton]:
+        return list(self._buttons)
 
 
 # --- пустое состояние ------------------------------------------------------------

@@ -51,9 +51,12 @@ class InspectionDialog(QDialog):
         self.finding_label.setWordWrap(True)
 
         self.kind = QComboBox()
-        self.verdict = QComboBox()
+        # Два взаимоисключающих значения, которые читают перед выбором, —
+        # радиокнопки (канон §4). Умолчания нет: предвыбранный вывод это ответ,
+        # которого исследователь не давал, а вывод идёт в документ.
+        self.verdict = kit.Choice()
         for code in DECISION_INSP:
-            self.verdict.addItem(DECISION_INSP_LABELS[code], code)
+            self.verdict.add(code, DECISION_INSP_LABELS[code])
 
         self.protocol = QLineEdit()
         self.protocol.setPlaceholderText(r"link to the document, e.g. \\srv\qa\SW-2026-14.docx")
@@ -121,7 +124,7 @@ class InspectionDialog(QDialog):
             if self._inspection_id is not None:
                 inspection = session.get(Inspection, self._inspection_id)
                 _select(self.kind, inspection.type_id)
-                _select(self.verdict, inspection.decision_insp)
+                self.verdict.set_value(inspection.decision_insp)
                 self.protocol.setText(inspection.protocol)
 
     def pick_protocol(self) -> None:
@@ -133,6 +136,10 @@ class InspectionDialog(QDialog):
             self.protocol.setText(path)
 
     def save(self) -> None:
+        verdict = self.verdict.value()
+        if verdict is None:
+            kit.show_error(self, _no_verdict(), title="Inspection not saved")
+            return
         try:
             with session_scope(self._engine) as session:
                 kind = session.get(RefInspectionType, self.kind.currentData())
@@ -141,7 +148,7 @@ class InspectionDialog(QDialog):
                         session,
                         session.get(Finding, self._finding_id),
                         inspection_type=kind,
-                        decision_insp=self.verdict.currentData(),
+                        decision_insp=verdict,
                         protocol=self.protocol.text(),
                     )
                 else:
@@ -149,13 +156,23 @@ class InspectionDialog(QDialog):
                         session,
                         session.get(Inspection, self._inspection_id),
                         inspection_type=kind,
-                        decision_insp=self.verdict.currentData(),
+                        decision_insp=verdict,
                         protocol=self.protocol.text(),
                     )
         except Exception as error:
             kit.show_error(self, error, title="Inspection not saved")
             return
         self.accept()
+
+
+def _no_verdict() -> Exception:
+    """Вывод не выбран — это не «пустое поле», а несделанное суждение."""
+    from domain.errors import ValidationError
+
+    return ValidationError(
+        "Pick the inspection result: it says whether the deviation can be "
+        "accepted, and an inspection without it states nothing."
+    )
 
 
 def _select(combo: QComboBox, key) -> None:

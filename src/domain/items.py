@@ -52,6 +52,53 @@ def create_item(
     return item
 
 
+def update_item(
+    session: Session,
+    item: Item,
+    *,
+    item_number: str,
+    connection_type,
+    size,
+    item_type=None,
+) -> Item:
+    """Править классификаторы детали и её номер.
+
+    Номер правится **только здесь**, и вот почему функция вообще появилась:
+    форма детали умела лишь создавать, поэтому опечатка в реальном каталожном
+    номере лечилась перезаливкой базы. На прогоне это остановка на шаге 5
+    (ревью наряда 0012, В-2).
+
+    Гард уникальности тот же, что при создании, и проверяется он **против
+    других** записей: сохранение детали с её собственным номером — не дубликат.
+
+    Значений по умолчанию нет (конвенция `CLAUDE.md` §9): пропущенный аргумент
+    стирал бы поле, выглядя как «это не трогаем». `item_type=None` — законное
+    значение «тип не задан», а не пропуск.
+
+    Что **не** меняется: размеры детали и их привязки. Номер детали — её имя,
+    а не идентичность; идентичность держит `item_id`, на который ссылаются
+    характеристики, и переименование их не задевает.
+    """
+    item_number = (item_number or "").strip()
+    if not item_number:
+        raise ValidationError("Item number is required.")
+    if connection_type is None or size is None:
+        raise ValidationError("Connection type and size class are required.")
+
+    clash = session.scalar(
+        select(Item).where(Item.item_number == item_number, Item.item_id != item.item_id)
+    )
+    if clash:
+        raise DuplicateValue(f"Item “{item_number}” already exists in the database.")
+
+    item.item_number = item_number
+    item.item_type = item_type
+    item.connection_type = connection_type
+    item.size = size
+    session.flush()
+    return item
+
+
 def seed_cg_characteristics(
     session: Session,
     item: Item,

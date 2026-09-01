@@ -248,6 +248,50 @@ def test_an_empty_state_can_change_its_reason() -> None:
     assert "No precedents" not in box.body_label.text()
 
 
+def test_the_choice_shows_which_option_is_taken() -> None:
+    """Сверяем то, **чем рисуют**: отмеченный кружок обязан быть на экране.
+
+    Qt рисует родной индикатор, только пока виджет не попал под лист стиля; как
+    только под него попадает хоть одно правило, оператор получает пустой кружок.
+    Найдено снимком диалога решения: четыре исхода и ни одной видимой отметки
+    (`CLAUDE.md` §9 — тест берёт значение из того же источника, что и отрисовка).
+    """
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    choice = kit.Choice()
+    choice.add("approved", "Approved — use as is")
+    choice.add("rejected", "Rejected — scrap")
+    layout.addWidget(choice)
+    host.resize(320, 90)
+    host.layout().activate()
+    choice.set_value("approved")
+
+    image = host.grab().toImage()
+    accent = QColor(tokens.BLUE_600).rgb() & 0xFFFFFF
+    painted = sum(
+        1
+        for y in range(image.height())
+        for x in range(image.width())
+        if image.pixel(x, y) & 0xFFFFFF == accent
+    )
+
+    assert choice.value() == "approved"
+    assert painted > 0, "отмеченный вариант не нарисован"
+
+
+def test_a_choice_starts_with_nothing_taken() -> None:
+    """Канон §4: предвыбранный вариант — ответ, которого оператор не давал."""
+    choice = kit.Choice()
+    choice.add("approved", "Approved — use as is")
+    choice.add("rejected", "Rejected — scrap")
+
+    assert choice.value() is None
+    assert not any(button.isChecked() for button in choice.buttons())
+
+
 def test_the_empty_state_says_what_why_and_a_way_out() -> None:
     """Канон §8: пустая таблица без объяснения — источник ложного вывода."""
     action = kit.secondary("Add a deviation…")

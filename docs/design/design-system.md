@@ -5,7 +5,7 @@ status: ratified
 task: QMS-016
 branch: run/qms-016
 updated: 2026-09-01
-revision: 1.1
+revision: 1.3
 ---
 
 # MIS-QMS design system — tokens and rules
@@ -25,6 +25,15 @@ revision: 1.1
 > **Revision 1.2 (2026-09-01, review of `0011`).** Two leftovers of the side navigation
 > removed from the tables (R-2), and §8 gains the **compact** empty state: two full ones
 > stacked in a card is the wrong variant of the component, not a shortage of space (O-6).
+>
+> **Revision 1.3 (2026-09-01, review of `0012`).** Six chrome heights taken from the design
+> canvas — the vertical budget at 1280 × 760 buys one more row of data on every screen (M-1).
+> Icons stay as they are here. §0 settles what `Dimension`, `Local number` and `g-position`
+> each name; §4 gains the rule that decides between radio buttons and a dropdown.
+>
+> **Only this file carries a `rev`.** The canvas is dated, not numbered: two independent
+> counters are what produced the argument "canvas 1.4 against canon 1.2", where the numbers
+> were never comparable in the first place. A showcase is not versioned alongside its source.
 
 ## 0. What governs
 
@@ -32,6 +41,24 @@ Three decisions from QMS-016 stand above every value below:
 
 1. **Interface is English**, labels taken from canon words (Item, Characteristic group,
    g-position, Deviation, Finding, Inspection, Mapping).
+
+   Three of those words were confused with each other often enough to be settled here:
+
+   | Word | What it names |
+   |---|---|
+   | **Dimension** | the entity itself — a dimension of an item (`Characteristic`) |
+   | **Local number** | what that dimension is called **on this item** |
+   | **g-position** | what the same dimension is called **in the canon of its group** |
+
+   A finding has no dimension of its own: it **refers** to one by the pair (item, local
+   number). The only real distinction is the canonical position against the local number;
+   everything else is a dimension.
+
+   Which of the three goes on a label follows the convention these screens already use: the
+   column `Item` holds an `item_number`, the column `Deviation` holds a `dev_number` — **a
+   column is named after the entity and holds its identifier**. So the findings table says
+   `Dimension` (`Dim.` where the grid is tight), and `Local number` stays where the number
+   itself is what gets assigned or edited: the mapping dialog and the item positions table.
 2. **The window chassis is LTR** — navigation, buttons, dialog frames.
 3. **Direction is a property of the paragraph** (a table cell, a list row), never of the
    window. See §6.
@@ -143,8 +170,8 @@ right-aligned columns of §6 rest on this.
 
 | Group | Values |
 |---|---|
-| Zone heights | **navigation ribbon 44** · section header 64 · tab strip 44 · toolbar 52 · table header 34 · **table row 40** · footer 36 |
-| Controls | primary button 32 · toolbar button 30 · nav item 32 · pill 22 · row action 24 |
+| Zone heights | **navigation ribbon 44** · screen header 48 · tab strip 34 · toolbar 52 · table header 30 · **table row 40** · status bar 26 |
+| Controls | primary button 28 · input 26 · toolbar button 30 · nav item 32 · pill 22 · row action 24 |
 | Icons | 16 (navigation, toolbar) · 13 (in-row, inside pills) · 34 (empty state) |
 | Radius | button/input 5 · card/panel 7 · row action 4 · pill 11 (full) |
 | Strokes | border 1 px `n-200` · inner rule 1 px `n-100` · selection bar 2 px `blue-600` inset left |
@@ -156,6 +183,16 @@ Row height 40 is a deliberate compromise: Airtable's short row is 32, but Hebrew
 descenders need the extra 8 px to avoid clipping at 13 px type. **One state, one number**
 (C-3): 40 is the row everywhere, and the three-level 40 / 66 / 82 of the reference canvas
 belongs to row expansion, which is not built.
+
+**Every number here is a logical pixel** at 100 % Windows scaling — not a point. Declared as
+points they come out a third larger (13 pt ≈ 17 px), which is how the chrome grew until five
+ribbon sections stopped fitting the 1280 minimum (measured, review of `0012`).
+
+**The chrome is deliberately tight** (M-1, review of `0012`): screen header 48, status bar 26,
+primary button 28, input 26, tab strip 34, table header 30. Together they give back about
+40 px at the 760 minimum — **one more row of data on every screen**. For a tool whose work is
+reading tables, a row is worth more than air. These six replaced 64 / 36 / 32 / 32 / 44 / 34;
+the ribbon is untouched at 44 (B-5), and so is the 40 px row.
 
 **The ribbon is always 44** (В-5). Height does not follow width: squeezing at 1280 is
 horizontal, and what leaves the ribbon is section captions, counters and the right-hand
@@ -175,11 +212,28 @@ have to carry. If vertical space ever runs short, the 64 px section header is wh
 - Disabled: `n-50` background, `n-250` border, `n-450` text. Never a lower opacity — opacity
   on top of a light surface makes the text unreadable rather than obviously disabled.
 
+**Radio buttons or a dropdown — the rule, not the taste.** A choice of **five or fewer mutually
+exclusive values that have to be compared before choosing** is radio buttons; a dropdown hides
+the alternatives and costs a click to see them. It matters most where the operator chooses by
+**reading the wording** rather than recalling it: the deviation outcome (four of them, each a
+sentence) and the inspection result (two). A dropdown stays for open-ended lists — reference
+values, items, groups — where the count is unbounded and the choice is by name, not by
+comparison.
+
+**A choice that carries consequence has no default.** Neither the outcome of a deviation nor
+the result of an inspection is preselected: a preselected radio is an answer the operator never
+gave, and both of these end up in a document.
+
 ## 5. Icons
 
 Inline stroke SVG, 1.7 px stroke on a 24 grid, round caps and joins, single style throughout.
 **No emoji, no dingbat glyphs anywhere in the interface** — they do not recolour, do not scale
 with the type ramp, and render differently on every machine.
+
+**The grid is not the size.** An icon is drawn on a 24 grid and placed at 16 (§3); those are two
+different numbers, and collapsing them is what put "16 grid, 1.5 stroke" in the canvas. At the
+same size on screen a 1.5 stroke drawn on 16 reads thinner and worse, so the values above stand
+— this is the one place where revision 1.3 did **not** follow the canvas (M-1).
 
 ## 6. Direction and alignment — two separate decisions
 

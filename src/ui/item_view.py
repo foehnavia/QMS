@@ -63,9 +63,11 @@ class ItemView(QWidget):
 
         self.add_button = kit.primary("New item")
         self.positions_button = kit.secondary("Positions…")
+        self.edit_button = kit.secondary("Edit item")
         self.map_button = kit.secondary("Mapping…")
         self.add_button.clicked.connect(self.add_item)
         self.positions_button.clicked.connect(self.open_positions)
+        self.edit_button.clicked.connect(self.edit_item)
         self.map_button.clicked.connect(self.map_item)
 
         layout = kit.screen_layout(self)
@@ -74,7 +76,12 @@ class ItemView(QWidget):
         )
         layout.addWidget(self.header)
         layout.addLayout(
-            kit.button_row(self.add_button, self.positions_button, self.map_button)
+            kit.button_row(
+                self.add_button,
+                self.positions_button,
+                self.edit_button,
+                self.map_button,
+            )
         )
         layout.addWidget(self.table, 1)
         layout.addWidget(self.empty, 1)
@@ -166,6 +173,18 @@ class ItemView(QWidget):
         if item_id is None:
             return
         ItemPositionsDialog.run(self._engine, item_id, self)
+
+    def edit_item(self) -> None:
+        """Правка номера и классификаторов (ревью 0012, В-2).
+
+        Размеры не трогаются: номер детали — её имя, а не идентичность, и
+        характеристики ссылаются на `item_id`.
+        """
+        item_id = self._selected_item_id()
+        if item_id is None:
+            return
+        if ItemDialog.run(self._engine, item_id, self):
+            self.reload()
 
     def map_item(self) -> None:
         """Привязка размеров выбранной детали к канону — тот же диалог, что и в CG."""

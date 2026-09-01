@@ -376,6 +376,126 @@ def _decided_deviation(engine) -> int:
         return deviation.deviation_id
 
 
+# --- доводка 0012: правка детали, радиокнопки, уплотнение хрома ----------------------
+
+
+def test_the_item_form_edits_an_existing_item(engine, no_modals) -> None:
+    """Ревью 0012 В-2: номер детали правится формой, а не перезаливкой базы."""
+    from db.models import Item
+    from ui.item_dialog import ItemDialog
+
+    item_id = _bound_item(engine)
+
+    dialog = ItemDialog(engine, item_id)
+    assert dialog.windowTitle() == "Edit item"
+    assert dialog.number_edit.text() == "C1-08375A"
+    # Засев относится к заведению: у существующей детали размеры уже есть.
+    assert not dialog.positions.isVisibleTo(dialog)
+
+    dialog.number_edit.setText("C1-08375B")
+    dialog.save()
+
+    with session_scope(engine) as session:
+        item = session.get(Item, item_id)
+        assert item.item_number == "C1-08375B"
+        # Правка имени не трогает размеры — они ссылаются на `item_id`.
+        assert [c.local_number for c in item.characteristics] == ["12"]
+    assert no_modals == []
+
+
+def test_a_duplicate_item_number_is_refused_by_the_form(engine, no_modals) -> None:
+    """Гард уникальности доходит до оператора сообщением, а не падением."""
+    from db.models import GENERAL, RefConnectionType, RefSize
+    from domain.items import create_item
+    from seed.reference import ref
+    from ui.item_dialog import ItemDialog
+
+    item_id = _bound_item(engine)
+    with session_scope(engine) as session:
+        create_item(
+            session,
+            item_number="C1-08420B",
+            connection_type=ref(session, RefConnectionType, GENERAL),
+            size=ref(session, RefSize, GENERAL),
+        )
+
+    dialog = ItemDialog(engine, item_id)
+    dialog.number_edit.setText("C1-08420B")
+    dialog.save()
+
+    assert no_modals and "already exists" in str(no_modals[0])
+
+
+def test_the_item_screen_has_an_edit_entry(engine, no_modals) -> None:
+    """Вход в правку — на экране деталей, рядом с позициями и привязкой."""
+    _bound_item(engine)
+
+    view = ItemView(engine)
+
+    assert kit.strip_iso(view.edit_button.text()) == "Edit item"
+    assert no_modals == []
+
+
+def test_the_outcome_is_chosen_by_radio_without_a_default(engine, no_modals) -> None:
+    """Канон §4: четыре исхода читают перед выбором, и ни один не предвыбран."""
+    from ui.decision_dialog import DecisionDialog
+
+    deviation_id = _decided_deviation(engine)
+
+    dialog = DecisionDialog(engine, deviation_id)
+
+    assert len(dialog.decision.buttons()) == 4
+    # У решённого отклонения отмечен его исход, у нового — ничего.
+    assert dialog.decision.value() == "approved"
+    assert no_modals == []
+
+
+def test_the_inspection_result_is_chosen_by_radio(engine, no_modals) -> None:
+    """Два значения — радиокнопками; без выбора исследование не сохраняется."""
+    from db.models import Inspection
+    from ui.inspection_dialog import InspectionDialog
+
+    finding_id = _finding_of(engine)
+
+    dialog = InspectionDialog(engine, finding_id)
+    assert len(dialog.verdict.buttons()) == 2
+    assert dialog.verdict.value() is None
+
+    dialog.protocol.setText("p.docx")
+    dialog.save()
+
+    assert no_modals and "inspection result" in str(no_modals[0])
+    with session_scope(engine) as session:
+        assert session.query(Inspection).count() == 0
+
+
+def test_the_chrome_is_the_tightened_one(engine) -> None:
+    """Ревизия канона 1.3: шесть высот уплотнены, лента и строка — нет."""
+    assert tokens.SECTION_HEADER_HEIGHT == 48
+    assert tokens.FOOTER_HEIGHT == 26
+    assert tokens.BUTTON_HEIGHT == 28
+    assert tokens.INPUT_HEIGHT == 26
+    assert tokens.TAB_STRIP_HEIGHT == 34
+    assert tokens.TABLE_HEADER_HEIGHT == 30
+    # Не тронуты: лента (В-5) и строка таблицы (канон §3).
+    assert tokens.RIBBON_HEIGHT == 44
+    assert tokens.TABLE_ROW_HEIGHT == 40
+
+
+def _finding_of(engine) -> int:
+    """Находка, на которой можно завести исследование."""
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation = register(
+            session, item=item, wo="W26007336", quantity=12, date=_today()
+        )
+        characteristic, _ = get_or_create_characteristic(session, item, "12")
+        finding = make_finding(
+            session, deviation, characteristic, direction=Direction.PLUS, value=0.08
+        )
+        return finding.finding_id
+
+
 # --- §4: подписи вердикта исследования (В-9) ----------------------------------------
 
 

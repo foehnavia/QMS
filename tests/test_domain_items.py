@@ -9,7 +9,7 @@ from conftest import reopen
 from db.models import GENERAL, Item, RefConnectionType, RefItemType, RefSize
 from domain.errors import DuplicateValue, ValidationError
 from domain.groups import GPositionSpec, create_group, list_groups
-from domain.items import create_item, groups_of, seed_cg_characteristics
+from domain.items import create_item, groups_of, seed_cg_characteristics, update_item
 from seed.reference import ref
 
 POSITIONS = (
@@ -216,3 +216,101 @@ def test_seeded_item_survives_a_reopen(migrated_url: str, seeded_session: Sessio
         assert sorted(c.local_number for c in stored.characteristics) == ["12", "19", "32"]
         assert all(c.mapping.g_position is not None for c in stored.characteristics)
         assert [g.name for g in groups_of(stored)] == ["CG-A"]
+
+
+# --- правка детали (ревью наряда 0012, В-2) -----------------------------------------
+
+
+def test_item_number_can_be_corrected(seeded_session: Session) -> None:
+    """Опечатка в каталожном номере лечится правкой, а не перезаливкой базы.
+
+    До этой функции форма умела только создавать, и ошибка в номере на шаге 5
+    прогона останавливала его целиком.
+    """
+    item = _new_item(seeded_session)
+
+    update_item(
+        seeded_session,
+        item,
+        item_number="C1-08375B",
+        item_type=ref(seeded_session, RefItemType, "implant"),
+        connection_type=ref(seeded_session, RefConnectionType, "C1"),
+        size=ref(seeded_session, RefSize, "NP"),
+    )
+
+    assert item.item_number == "C1-08375B"
+
+
+def test_renaming_keeps_the_dimensions(seeded_session: Session) -> None:
+    """Номер детали — её имя, а не идентичность: размеры ссылаются на `item_id`."""
+    item = _new_item(seeded_session)
+    group = create_group(seeded_session, "CG-A", POSITIONS)
+    seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
+
+    update_item(
+        seeded_session,
+        item,
+        item_number="C1-99999Z",
+        item_type=None,
+        connection_type=ref(seeded_session, RefConnectionType, "C1"),
+        size=ref(seeded_session, RefSize, "NP"),
+    )
+
+    assert sorted(c.local_number for c in item.characteristics) == ["12", "19", "32"]
+    assert all(c.mapping.g_position is not None for c in item.characteristics)
+    assert [g.name for g in groups_of(item)] == ["CG-A"]
+
+
+def test_renaming_onto_a_taken_number_is_refused(seeded_session: Session) -> None:
+    """Гард уникальности тот же, что при заведении."""
+    first = _new_item(seeded_session)
+    _new_item(seeded_session, "C1-08420B")
+
+    with pytest.raises(DuplicateValue):
+        update_item(
+            seeded_session,
+            first,
+            item_number="C1-08420B",
+            item_type=None,
+            connection_type=ref(seeded_session, RefConnectionType, "C1"),
+            size=ref(seeded_session, RefSize, "NP"),
+        )
+
+
+def test_saving_an_item_under_its_own_number_is_not_a_duplicate(
+    seeded_session: Session,
+) -> None:
+    """Гард смотрит на **другие** записи: сохранить деталь как есть — законно.
+
+    Проверка «есть ли такой номер» без исключения самой записи отбивала бы
+    правку классификаторов, при которой номер не трогали.
+    """
+    item = _new_item(seeded_session)
+
+    update_item(
+        seeded_session,
+        item,
+        item_number="C1-08375A",
+        item_type=None,
+        connection_type=ref(seeded_session, RefConnectionType, "C1"),
+        size=ref(seeded_session, RefSize, "SP"),
+    )
+
+    assert item.item_number == "C1-08375A"
+    assert item.size.name == "SP"
+    assert item.item_type is None
+
+
+@pytest.mark.parametrize("number", ["", "   "])
+def test_renaming_to_an_empty_number_is_refused(seeded_session: Session, number) -> None:
+    item = _new_item(seeded_session)
+
+    with pytest.raises(ValidationError):
+        update_item(
+            seeded_session,
+            item,
+            item_number=number,
+            item_type=None,
+            connection_type=ref(seeded_session, RefConnectionType, "C1"),
+            size=ref(seeded_session, RefSize, "NP"),
+        )

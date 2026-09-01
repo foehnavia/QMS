@@ -37,6 +37,16 @@ from .kit import tokens
 
 NOT_DECIDED = "— no decision yet —"
 
+#: Что означает каждый исход — строкой под ним. Формулировка исхода отвечает
+#: «что сделано с деталями», а строка ниже — «что из этого следует»: инженер
+#: выбирает, читая, а не вспоминая (канон §4).
+OUTCOME_NOTES = {
+    "approved": "the parts are used as they are; the explanation goes into אישור חריגה",
+    "rejected": "the parts are scrapped; nothing is issued",
+    "sorting": "every part of the batch is inspected, and the batch splits by the result",
+    "repair": "the parts are reworked, and the deviation is legalised by the record",
+}
+
 
 class DecisionDialog(QDialog):
     """Внесение и смена решения. `True` из `run` — решение записано."""
@@ -48,13 +58,15 @@ class DecisionDialog(QDialog):
         self.setWindowTitle("Deviation decision")
         self.resize(tokens.DIALOG_NARROW, tokens.DIALOG_HEIGHT_MEDIUM)
 
-        self.decision = QComboBox()
-        # Пустая строка первая: пока решение не принято, ничего не предвыбрано —
-        # иначе список подсказывал бы исход самим порядком.
-        self.decision.addItem(NOT_DECIDED, None)
+        # Четыре взаимоисключающих исхода, которые выбирают **читая
+        # формулировки**, — радиокнопки (канон §4). Ничего не предвыбрано:
+        # предвыбранный исход это решение, которого инженер не принимал, а
+        # одобрение порождает документ.
+        self.decision = kit.Choice()
         for code in DECISION_DEV:
-            self.decision.addItem(DECISION_DEV_LABELS[code], code)
-        self.decision.currentIndexChanged.connect(self._refresh_hint)
+            self.decision.add(code, DECISION_DEV_LABELS[code], OUTCOME_NOTES[code])
+        for button in self.decision.buttons():
+            button.toggled.connect(self._refresh_hint)
 
         self.explanation = QPlainTextEdit()
         self.explanation.setPlaceholderText(
@@ -105,17 +117,17 @@ class DecisionDialog(QDialog):
                     f"WO {deviation.wo}",
                 )
             )
-            index = self.decision.findData(deviation.decision_dev)
-            self.decision.setCurrentIndex(index if index >= 0 else 0)
+            if deviation.decision_dev is not None:
+                self.decision.set_value(deviation.decision_dev)
             self.explanation.setPlainText(deviation.explanation or "")
             self.ncr.setText(deviation.ncr or "")
             stamp = deviation.decision_date or datetime.now()
             self.decision_date.setDate(QDate(stamp.year, stamp.month, stamp.day))
         self._refresh_hint()
 
-    def _refresh_hint(self) -> None:
+    def _refresh_hint(self, *_args) -> None:
         """Правило одобрения показываем до нажатия, а не только в ошибке."""
-        if self.decision.currentData() == "approved":
+        if self.decision.value() == "approved":
             self.hint.setText(
                 "Approval requires an explanation: the text goes into "
                 "אישור חריגה (DS-QC.2-2)."
@@ -126,7 +138,7 @@ class DecisionDialog(QDialog):
             )
 
     def save(self) -> None:
-        decision = self.decision.currentData()
+        decision = self.decision.value()
         if decision is None:
             kit.show_error(self, _not_chosen(), title="Decision not saved")
             return

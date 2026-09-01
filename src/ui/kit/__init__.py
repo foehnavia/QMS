@@ -45,6 +45,7 @@ from .pills import (
 from .ribbon import NavigationRibbon
 from .theme import ROLE, apply_theme, font_family, palette, stylesheet
 from .widgets import (
+    Choice,
     boxed,
     button_row,
     column,
@@ -75,6 +76,7 @@ from .widgets import (
 )
 
 __all__ = [
+    "Choice",
     "DECISION_ROLE",
     "DirectionalDelegate",
     "DecisionPillDelegate",

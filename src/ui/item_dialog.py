@@ -19,10 +19,17 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy import Engine, select
 
-from db.models import GENERAL, CharacteristicGroup, RefConnectionType, RefItemType, RefSize
+from db.models import (
+    GENERAL,
+    CharacteristicGroup,
+    Item,
+    RefConnectionType,
+    RefItemType,
+    RefSize,
+)
 from db.session import session_scope
 from domain.groups import list_groups
-from domain.items import create_item, seed_cg_characteristics
+from domain.items import create_item, seed_cg_characteristics, update_item
 from domain.reference import list_values
 
 from . import kit
@@ -40,13 +47,30 @@ MAGNITUDE_COLUMNS = (2, 3)
 
 
 class ItemDialog(QDialog):
-    """Форма новой детали. После accept() номер детали — в `created_number`."""
+    """Форма детали: заведение и правка. После accept() номер — в `created_number`.
 
-    def __init__(self, engine: Engine, parent: QWidget | None = None) -> None:
+    **Правка появилась потому, что номер был неисправим** (ревью наряда 0012,
+    В-2): форма умела только создавать, и опечатка в реальном каталожном номере
+    лечилась перезаливкой базы — то есть останавливала прогон на шаге 5.
+
+    В правке засев размеров не показывается. Он относится к заведению детали:
+    размеры уже есть, их локальные номера правятся привязкой к канону, а второй
+    засев по той же группе домен и не позволит (номер размера уникален внутри
+    детали). Показывать таблицу, которая при сохранении ничего не делает, —
+    обещать несуществующее.
+    """
+
+    def __init__(
+        self,
+        engine: Engine,
+        item_id: int | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._engine = engine
+        self._item_id = item_id
         self.created_number: str | None = None
-        self.setWindowTitle("Add item")
+        self.setWindowTitle("New item" if item_id is None else "Edit item")
         self.resize(tokens.DIALOG_MEDIUM, tokens.DIALOG_HEIGHT_MEDIUM)
 
         self.number_edit = QLineEdit()
@@ -74,32 +98,72 @@ class ItemDialog(QDialog):
             read_only=False,
         )
 
-        self.buttons = kit.dialog_buttons(accept="Create item")
+        self.buttons = kit.dialog_buttons(
+            accept="Create item" if item_id is None else "Save item"
+        )
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
+
+        self.seed_hint = kit.hint(
+            "Group positions — set the local number from the item drawing for "
+            "each. The number is not prefilled: it comes from the drawing and "
+            "rarely equals the g-position index."
+        )
+        self.group_row = kit.boxed(group_row)
 
         form = kit.stretching_form()
         form.addRow("Item number:", self.number_edit)
         form.addRow("Item type:", self.item_type)
         form.addRow("Connection type:", self.connection_type)
         form.addRow("Size class:", self.size)
-        form.addRow("Characteristic group:", group_row)
+        self.group_label = "Characteristic group:"
+        form.addRow(self.group_label, self.group_row)
 
         layout = kit.dialog_layout(self)
         layout.addLayout(form)
+        layout.addWidget(self.seed_hint)
+        layout.addWidget(self.positions, 1)
         layout.addWidget(
             kit.hint(
-                "Group positions — set the local number from the item drawing for "
-                "each. The number is not prefilled: it comes from the drawing and "
-                "rarely equals the g-position index."
+                "Dimensions of an existing item are not seeded twice: their local "
+                "numbers are edited in Mapping, the geometry — in the group editor."
             )
+            if item_id is not None
+            else kit.hint("")
         )
-        layout.addWidget(self.positions, 1)
         layout.addWidget(self.buttons)
 
         self.reload_reference()
+        if item_id is not None:
+            self._load(item_id)
+
+    @classmethod
+    def run(
+        cls, engine: Engine, item_id: int | None = None, parent: QWidget | None = None
+    ) -> bool:
+        """Открыть форму; `True` — деталь заведена или правка сохранена."""
+        return cls(engine, item_id, parent).exec() == QDialog.DialogCode.Accepted
 
     # --- наполнение ------------------------------------------------------------
+
+    def _load(self, item_id: int) -> None:
+        """Прочитать деталь в форму и убрать засев: он относится к заведению."""
+        with session_scope(self._engine) as session:
+            item = session.get(Item, item_id)
+            self.number_edit.setText(item.item_number)
+            _select_text(self.item_type, item.item_type.name if item.item_type else NO_TYPE)
+            _select_text(self.connection_type, item.connection_type.name)
+            _select_text(self.size, item.size.name)
+
+        self.group_row.setVisible(False)
+        self.seed_hint.setVisible(False)
+        self.positions.setVisible(False)
+        form = self.layout().itemAt(0).layout()
+        for row in range(form.rowCount()):
+            label = form.itemAt(row, form.ItemRole.LabelRole)
+            if label is not None and label.widget() is not None:
+                if label.widget().text().startswith("Characteristic group"):
+                    label.widget().setVisible(False)
 
     def reload_reference(self, keep_group: str | None = None) -> None:
         """Перечитать справочники и список групп."""
@@ -165,8 +229,7 @@ class ItemDialog(QDialog):
         group_name = self.group.currentText()
         try:
             with session_scope(self._engine) as session:
-                item = create_item(
-                    session,
+                fields = dict(
                     item_number=self.number_edit.text(),
                     item_type=(
                         None
@@ -178,11 +241,17 @@ class ItemDialog(QDialog):
                     ),
                     size=_by_name(session, RefSize, self.size.currentText()),
                 )
-                if group_name != NO_GROUP:
-                    group = session.scalar(
-                        select(CharacteristicGroup).where(CharacteristicGroup.name == group_name)
-                    )
-                    seed_cg_characteristics(session, item, group, self.local_numbers())
+                if self._item_id is None:
+                    item = create_item(session, **fields)
+                    if group_name != NO_GROUP:
+                        group = session.scalar(
+                            select(CharacteristicGroup).where(
+                                CharacteristicGroup.name == group_name
+                            )
+                        )
+                        seed_cg_characteristics(session, item, group, self.local_numbers())
+                else:
+                    item = update_item(session, session.get(Item, self._item_id), **fields)
                 self.created_number = item.item_number
         except Exception as error:
             kit.show_error(self, error)
@@ -206,6 +275,13 @@ def _fill(combo, names: list[str], preselect: str) -> None:
     index = combo.findText(preselect)
     combo.setCurrentIndex(index if index >= 0 else 0)
     combo.blockSignals(False)
+
+
+def _select_text(combo, text: str) -> None:
+    """Отметить значение по подписи; нет такого — оставить как есть."""
+    index = combo.findText(text)
+    if index >= 0:
+        combo.setCurrentIndex(index)
 
 
 def _readonly(text: str, payload=None) -> QTableWidgetItem:

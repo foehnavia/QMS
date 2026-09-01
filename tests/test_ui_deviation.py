@@ -388,9 +388,11 @@ def test_decision_dialog_starts_undecided_and_writes_the_outcome(engine_with_ite
     deviation_id = _register(engine_with_item)
 
     dialog = DecisionDialog(engine_with_item, deviation_id)
-    assert dialog.decision.currentText() == NOT_DECIDED
+    # Ничего не предвыбрано: исход — решение инженера, а не умолчание формы
+    # (канон §4, ревью 0012 В-9).
+    assert dialog.decision.value() is None
 
-    dialog.decision.setCurrentIndex(dialog.decision.findData("sorting"))
+    dialog.decision.set_value("sorting")
     dialog.explanation.setPlainText("100 % контроль по диаметру")
     dialog.save()
 
@@ -410,7 +412,7 @@ def test_decision_dialog_refuses_approval_without_an_explanation(
     deviation_id = _register(engine_with_item)
 
     dialog = DecisionDialog(engine_with_item, deviation_id)
-    dialog.decision.setCurrentIndex(dialog.decision.findData("approved"))
+    dialog.decision.set_value("approved")
     dialog.explanation.setPlainText("   ")
 
     dialog.save()
@@ -433,10 +435,19 @@ def test_decision_dialog_refuses_an_unset_outcome(engine_with_item, monkeypatch)
 
 
 def test_decision_dialog_lists_all_four_outcomes(engine_with_item) -> None:
+    """Четыре исхода стоят на экране разом — их выбирают, читая (канон §4).
+
+    Пятого варианта «решения нет» среди них нет: отсутствие решения это не
+    исход, а незаполненная форма.
+    """
+    from db.models import DECISION_DEV
+    from ui.common import DECISION_DEV_LABELS, strip_iso
+
     dialog = DecisionDialog(engine_with_item, _register(engine_with_item))
 
-    codes = [dialog.decision.itemData(i) for i in range(dialog.decision.count())]
-    assert codes == [None, "approved", "rejected", "sorting", "repair"]
+    labels = [strip_iso(button.text()) for button in dialog.decision.buttons()]
+    assert labels == [DECISION_DEV_LABELS[code] for code in DECISION_DEV]
+    assert dialog.decision.value() is None
 
 
 def test_decision_dialog_keeps_the_ncr_from_registration(engine_with_item) -> None:
@@ -445,7 +456,7 @@ def test_decision_dialog_keeps_the_ncr_from_registration(engine_with_item) -> No
     dialog = DecisionDialog(engine_with_item, deviation_id)
     assert dialog.ncr.text() == "NCR-118"
 
-    dialog.decision.setCurrentIndex(dialog.decision.findData("rejected"))
+    dialog.decision.set_value("rejected")
     dialog.save()
 
     with session_scope(engine_with_item) as session:
@@ -479,7 +490,7 @@ def test_inspection_dialog_writes_and_shows_the_finding(engine_with_item) -> Non
     assert "12" in dialog.finding_label.text()
 
     dialog.protocol.setText(r"\\srv\qa\SW-2026-14.docx")
-    dialog.verdict.setCurrentIndex(dialog.verdict.findData("not_approved"))
+    dialog.verdict.set_value("not_approved")
     dialog.save()
 
     with session_scope(engine_with_item) as session:
@@ -496,6 +507,8 @@ def test_inspection_dialog_refuses_an_empty_protocol(engine_with_item, monkeypat
     monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
 
     dialog = InspectionDialog(engine_with_item, _finding_id(engine_with_item))
+    # Вывод выбираем: без него форма отбивается раньше, на самом выводе.
+    dialog.verdict.set_value("approved")
     dialog.protocol.setText("   ")
     dialog.save()
 

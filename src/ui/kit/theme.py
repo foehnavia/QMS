@@ -152,7 +152,7 @@ QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox, QDateEdit {{
     border: {t.BORDER_WIDTH}px solid {t.N_250};
     border-radius: {t.RADIUS_CONTROL}px;
     padding: 0px {t.GAP_PILL_ICON}px;
-    min-height: {t.BUTTON_HEIGHT}px;
+    min-height: {t.INPUT_HEIGHT}px;
     color: {t.N_900};
     selection-background-color: {t.BLUE_100};
     selection-color: {t.N_900};
@@ -174,6 +174,30 @@ QComboBox QAbstractItemView {{
     selection-background-color: {t.BLUE_50};
     selection-color: {t.N_900};
 }}
+
+/* --- radio: a styled widget must style its indicator too ------------------
+   Qt draws the native indicator only while the widget is unstyled; the moment
+   any rule matches it, a blank circle is what the operator gets. Measured on
+   the decision dialog: four outcomes and no visible marks at all. */
+QRadioButton {{
+    background: transparent;
+    spacing: {t.GAP_PILL_ICON}px;
+    color: {t.N_900};
+}}
+QRadioButton::indicator {{
+    width: {t.INDICATOR_SIZE}px;
+    height: {t.INDICATOR_SIZE}px;
+    border-radius: {t.INDICATOR_SIZE // 2}px;
+    border: {t.BORDER_WIDTH}px solid {t.N_250};
+    background: {t.WHITE};
+}}
+QRadioButton::indicator:hover {{ border-color: {t.N_400}; }}
+QRadioButton::indicator:checked {{
+    border: {t.SELECTION_BAR_WIDTH * 2}px solid {t.BLUE_600};
+    background: {t.WHITE};
+}}
+QRadioButton:disabled {{ color: {t.N_450}; }}
+QRadioButton::indicator:disabled {{ background: {t.N_50}; border-color: {t.N_250}; }}
 
 /* --- table: the row is the unit of selection, a cell never takes focus --- */
 QTableView, QTableWidget, QListWidget {{
