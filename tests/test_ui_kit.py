@@ -216,6 +216,38 @@ def test_buttons_carry_their_role_not_their_colour() -> None:
         assert button.styleSheet() == ""
 
 
+def test_the_compact_empty_state_is_one_line_without_a_way_out() -> None:
+    """Канон §8 ревизии 1.2: секция с соседями объясняет пустоту строкой.
+
+    Выбор варианта — про **единицу**, а не про место: выход принадлежит
+    поверхности вокруг секции, и повторять его в каждой секции значит
+    предлагать один и тот же выход дважды.
+    """
+    box = kit.empty_state(
+        "No precedents yet", "only decided deviations are listed", compact=True
+    )
+
+    assert box.compact is True
+    assert not box.title_label.isVisibleTo(box)
+    assert "No precedents yet" in box.body_label.text()
+    assert "only decided deviations are listed" in box.body_label.text()
+    # Компактная секция ниже полной: это и есть та вертикаль, которую она
+    # возвращает таблице.
+    full = kit.empty_state("No precedents yet", "only decided deviations are listed")
+    assert box.sizeHint().height() < full.sizeHint().height()
+
+
+def test_an_empty_state_can_change_its_reason() -> None:
+    """«Находка не выбрана» и «прецедентов нет» — разные ответы, не один."""
+    box = kit.empty_state("No precedents yet", "nothing decided before", compact=True)
+
+    kit.set_empty_reason(box, "No finding selected", "pick a finding above")
+
+    assert "No finding selected" in box.body_label.text()
+    assert "pick a finding above" in box.body_label.text()
+    assert "No precedents" not in box.body_label.text()
+
+
 def test_the_empty_state_says_what_why_and_a_way_out() -> None:
     """Канон §8: пустая таблица без объяснения — источник ложного вывода."""
     action = kit.secondary("Add a deviation…")

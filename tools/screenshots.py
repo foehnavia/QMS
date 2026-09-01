@@ -64,6 +64,11 @@ DB = REPO_ROOT / "build" / "screens-demo.sqlite"
 WIDE = 1920
 TALL = 1080
 
+#: Карточка изменяема по высоте (ревью 0011, О-6) — снимаем в двух: в своей
+#: и в растянутой, чтобы было видно, что вертикаль достаётся секциям, а не
+#: тратится на прокрутку.
+CARD_TALL = 1000
+
 TODAY = date.today()
 POSITIONS = (
     GPositionSpec(1, 3.75, 0.05, -0.05, 0.30, 0.35),
@@ -282,6 +287,9 @@ def main() -> int:
     shoot(InspectionDialog(engine, ids["finding_id"]), "09-dialog-inspection")
     shoot(DecisionDialog(engine, ids["current_id"]), "10-dialog-decision")
     shoot(CardDialog(engine, ids["current_id"]), "11-dialog-card")
+    tall_card = CardDialog(engine, ids["current_id"])
+    tall_card.resize(kit.tokens.DIALOG_FULL, CARD_TALL)
+    shoot(tall_card, "11b-dialog-card-tall")
     shoot(ItemPositionsDialog(engine, ids["item_id"]), "12-dialog-item-positions")
 
     # --- 15. модальное сообщение об ошибке ---

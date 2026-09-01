@@ -237,6 +237,144 @@ def test_the_positions_button_lives_on_the_item_screen(engine, no_modals) -> Non
     assert no_modals == []
 
 
+# --- О-6: карточка как окно ---------------------------------------------------------
+
+
+def test_the_card_is_a_resizable_window_with_a_floor(engine, no_modals) -> None:
+    """Ревью 0011, О-6: карточка держит шапку, находки и две секции сразу.
+
+    Вертикали ей может не хватить на любом наперёд заданном размере, поэтому
+    окно изменяемое, а сжать его ниже читаемого нельзя.
+    """
+    from ui.card_dialog import CardDialog
+
+    deviation_id = _decided_deviation(engine)
+
+    card = CardDialog(engine, deviation_id)
+
+    assert card.minimumHeight() == tokens.WINDOW_MIN_HEIGHT
+    assert card.minimumWidth() == tokens.DIALOG_WIDE
+    assert card.height() > card.minimumHeight()
+    assert no_modals == []
+
+
+def test_the_precedent_tabs_scroll_instead_of_squeezing(engine, no_modals) -> None:
+    """Секции сохраняют свою высоту, а не делят остаток вертикали пополам."""
+    from PySide6.QtWidgets import QScrollArea
+
+    from ui.card_dialog import CardDialog
+
+    deviation_id = _decided_deviation(engine)
+
+    card = CardDialog(engine, deviation_id)
+
+    for index in range(card.tabs.count()):
+        assert isinstance(card.tabs.widget(index), QScrollArea)
+    # Таблица прецедентов не сжимается до полоски — иначе прокрутка не нужна,
+    # а нужна была именно она.
+    assert card.same_position.minimumHeight() == tokens.INLINE_TABLE_HEIGHT
+    assert no_modals == []
+
+
+def test_the_precedent_sections_explain_emptiness_in_one_line(engine, no_modals) -> None:
+    """Две секции — соседи одной вкладки, значит компактный вариант (канон §8)."""
+    from ui.card_dialog import CardDialog
+
+    deviation_id = _decided_deviation(engine)
+
+    card = CardDialog(engine, deviation_id)
+
+    assert card.dimension_empty.compact is True
+    assert card.position_empty.compact is True
+    # Пустое состояние вкладки целиком остаётся полным: у него есть свой выход.
+    assert card.descriptive_hint.compact is False
+    assert card.position_hint_box.compact is False
+    assert no_modals == []
+
+
+def test_an_unselected_finding_gets_its_own_reason(engine, no_modals) -> None:
+    """Подменять «не выбрано» на «прецедентов нет» значит объяснять не то."""
+    from ui.card_dialog import CardDialog
+
+    deviation_id = _decided_deviation(engine)
+
+    card = CardDialog(engine, deviation_id)
+    card.findings.setCurrentCell(-1, -1)
+    card.refresh_precedents()
+
+    assert "No finding selected" in card.dimension_empty.body_label.text()
+    assert no_modals == []
+
+
+def test_the_precedent_pill_is_painted_by_its_code(engine, no_modals) -> None:
+    """Найдено снимком доводки: пилюля прецедента красилась как «нет решения».
+
+    Домен отдаёт в строке прецедента **код** исхода, а карточка искала код по
+    подписи — поиск не находил ничего, и каждый решённый прецедент рисовался
+    контурной пилюлей открытого состояния. Тест смотрит на то, чем красят, а
+    не на то, что написано: подпись была верной и дефект не показывала.
+    """
+    from ui.card_dialog import PRECEDENT_DECISION_COLUMN, CardDialog
+
+    item_id, deviation_id = _deviation_with_a_precedent(engine)
+
+    card = CardDialog(engine, deviation_id)
+    cell = card.same_position.item(0, PRECEDENT_DECISION_COLUMN)
+
+    assert cell.text() == "Approved — use as is"
+    assert cell.data(kit.DECISION_ROLE) == "approved"
+    assert no_modals == []
+
+
+def _deviation_with_a_precedent(engine) -> tuple[int, int]:
+    """Две детали на одной канонической позиции: у второй решённый прецедент."""
+    with session_scope(engine) as session:
+        group = create_group(session, "Implant_Con_375_C1", POSITIONS)
+
+        past_item = make_item(session, "C1-08420B")
+        bind(session, past_item, group.positions[0], "77")
+        past = register(
+            session, item=past_item, wo="W26007201", quantity=40, date=_today()
+        )
+        past_characteristic, _ = get_or_create_characteristic(session, past_item, "77")
+        make_finding(
+            session,
+            past,
+            past_characteristic,
+            direction=Direction.MINUS,
+            value=0.05,
+        )
+        set_decision(
+            session, past, decision="approved", explanation="no effect on assembly"
+        )
+
+        item = make_item(session, "C1-08375A")
+        bind(session, item, group.positions[0], "12")
+        current = register(
+            session, item=item, wo="W26007336", quantity=12, date=_today()
+        )
+        characteristic, _ = get_or_create_characteristic(session, item, "12")
+        make_finding(
+            session, current, characteristic, direction=Direction.PLUS, value=0.08
+        )
+        return item.item_id, current.deviation_id
+
+
+def _decided_deviation(engine) -> int:
+    """Отклонение с находкой и решением — карточке есть что показать."""
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation = register(
+            session, item=item, wo="W26007336", quantity=12, date=_today()
+        )
+        characteristic, _ = get_or_create_characteristic(session, item, "12")
+        make_finding(
+            session, deviation, characteristic, direction=Direction.PLUS, value=0.08
+        )
+        set_decision(session, deviation, decision="approved", explanation="checked")
+        return deviation.deviation_id
+
+
 # --- §4: подписи вердикта исследования (В-9) ----------------------------------------
 
 

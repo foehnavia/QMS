@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -47,7 +48,6 @@ from domain.precedents import (
 
 from . import kit
 from .common import (
-    DECISION_DEV_LABELS,
     decision_dev_label,
     dimension_sort_key,
     iso,
@@ -112,11 +112,13 @@ NO_SELECTION_HINT = (
     "Pick a finding in the table above — precedents are searched by its characteristic."
 )
 
+#: Та же причина одной фразой — для компактных секций вкладки «точные».
+NO_SELECTION_SHORT = "pick a finding above; precedents are searched by its characteristic"
+
 NO_PRECEDENTS_TITLE = "No precedents yet"
-NO_PRECEDENTS_HINT = (
-    "Nothing decided on this characteristic before. Only deviations that already "
-    "carry a decision are listed — a precedent without a decision teaches nothing."
-)
+#: Компактная секция говорит одной фразой: читатель просматривает вкладку, а не
+#: секцию, и абзац на каждую из двух пустых секций он всё равно не читает.
+NO_PRECEDENTS_HINT = "only deviations that already carry a decision are listed"
 
 
 class PrecedentTable(QTableWidget):
@@ -171,8 +173,11 @@ class PrecedentTable(QTableWidget):
                     # по какому канону совпало; держим в подсказке.
                     cell.setToolTip(f"{row.local_number} · {row.g_label}")
                 if column == PRECEDENT_DECISION_COLUMN:
-                    # Код исхода рядом с подписью: пилюлю красит он.
-                    cell.setData(DECISION_ROLE, _decision_code(row.decision))
+                    # Код исхода рядом с подписью: пилюлю красит он. Домен
+                    # отдаёт в `row.decision` именно **код** — подпись из него
+                    # строит `decision_dev_label` строкой выше, и обратное
+                    # преобразование здесь красило все пилюли как «нет решения».
+                    cell.setData(DECISION_ROLE, row.decision)
                 if column == 7:
                     # Обоснование в строке урезано, целиком — в подсказке: это
                     # главный текст прецедента, терять его нельзя.
@@ -197,6 +202,11 @@ class CardDialog(QDialog):
         # Автопереход на L2 — только при открытии карточки: иначе смена
         # находки выкидывала бы оператора с вкладки, выбранной руками.
         self._first_render = True
+        # Карточка — **окно**, а не диалог фиксированного размера: она держит
+        # шапку, находки и две секции прецедентов сразу, и вертикали ей может не
+        # хватить на любом наперёд заданном размере. Минимум — чтобы окно не
+        # сжали в нечитаемое; область прецедентов ниже прокручивается.
+        self.setMinimumSize(tokens.DIALOG_WIDE, tokens.WINDOW_MIN_HEIGHT)
         self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_TALL)
 
         # --- шапка ---
@@ -307,11 +317,22 @@ class CardDialog(QDialog):
         self.position_hint_box = kit.empty_state(
             UNBOUND_TITLE, UNBOUND_HINT, self.position_hint_button
         )
-        self.dimension_empty = kit.empty_state(NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT)
-        self.position_empty = kit.empty_state(NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT)
+        # Секции L1a и L1b — соседи внутри одной вкладки, значит компактный
+        # вариант (канон §8, ревизия 1.2): выход принадлежит вкладке, не секции.
+        self.dimension_empty = kit.empty_state(
+            NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT, compact=True
+        )
+        self.position_empty = kit.empty_state(
+            NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT, compact=True
+        )
+        # Таблице прецедентов есть что показать — она не сжимается до полоски;
+        # вертикали не хватило — прокручивается вкладка целиком.
+        for table in (self.same_dimension, self.same_position):
+            table.setMinimumHeight(tokens.INLINE_TABLE_HEIGHT)
 
         exact = QWidget()
         exact_layout = QVBoxLayout(exact)
+        exact_layout.setContentsMargins(0, 0, 0, 0)
         exact_layout.addWidget(self.same_dimension_title)
         exact_layout.addWidget(self.same_dimension, 1)
         exact_layout.addWidget(self.dimension_empty)
@@ -320,15 +341,18 @@ class CardDialog(QDialog):
         exact_layout.addWidget(self.same_position, 1)
         exact_layout.addWidget(self.position_empty)
 
+        # Вкладка целиком — одна поверхность, значит полное пустое состояние.
         self.descriptive_hint = kit.empty_state(NO_LABELS_TITLE, NO_LABELS_HINT)
+        self.descriptive.setMinimumHeight(tokens.INLINE_TABLE_HEIGHT)
         similar = QWidget()
         similar_layout = QVBoxLayout(similar)
+        similar_layout.setContentsMargins(0, 0, 0, 0)
         similar_layout.addWidget(self.descriptive_hint)
         similar_layout.addWidget(self.descriptive, 1)
 
         self.tabs = kit.slice_tabs()
-        self.tabs.addTab(exact, "Exact precedents (L1)")
-        self.tabs.addTab(similar, "Descriptive precedents (L2)")
+        self.tabs.addTab(_scrolling(exact), "Exact precedents (L1)")
+        self.tabs.addTab(_scrolling(similar), "Descriptive precedents (L2)")
 
         self.open_button = kit.secondary("Open precedent…")
         self.open_button.clicked.connect(lambda: self.open_precedent())
@@ -433,6 +457,15 @@ class CardDialog(QDialog):
             self.same_dimension_title.setText(NO_SELECTION_TITLE)
             self.same_position_title.setText("")
             self.position_hint_box.setVisible(False)
+            # Причина пустоты здесь другая — «находка не выбрана», а не
+            # «прецедентов нет»; подменять одно другим значит объяснять
+            # оператору не то, что он видит.
+            kit.set_empty_reason(
+                self.dimension_empty, NO_SELECTION_TITLE, NO_SELECTION_SHORT
+            )
+            kit.set_empty_reason(
+                self.descriptive_hint, NO_SELECTION_TITLE, NO_SELECTION_HINT
+            )
             self.dimension_empty.setVisible(True)
             self.position_empty.setVisible(False)
             self.descriptive_hint.setVisible(True)
@@ -466,6 +499,9 @@ class CardDialog(QDialog):
 
         self.same_dimension.fill(same_dimension)
         self.same_dimension.setVisible(bool(same_dimension))
+        kit.set_empty_reason(
+            self.dimension_empty, NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT
+        )
         self.dimension_empty.setVisible(not same_dimension)
         self.same_dimension_title.setText(
             iso(f"Same item, same characteristic no. {local_number} ({len(same_dimension)})")
@@ -483,6 +519,7 @@ class CardDialog(QDialog):
 
         self.descriptive.fill(descriptive)
         self.descriptive.setVisible(has_labels)
+        kit.set_empty_reason(self.descriptive_hint, NO_LABELS_TITLE, NO_LABELS_HINT)
         self.descriptive_hint.setVisible(not has_labels)
 
         # Если точных совпадений нет — сразу показываем описательные: иначе
@@ -621,16 +658,18 @@ def _load_findings(session, deviation: Deviation) -> list[Finding]:
     return sorted(findings, key=lambda f: dimension_sort_key(f.characteristic.local_number))
 
 
-def _decision_code(label: str) -> str | None:
-    """Код исхода по его подписи — пилюля красится кодом, а не текстом.
+def _scrolling(content: QWidget) -> QScrollArea:
+    """Обернуть вкладку в прокрутку: секции сохраняют свою высоту, а не делят её.
 
-    Строка прецедента приходит из домена уже подписью; обратное соответствие
-    строится по тому же словарю, что и прямое, поэтому разойтись им нечем.
+    Без этого две секции прецедентов делили остаток вертикали, и второй
+    доставалась строка с половиной (ревью 0011, О-6). Полоса появляется только
+    когда содержимое действительно не помещается.
     """
-    for code, text in DECISION_DEV_LABELS.items():
-        if text == label:
-            return code
-    return None
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setFrameShape(QScrollArea.Shape.NoFrame)
+    area.setWidget(content)
+    return area
 
 
 def _one_line(text: str | None) -> str:

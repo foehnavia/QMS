@@ -198,6 +198,19 @@ def test_number_parsing(text: str, expected) -> None:
     assert parse_optional_number(text, "поле") == expected
 
 
+@pytest.mark.parametrize("text", ["−0.05", "–0.05", "−0,05", " −0.05 "])
+def test_the_parser_accepts_the_minus_the_screen_shows(text: str) -> None:
+    """Ревью 0011, Р-1: приложение показывает `−` (U+2212) и обязано принять его.
+
+    Минус канона стоит в заголовке `Tolerance −`, в ячейке допуска `+0.05 / −0.05`
+    и на переключателе направления. Оператор копирует значение из показанной
+    ячейки в редактируемую; без нормализации он получал «`−0.05` is not a number»
+    — сообщение про текст, который выглядит совершенно нормальным числом. Это
+    ошибка, которая не подсказывает, а сбивает.
+    """
+    assert parse_optional_number(text, "tolerance") == -0.05
+
+
 def test_bad_number_is_a_domain_error() -> None:
     from domain.errors import ValidationError
 

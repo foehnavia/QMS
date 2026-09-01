@@ -245,11 +245,27 @@ def slice_tabs() -> QTabWidget:
 # --- пустое состояние ------------------------------------------------------------
 
 
-def empty_state(what: str, why: str, action: QPushButton | None = None) -> QWidget:
+def empty_state(
+    what: str,
+    why: str,
+    action: QPushButton | None = None,
+    *,
+    compact: bool = False,
+) -> QWidget:
     """Пустое состояние канона §8: что пусто, почему и один выход.
 
     Пустая таблица, которая ничего не говорит, — это то, как оператор заключает
     «прецедентов не было» из экрана, который просто ничего не искал.
+
+    **Два варианта, и выбор между ними не про место** (канон §8, ревизия 1.2):
+
+    * полный — пустое состояние **экрана или вкладки**: пуста вся поверхность,
+      и кнопка это выход из неё;
+    * `compact=True` — одна строка без иконки и кнопки для **секции внутри**
+      экрана, у которой есть соседи: выход принадлежит поверхности вокруг неё.
+
+    Два полных состояния подряд в одном окне — не «мало вертикали», а неверный
+    вариант компонента: обе секции были приняты за целые поверхности.
     """
     box = QWidget()
     layout = QVBoxLayout(box)
@@ -257,19 +273,29 @@ def empty_state(what: str, why: str, action: QPushButton | None = None) -> QWidg
     # которой отступ уже есть, и второй такой же съедает вертикаль у таблицы.
     layout.setContentsMargins(t.PAD_CELL, t.PAD_CELL, t.PAD_CELL, t.PAD_CELL)
     layout.setSpacing(t.GAP_PILL_ICON)
-    layout.addStretch(1)
 
     heading = _roled(QLabel(iso(what)), ROLE_EMPTY_TITLE)
-    heading.setAlignment(Qt.AlignmentFlag.AlignHCenter)
     body = _roled(QLabel(iso(why)), ROLE_EMPTY_BODY)
     body.setWordWrap(True)
-    body.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
     # Подписи держим на самом виджете: их читают и тесты, и экраны, которые
     # меняют текст под конкретную причину пустоты.
     box.title_label = heading
     box.body_label = body
+    box.compact = compact
 
+    if compact:
+        # Одна строка: заголовок и объяснение читаются как фраза, а не как
+        # заголовок с текстом под ним. Заголовок остаётся виджетом — по нему
+        # экран меняет причину пустоты, — но в раскладку не идёт.
+        heading.setVisible(False)
+        body.setText(iso(f"{what} — {why}"))
+        layout.addWidget(body)
+        return box
+
+    heading.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+    body.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+    layout.addStretch(1)
     layout.addWidget(heading)
     layout.addWidget(body)
     if action is not None:
@@ -279,6 +305,18 @@ def empty_state(what: str, why: str, action: QPushButton | None = None) -> QWidg
         row.addStretch(1)
         layout.addLayout(row)
     layout.addStretch(1)
+    return box
+
+
+def set_empty_reason(box: QWidget, what: str, why: str) -> QWidget:
+    """Сменить причину пустоты, не пересобирая виджет.
+
+    Секция бывает пуста по разным причинам — «ещё не выбрана находка» и «по
+    этой находке прецедентов нет» это разные ответы, и подменять один другим
+    значит объяснять оператору не то, что он видит.
+    """
+    box.title_label.setText(iso(what))
+    box.body_label.setText(iso(f"{what} — {why}" if box.compact else why))
     return box
 
 

@@ -19,8 +19,12 @@ revision: 1.1
 > introduce a colour, a height or a radius that is not here — it extends this file first.
 >
 > **Revision 1.1 (2026-09-01, build order `0011`).** Closes C-1 and C-2 by measurement on
-> the target machine, C-4 by replacing the sidebar with the navigation ribbon, and adds §10
-> — the component list the code library `src/ui/kit/` implements one-to-one.
+> the target machine, C-4 by replacing the side navigation with the ribbon, and adds §10 —
+> the component list the code library `src/ui/kit/` implements one-to-one.
+>
+> **Revision 1.2 (2026-09-01, review of `0011`).** Two leftovers of the side navigation
+> removed from the tables (R-2), and §8 gains the **compact** empty state: two full ones
+> stacked in a card is the wrong variant of the component, not a shortage of space (O-6).
 
 ## 0. What governs
 
@@ -55,7 +59,7 @@ and bidi defects hide.
 | Token | Value | Used for |
 |---|---|---|
 | `white` | `#FFFFFF` | screen background, table background |
-| `n-50` | `#F7F9FB` | sidebar, table header, footer, hover row, filter panel |
+| `n-50` | `#F7F9FB` | table header, footer, hover row, filter panel |
 | `n-100` | `#EFF2F5` | inner rules, muted counter background |
 | `n-200` | `#E3E7EC` | borders |
 | `n-250` | `#DCE0E6` | control borders |
@@ -68,7 +72,8 @@ and bidi defects hide.
 | `n-900` | `#1B2027` | primary text |
 
 `n-50` is the ground of the table header, the footer, the hover row and the filter panel.
-It is **not** a sidebar colour any more — there is no sidebar (see the ribbon below).
+It is the quiet ground under a working surface — never navigation: navigation is the
+ribbon below, and it is dark.
 
 ### Ribbon — the navigation strip, and the only dark surface
 
@@ -121,7 +126,7 @@ was proposed to be; `system-ui` and `sans-serif` are CSS concepts and mean nothi
 | Column header | 11 | 700 | letter-spacing +0.03em, `n-500`, upper case |
 | Pill label | 11.5 | 600 | |
 | Status / footer | 11.5 | 400 | `n-500` |
-| Sidebar group caption | 10.5 | 700 | letter-spacing +0.07em, `n-400` |
+| Section caption | 10.5 | 700 | letter-spacing +0.07em, `n-400` — a group of rows inside a screen |
 
 **Tabular figures are the reason right alignment means anything** — without equal digit
 widths `0.05` and `0.11` occupy different widths and the eye stops comparing down a column.
@@ -217,7 +222,19 @@ render as `2026.08.19`. Numeric columns are **declared in a list**, not guessed.
 
 Every empty state answers three things: **what is empty**, **why**, and **one way out**. An
 empty table that says nothing is how an operator concludes "there were no precedents" from a
-screen that was merely filtered. Icon 34 px `n-300`, title 14/650, body 12/`n-500`, one button.
+screen that was merely filtered.
+
+Two variants, and the choice between them is not about space:
+
+| Variant | Shape | Where |
+|---|---|---|
+| **Full** | icon 34 `n-300` · title 14/650 · body 12/`n-500` · one button | the empty state **of a screen or a tab** — the whole surface is empty, and the button is the way out |
+| **Compact** | one line, 12/`n-500`, no icon and no button | a **section inside** a screen that has siblings — the way out belongs to the surface around it |
+
+The rule is the unit, not the pixel count: a section that is one of several in a view states
+its emptiness in a line, because the reader is scanning the view, not the section. Two full
+empty states stacked in one window is the wrong variant of the component — it was chosen
+because both sections were treated as whole surfaces, which they are not.
 
 ## 9. What a stylesheet cannot say
 
@@ -250,7 +267,7 @@ has left the design system, and the guard in `tests/test_ui_kit.py` fails on it.
 | `slice_tab` | a tab strip 44 px | counts on tabs ignore filters — they answer "how much is there" |
 | `decision_badge` | the pill of §1 | undecided is the only outlined one; the word always accompanies the colour |
 | `hint` | a line of explanation under a control | says why, not what |
-| `empty_state` | §8 | answers what is empty, why, and one way out |
+| `empty_state` | §8, full and **compact** | full for a screen or a tab, compact for a section that has siblings |
 | `error_box` | the modal of a `DomainError` | the domain writes the text; the UI does not rephrase it |
 | `status_bar` | the 36 px footer | carries counts and the database path |
 | `ribbon` | the 44 px navigation strip | always 44; captions leave before pixels do |

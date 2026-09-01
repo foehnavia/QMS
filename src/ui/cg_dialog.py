@@ -37,9 +37,36 @@ NUMERIC_COLUMNS = (0,)
 MAGNITUDE_COLUMNS = (1, 2, 3)
 
 
+#: Знаки, которые приложение **показывает** и обязано принять обратно.
+#:
+#: Минус канона `−` (U+2212) стоит в заголовке `Tolerance −`, в ячейке допуска
+#: `+0.05 / −0.05` и на переключателе направления. Оператор копирует значение из
+#: показанной ячейки в редактируемую — и без этой нормализации получает
+#: «`−0.05` is not a number»: сообщение про текст, который выглядит совершенно
+#: нормальным числом (ревью 0011, Р-1). Тире `–` (U+2013) добавлено по той же
+#: причине: его подставляют текстовые редакторы, из которых значение приходит.
+_ASCII_EQUIVALENTS = {
+    ",": ".",
+    "−": "-",  # U+2212 minus sign
+    "–": "-",  # U+2013 en dash
+}
+
+
+def normalise_number(text: str) -> str:
+    """Привести введённое к тому, что понимает `float`.
+
+    Единственная точка нормализации: её зовут все формы, которые принимают
+    число, — новая группа, редактор группы, находка.
+    """
+    cleaned = strip_iso(text).strip()
+    for shown, ascii_form in _ASCII_EQUIVALENTS.items():
+        cleaned = cleaned.replace(shown, ascii_form)
+    return cleaned
+
+
 def parse_optional_number(text: str, field: str) -> float | None:
-    """Пустое — None; запятая принимается как десятичный разделитель."""
-    cleaned = strip_iso(text).strip().replace(",", ".")
+    """Пустое — None; запятая и знаки минуса приводятся к ASCII."""
+    cleaned = normalise_number(text)
     if not cleaned:
         return None
     try:
