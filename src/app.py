@@ -24,12 +24,12 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from sqlalchemy import Engine  # noqa: E402
 
 from db.session import create_db_engine, default_db_url, session_scope  # noqa: E402
 from seed.reference import seed_reference  # noqa: E402
+from ui.kit import apply_theme  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402
 
 REPO_ROOT = SRC.parent
@@ -72,10 +72,15 @@ def main(argv: list[str] | None = None) -> int:
     prepare_database(engine)
 
     app = QApplication(argv if argv is not None else sys.argv)
-    # Шасси окна — LTR (наряд 0007, `architecture.md` §3). Направление **данных**
-    # живёт на уровне ячейки и поля (`ui.common`), а не на уровне приложения:
+    # Одевание приложения — одной строкой и один раз (наряд 0011): шасси LTR,
+    # явная светлая палитра, шрифтовой стек и стиль из токенов канона.
+    #
+    # Шасси LTR (наряд 0007, `architecture.md` §3): направление **данных** живёт
+    # на уровне ячейки и поля (`ui.kit.direction`), а не на уровне приложения —
     # глобальный RTL склеивал два разных вопроса и породил класс дефектов S2-S5.
-    app.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+    # Палитра ставится явно: тёмный режим Windows иначе перекрашивает экраны в
+    # то, чего никто не проектировал (канон §0).
+    apply_theme(app)
 
     window = MainWindow(engine)
     window.show()
