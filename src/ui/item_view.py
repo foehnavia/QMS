@@ -1,64 +1,72 @@
-"""Экран «Детали»: список заведённых деталей + кнопка добавления.
+"""Экран «Детали»: список заведённых деталей, привязка к канону, позиции.
 
-Колонка «Группы» выводится из маппингов размеров (`domain.items.groups_of`) —
+Колонка «Groups» выводится из маппингов размеров (`domain.items.groups_of`) —
 отдельной Item↔CG таблицы в схеме нет.
+
+Колонка `Characteristics` до наряда 0011 показывала **число без единого способа
+его раскрыть** — тупик, который прогон вскрыл бы на шаге 5. Теперь это вход в
+диалог позиций детали (решение В-7): отдельное окно, только чтение, а не
+сплиттер — самый богатый детальный вид приложения (карточка отклонения) сделан
+отдельным окном, и второго образца показа вложенного здесь не заводится.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QMessageBox,
-    QHeaderView,
-    QLabel,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QDialog, QMessageBox, QTableWidgetItem, QWidget
 from sqlalchemy import Engine
 
 from db.session import session_scope
 from domain.items import groups_of, list_items
 
-from .common import directional, iso, joined
+from . import kit
+from .common import iso, joined
 from .item_dialog import ItemDialog
+from .item_positions_dialog import ItemPositionsDialog
 from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
 
 COLUMNS = ("Item number", "Item type", "Connection", "Size class", "Characteristics", "Groups")
 
+#: Число размеров — колонка счётчика: направление ей задаём явно, а выравнивание
+#: остаётся левым — счётчик не сравнивают по величине (канон §6).
+NUMERIC_COLUMNS = (4,)
+
+EMPTY_TITLE = "No items yet"
+EMPTY_BODY = (
+    "An item is the catalogue number a deviation is addressed to. Add one here, "
+    "or create it on the fly from the deviation form."
+)
+
 
 class ItemView(QWidget):
+    statusChanged = Signal(str)
+
     def __init__(self, engine: Engine, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._engine = engine
+        self._summary = ""
 
-        self.table = QTableWidget(0, len(COLUMNS))
-        self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        # Число размеров — колонка счётчика: направление ей задаём явно.
-        directional(self.table, numeric_columns=(4,))
+        self.table = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS)
+        self.table.doubleClicked.connect(self.open_positions)
+        self.empty = kit.empty_state(EMPTY_TITLE, EMPTY_BODY)
 
-        self.add_button = QPushButton(iso("Add item…"))
+        self.add_button = kit.primary("Add item…")
+        self.positions_button = kit.secondary("Positions…")
+        self.map_button = kit.secondary("Bind to canon…")
         self.add_button.clicked.connect(self.add_item)
-        self.map_button = QPushButton(iso("Bind to canon…"))
+        self.positions_button.clicked.connect(self.open_positions)
         self.map_button.clicked.connect(self.map_item)
-        self.status = QLabel()
 
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.add_button)
-        buttons.addWidget(self.map_button)
-        buttons.addStretch(1)
-
-        layout = QVBoxLayout(self)
-        layout.addLayout(buttons)
+        layout = kit.screen_layout(self)
+        layout.addWidget(
+            kit.section_header("Items", "Catalogue numbers and their characteristics")
+        )
+        layout.addLayout(
+            kit.button_row(self.add_button, self.positions_button, self.map_button)
+        )
         layout.addWidget(self.table, 1)
-        layout.addWidget(self.status)
+        layout.addWidget(self.empty, 1)
 
         self.reload()
 
@@ -88,20 +96,47 @@ class ItemView(QWidget):
                     cell.setData(Qt.ItemDataRole.UserRole, item_id)
                 self.table.setItem(row, column, cell)
 
-        self.status.setText(f"Items in the database: {len(rows)}")
+        self.table.setVisible(bool(rows))
+        self.empty.setVisible(not rows)
+
+        self._summary = f"Items in the database: {len(rows)}"
+        self.statusChanged.emit(self._summary)
+
+    def summary_text(self) -> str:
+        """Сводка экрана — её показывает **подвал окна**, а не сам экран.
+
+        Своей строки состояния у раздела нет намеренно: подвал уже несёт
+        счётчики и путь базы, и вторая такая же строка над ним была бы одним и
+        тем же числом дважды на одном экране.
+        """
+        return self._summary
+
+    # --- действия -------------------------------------------------------------
+
+    def _selected_item_id(self) -> int | None:
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Nothing selected", "Select an item in the list first.")
+            return None
+        return self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
 
     def add_item(self) -> None:
         dialog = ItemDialog(self._engine, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.reload()
 
+    def open_positions(self) -> None:
+        """Раскрыть число в колонке `Characteristics` (решение В-7)."""
+        item_id = self._selected_item_id()
+        if item_id is None:
+            return
+        ItemPositionsDialog.run(self._engine, item_id, self)
+
     def map_item(self) -> None:
         """Привязка размеров выбранной детали к канону — тот же диалог, что и в CG."""
-        row = self.table.currentRow()
-        if row < 0:
-            QMessageBox.information(self, "Nothing selected", "Select an item in the list first.")
+        item_id = self._selected_item_id()
+        if item_id is None:
             return
-        item_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
 
         cg_id = choose_cg_for_item(self, self._engine, item_id)
         if cg_id is None:

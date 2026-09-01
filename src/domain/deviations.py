@@ -47,6 +47,10 @@ class DeviationRow:
     decision_dev: str | None
     findings: int
     inspections: int
+    #: Обоснование решения. В списке оно колонкой (наряд 0011 §4): прецедент
+    #: без «почему» почти ничему не учит, а поле уже есть — новых запросов
+    #: колонка не добавляет, только ещё одно выражение в `select`.
+    explanation: str | None = None
 
 
 def register(
@@ -208,6 +212,7 @@ def list_deviations(session: Session, *, item: Item | None = None) -> list[Devia
             Deviation.decision_dev,
             func.coalesce(findings.c.n, 0),
             func.coalesce(inspections.c.n, 0),
+            Deviation.explanation,
         )
         .join(Item, Deviation.item_id == Item.item_id)
         .outerjoin(findings, findings.c.deviation_id == Deviation.deviation_id)

@@ -1,26 +1,25 @@
-"""Главное окно: навигация по разделам приложения.
+"""Шасси окна: лента навигации сверху, разделы под ней, подвал со сводкой.
 
-Самостоятельный экран поиска — Этап 1.5 (S8) и здесь отсутствует; навигация
-показывает его недоступным, чтобы порядок сборки был виден оператору.
+Бокового меню **нет** (решение С-4 наряда 0010, канон §1): оно съедало ширину,
+а таблица отклонений широкая — горизонтальный скролл в ней дороже вертикального.
+Навигация — лента 44 px поверх экрана, слева бренд, справа строка состояния
+станции.
+
+Самостоятельный экран поиска — Этап 1.5 (S8) и здесь отсутствует; лента
+показывает его выключенным, чтобы порядок сборки был виден оператору.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMainWindow,
-    QSplitter,
-    QStackedWidget,
-    QWidget,
-)
+from PySide6.QtWidgets import QMainWindow, QStackedWidget, QVBoxLayout, QWidget
 from sqlalchemy import Engine
+from sqlalchemy.exc import SQLAlchemyError
 
+from . import kit
 from .cg_view import CgView
 from .deviation_view import DeviationView
 from .item_view import ItemView
+from .kit import tokens
 from .reference_view import ReferenceView
 
 #: Разделы будущих спринтов — видимы, но неактивны.
@@ -32,14 +31,22 @@ from .reference_view import ReferenceView
 #: deep search); S5 ищет только от отклонения, которое на руках.
 PLANNED_SECTIONS = (("Search", "S8"),)
 
+BRAND = "MIS-QMS"
+
+#: Правая строка ленты: чем эта станция является. Не украшение — инструмент
+#: автономен по решению об изоляции рабочих данных, и это должно быть видно.
+STATION = "Offline · single station"
+
 
 class MainWindow(QMainWindow):
     def __init__(self, engine: Engine) -> None:
         super().__init__()
         self.setWindowTitle("MIS-QMS — deviation database")
-        self.resize(1000, 640)
+        self.setMinimumSize(tokens.WINDOW_MIN_WIDTH, tokens.WINDOW_MIN_HEIGHT)
 
-        self.sections = QListWidget()
+        self.ribbon = kit.NavigationRibbon(
+            BRAND, f"{STATION} · DB rev. {_db_revision(engine)}"
+        )
         self.pages = QStackedWidget()
 
         self.reference_view = ReferenceView(engine)
@@ -52,25 +59,32 @@ class MainWindow(QMainWindow):
         self._add_section("Deviations", self.deviation_view)
 
         for title, sprint in PLANNED_SECTIONS:
-            item = QListWidgetItem(f"{title}  ({sprint})")
-            item.setFlags(Qt.ItemFlag.NoItemFlags)
-            self.sections.addItem(item)
+            self.ribbon.add_section(title, enabled=False, note=sprint)
 
-        self.sections.currentRowChanged.connect(self._switch)
-        self.sections.setCurrentRow(0)
-        self.sections.setMaximumWidth(260)
+        self.ribbon.sectionSelected.connect(self._switch)
 
-        splitter = QSplitter()
-        splitter.addWidget(self.sections)
-        splitter.addWidget(self.pages)
-        splitter.setStretchFactor(1, 1)
-        self.setCentralWidget(splitter)
+        central = QWidget()
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.ribbon)
+        layout.addWidget(self.pages, 1)
+        self.setCentralWidget(central)
 
-        self.statusBar().addWidget(QLabel(f"Database: {engine.url}"))
+        # Подвал: сводка активного экрана слева, путь к базе справа — он
+        # отвечает на «с какой базой я сейчас работаю», а не на «что в списке».
+        self.summary = kit.status_label()
+        self.database = kit.status_label(f"Database: {engine.url}")
+        self.statusBar().addWidget(self.summary, 1)
+        self.statusBar().addPermanentWidget(self.database)
+
+        self.ribbon.select(0)
 
     def _add_section(self, title: str, page: QWidget) -> None:
-        self.sections.addItem(QListWidgetItem(title))
+        self.ribbon.add_section(title)
         self.pages.addWidget(page)
+        if hasattr(page, "statusChanged"):
+            page.statusChanged.connect(self._on_status)
 
     def _switch(self, row: int) -> None:
         if 0 <= row < self.pages.count():
@@ -79,3 +93,32 @@ class MainWindow(QMainWindow):
             # экран мог устареть, пока оператор был в соседнем разделе
             if hasattr(current, "reload"):
                 current.reload()
+            self._on_status(getattr(current, "summary_text", lambda: "")())
+
+    def _on_status(self, text: str) -> None:
+        """Сводку в подвал пишет только **активный** экран.
+
+        Соседний раздел перечитывается по переключению и тоже шлёт сигнал; без
+        этой проверки подвал показывал бы счётчик экрана, которого не видно.
+        """
+        if self.sender() in (None, self.pages.currentWidget()):
+            self.summary.setText(text)
+
+    def select_section(self, row: int) -> None:
+        """Публичный вход для тестов и снимков: выбрать раздел по порядку."""
+        self.ribbon.select(row)
+
+
+def _db_revision(engine: Engine) -> str:
+    """Ревизия схемы для строки состояния — короткая, как её пишет Alembic."""
+    from alembic.runtime.migration import MigrationContext
+
+    try:
+        with engine.connect() as connection:
+            return MigrationContext.configure(connection).get_current_revision() or "empty"
+    except SQLAlchemyError:
+        # Строка состояния не имеет права уронить окно: база может быть занята.
+        return "unknown"
+
+
+__all__ = ["BRAND", "PLANNED_SECTIONS", "STATION", "MainWindow"]

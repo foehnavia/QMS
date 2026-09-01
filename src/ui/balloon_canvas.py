@@ -18,19 +18,21 @@ from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
 from .common import iso
+from .kit import tokens
 
 #: Режимы: перетаскивание баллонов (редактор CG) и выбор баллона (привязка).
 MODE_EDIT = "edit"
 MODE_SELECT = "select"
 
-BALLOON_RADIUS = 16
-MARGIN = 12
+BALLOON_RADIUS = tokens.BALLOON_RADIUS
+MARGIN = tokens.BALLOON_MARGIN
 
-#: Раскраска состояний. `linked` — ярко-зелёный (Session-03 §4).
+#: Раскраска состояний — из токенов канона, а не своей палитрой (наряд 0011):
+#: связанная позиция берёт зелёный исхода «одобрено», «нет у детали» —
+#: нейтральный серый, «не решено» — светлую заливку.
 COLORS = {
-    "neutral": (QColor("#f5f5f5"), QColor("#5c5c5c")),
-    "linked": (QColor("#43a047"), QColor("#1b5e20")),
-    "absent": (QColor("#9e9e9e"), QColor("#424242")),
+    state: (QColor(fill), QColor(border), QColor(text))
+    for state, (fill, border, text) in tokens.BALLOON_STATES.items()
 }
 
 
@@ -153,10 +155,16 @@ class BalloonCanvas(QWidget):
         if self._pixmap is not None and not self._pixmap.isNull():
             painter.drawPixmap(rect.toRect(), self._pixmap)
         else:
-            painter.fillRect(rect, QColor("#fafafa"))
-            painter.setPen(QPen(QColor("#bdbdbd"), 1, Qt.PenStyle.DashLine))
+            painter.fillRect(rect, QColor(tokens.DRAWING_PLACEHOLDER))
+            painter.setPen(
+                QPen(
+                    QColor(tokens.DRAWING_PLACEHOLDER_BORDER),
+                    tokens.BORDER_WIDTH,
+                    Qt.PenStyle.DashLine,
+                )
+            )
             painter.drawRect(rect)
-            painter.setPen(QColor("#9e9e9e"))
+            painter.setPen(QColor(tokens.DRAWING_PLACEHOLDER_TEXT))
             painter.drawText(
                 rect, Qt.AlignmentFlag.AlignCenter, "No drawing loaded — balloons laid out in a grid"
             )
@@ -167,14 +175,19 @@ class BalloonCanvas(QWidget):
 
         for index, balloon in enumerate(self._balloons):
             centre = self._point_of(index, balloon)
-            fill, border = COLORS.get(balloon.state, COLORS["neutral"])
+            fill, border, ink = COLORS.get(balloon.state, COLORS["neutral"])
             selected = balloon.g_index == self._selected
 
             painter.setBrush(fill)
-            painter.setPen(QPen(border, 3 if selected else 2))
+            painter.setPen(
+                QPen(
+                    border,
+                    tokens.BALLOON_STROKE_SELECTED if selected else tokens.BALLOON_STROKE,
+                )
+            )
             painter.drawEllipse(centre, BALLOON_RADIUS, BALLOON_RADIUS)
 
-            painter.setPen(QColor("#ffffff") if balloon.state != "neutral" else QColor("#212121"))
+            painter.setPen(ink)
             box = QRectF(
                 centre.x() - BALLOON_RADIUS,
                 centre.y() - BALLOON_RADIUS,
@@ -185,9 +198,12 @@ class BalloonCanvas(QWidget):
             painter.drawText(box, Qt.AlignmentFlag.AlignCenter, iso(f"g{balloon.g_index}"))
 
             if balloon.label:
-                painter.setPen(QColor("#1b5e20"))
+                painter.setPen(COLORS["linked"][1])
                 caption = QRectF(
-                    centre.x() - 60, centre.y() + BALLOON_RADIUS + 2, 120, 18
+                    centre.x() - tokens.BALLOON_CAPTION_WIDTH / 2,
+                    centre.y() + BALLOON_RADIUS + tokens.BORDER_WIDTH,
+                    tokens.BALLOON_CAPTION_WIDTH,
+                    tokens.BALLOON_CAPTION_HEIGHT,
                 )
                 painter.drawText(caption, Qt.AlignmentFlag.AlignCenter, iso(f"#{balloon.label}"))
 

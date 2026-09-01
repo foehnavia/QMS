@@ -2,65 +2,66 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QDialog, QMessageBox, QTableWidgetItem, QWidget
 from sqlalchemy import Engine
 
 from db.session import session_scope
 from domain.groups import list_groups
 from domain.items import list_items
 
+from . import kit
 from .cg_dialog import CgDialog
 from .cg_editor import CgEditor
-from .common import directional, iso
 from .mapping_dialog import MappingDialog
 from .pickers import pick_item
 
 COLUMNS = ("Group", "Positions", "Drawing")
 
+#: Счётчик позиций — числовая колонка, но не величина: остаётся влево.
+NUMERIC_COLUMNS = (1,)
+
+NO_DRAWING = "—"
+HAS_DRAWING = "yes"
+
+EMPTY_TITLE = "No characteristic groups yet"
+EMPTY_BODY = (
+    "A group is the drawing shared by a family of items: canonical positions "
+    "with nominal and tolerance. Items bind their own numbers to it."
+)
+
 
 class CgView(QWidget):
+    statusChanged = Signal(str)
+
     def __init__(self, engine: Engine, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._engine = engine
+        self._summary = ""
 
-        self.table = QTableWidget(0, len(COLUMNS))
-        self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS)
         self.table.doubleClicked.connect(self.open_editor)
-        directional(self.table, numeric_columns=(1,))
+        self.empty = kit.empty_state(EMPTY_TITLE, EMPTY_BODY)
 
-        self.create_button = QPushButton(iso("Create…"))
-        self.editor_button = QPushButton(iso("Editor…"))
-        self.bind_button = QPushButton(iso("Bind item…"))
+        self.create_button = kit.primary("Create…")
+        self.editor_button = kit.secondary("Editor…")
+        self.bind_button = kit.secondary("Bind item…")
         self.create_button.clicked.connect(self.create_group)
         self.editor_button.clicked.connect(self.open_editor)
         self.bind_button.clicked.connect(self.bind_item)
 
-        self.status = QLabel()
-
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.create_button)
-        buttons.addWidget(self.editor_button)
-        buttons.addWidget(self.bind_button)
-        buttons.addStretch(1)
-
-        layout = QVBoxLayout(self)
-        layout.addLayout(buttons)
+        layout = kit.screen_layout(self)
+        layout.addWidget(
+            kit.section_header(
+                "Characteristic groups",
+                "The canon a family of items shares — g-positions and their geometry",
+            )
+        )
+        layout.addLayout(
+            kit.button_row(self.create_button, self.editor_button, self.bind_button)
+        )
         layout.addWidget(self.table, 1)
-        layout.addWidget(self.status)
+        layout.addWidget(self.empty, 1)
 
         self.reload()
 
@@ -77,9 +78,24 @@ class CgView(QWidget):
             first.setData(Qt.ItemDataRole.UserRole, cg_id)
             self.table.setItem(row, 0, first)
             self.table.setItem(row, 1, QTableWidgetItem(str(positions)))
-            self.table.setItem(row, 2, QTableWidgetItem("yes" if has_drawing else "—"))
+            self.table.setItem(
+                row, 2, QTableWidgetItem(HAS_DRAWING if has_drawing else NO_DRAWING)
+            )
 
-        self.status.setText(f"Groups in the database: {len(rows)}")
+        self.table.setVisible(bool(rows))
+        self.empty.setVisible(not rows)
+
+        self._summary = f"Groups in the database: {len(rows)}"
+        self.statusChanged.emit(self._summary)
+
+    def summary_text(self) -> str:
+        """Сводка экрана — её показывает **подвал окна**, а не сам экран.
+
+        Своей строки состояния у раздела нет намеренно: подвал уже несёт
+        счётчики и путь базы, и вторая такая же строка над ним была бы одним и
+        тем же числом дважды на одном экране.
+        """
+        return self._summary
 
     def _selected_cg_id(self) -> int | None:
         row = self.table.currentRow()
