@@ -4,7 +4,7 @@ entity: CharacteristicGroup
 order: 40
 canon: true
 rev: "1.00"
-updated: 2026-08-10
+updated: 2026-09-01
 ---
 
 # CharacteristicGroup (CG) / g-position — the canonical layer · and Mapping
@@ -30,6 +30,21 @@ updated: 2026-08-10
   and the size threshold: `architecture.md` §4–§5 (QMS-013).
 - A position's **`g_index` is its identity** — mappings of every part point at it, so
   it is not renumbered in place: add a new position and drop the old one instead.
+- **An index is issued once and never reused.** A new position takes `max(current) + 1`;
+  the index is not typed by hand, and a gap left by a deleted position is never filled.
+  The reason is not referential integrity — the surrogate `g_position_id` keeps that —
+  but the **shared vocabulary of drawing and database**: `g5` is written on the drawing,
+  in the inspection record and in the operator's note. The tool exists to compare across
+  time, and a label that silently changes meaning between revisions breaks exactly that,
+  with nothing in the system to catch it. Accepted residue: deleting the *last* position
+  lets the next one take the same index; a strict "never" needs a monotonic counter on the
+  group (a schema revision). The residue is narrow — only a position that was never bound
+  to anything can be deleted at all (`decisions.md`, QMS-016).
+- **A range of g-positions is an input gesture, not a stored rule.** "Mark g1…g24" marks
+  every position existing in that interval **at the moment of the action** and immediately
+  materialises into a list of mappings. No interval is stored, nothing is recomputed on
+  read: after the rule above, gaps are legal, and "g1—g24" would otherwise either change
+  meaning retroactively or falsely claim that 1…24 all exist (`decisions.md`, QMS-016).
 - No versioning in stage 1. A second-level CG (linking constructively similar parts)
   is out of scope for now — it only imposes keeping the Item↔CG link many-to-many
   (`Item.md`).
