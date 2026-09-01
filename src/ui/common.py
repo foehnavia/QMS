@@ -55,9 +55,11 @@ __all__ = [
     "joined",
     "numeric_field",
     "show_error",
+    "canon_geometry_label",
     "signed_label",
     "strip_iso",
     "tolerance_label",
+    "tolerance_text",
 ]
 
 
@@ -82,6 +84,10 @@ DECISION_DEV_SHORT = {
     "sorting": "Sorting",
     "repair": "Repair",
 }
+
+#: Позиция без геометрии — прочерк. Деталь по такой позиции не засеется, и
+#: оператор должен видеть это в момент привязки, а не выяснять при регистрации.
+NO_GEOMETRY = "—"
 
 #: `decision_dev IS NULL` — регистрация прошла, шаг 8 ещё нет.
 NO_DECISION_LABEL = "No decision yet"
@@ -140,8 +146,8 @@ def signed_label(direction: str, value: float | None) -> str:
     return iso(f"{sign} {number}".strip())
 
 
-def tolerance_label(plus: float | None, minus: float | None) -> str:
-    """Допуск одной ячейкой: `+0.05 / −0.05`, **один** изолят на весь токен.
+def tolerance_text(plus: float | None, minus: float | None) -> str:
+    """Допуск **без изолята**: `+0.05 / −0.05`, годится как часть составной ячейки.
 
     Знак минуса — `−` (U+2212), как у `signed_label` и как пишет канон: в базе
     он ASCII-дефис (единая точка для парсера S6), а дефис и минус — разные
@@ -149,7 +155,35 @@ def tolerance_label(plus: float | None, minus: float | None) -> str:
     """
     if plus is None and minus is None:
         return ""
-    return iso(f"+{_magnitude(plus)} / −{_magnitude(minus)}")
+    return f"+{_magnitude(plus)} / −{_magnitude(minus)}"
+
+
+def tolerance_label(plus: float | None, minus: float | None) -> str:
+    """Допуск отдельной ячейкой: тот же токен, обёрнутый **одним** изолятом."""
+    text = tolerance_text(plus, minus)
+    return iso(text) if text else ""
+
+
+def canon_geometry_label(
+    nominal: float | None, plus: float | None, minus: float | None
+) -> str:
+    """Геометрия канонической позиции одной ячейкой: `38.1 +0.2 / −0.1`.
+
+    Два самостоятельных токена — номинал и допуск, — поэтому собирается через
+    `joined`: каждый в своём изоляте, порядок за базой ячейки (`CLAUDE.md` §9).
+    Один изолят вокруг всей строки задал бы только базу, а токены остались бы
+    переставленными.
+
+    Пустая геометрия — прочерк, а не пустая ячейка: у позиции без номинала
+    деталь по ней не засеется, и это надо видеть, а не додумывать.
+    """
+    if nominal is None and plus is None and minus is None:
+        return NO_GEOMETRY
+    return joined(_magnitude_or_empty(nominal), tolerance_text(plus, minus), sep=" ")
+
+
+def _magnitude_or_empty(value: float | None) -> str:
+    return "" if value is None else f"{value:g}"
 
 
 def _magnitude(value: float | None) -> str:

@@ -282,6 +282,64 @@ def test_the_choice_shows_which_option_is_taken() -> None:
     assert painted > 0, "отмеченный вариант не нарисован"
 
 
+def test_the_editors_still_draw_their_arrows() -> None:
+    """§9: у стилизованного виджета индикатор рисует тот, кого спросили последним.
+
+    Безобидное `border: none` на `::drop-down` забрало отрисовку у родного стиля
+    и не оставило стрелки вовсе — ноль тёмных пикселей в её зоне. Описать её
+    обратно правилом QSS нельзя: Qt заливает прямоугольник подстиля и о приёме
+    «треугольник из рамок» не знает — выходит квадрат. Поэтому подстиль
+    **намеренно не описан**, и чертит родной стиль.
+
+    Тест считает пиксели, а не проверяет наличие правила: правило было и раньше,
+    а стрелки не было.
+    """
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QComboBox, QDateEdit, QSpinBox, QVBoxLayout, QWidget
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    combo = QComboBox()
+    combo.addItems(["implant"])
+    date = QDateEdit()
+    date.setCalendarPopup(True)
+    spin = QSpinBox()
+    for editor in (combo, date, spin):
+        layout.addWidget(editor)
+    host.resize(240, 130)
+    host.layout().activate()
+    image = host.grab().toImage()
+
+    def drawn(editor) -> int:
+        box = editor.geometry()
+        return sum(
+            1
+            for y in range(box.top() + 2, box.bottom() - 2)
+            for x in range(box.right() - 24, box.right() - 2)
+            if QColor(image.pixel(x, y)).lightness() < 170
+        )
+
+    assert drawn(combo) > 0, "выпадающий список без стрелки"
+    assert drawn(date) > 0, "поле даты без стрелки"
+    assert drawn(spin) > 0, "счётчик без стрелок"
+
+
+def test_the_theme_leaves_the_arrow_to_the_native_style() -> None:
+    """Обратная сторона того же: описанный подстиль снова заберёт отрисовку.
+
+    Смотрим на **правила**, а не на текст листа: подстиль назван в пояснении к
+    этому же месту, и тест, спотыкающийся о собственный комментарий, ловил бы
+    не то.
+    """
+    import re
+
+    sheet = re.sub(r"/\*.*?\*/", "", kit.stylesheet(), flags=re.S)
+    rules = [line for line in sheet.splitlines() if "{" in line]
+
+    assert not [rule for rule in rules if "::down-arrow" in rule]
+    assert not [rule for rule in rules if "::drop-down" in rule]
+
+
 def test_a_choice_starts_with_nothing_taken() -> None:
     """Канон §4: предвыбранный вариант — ответ, которого оператор не давал."""
     choice = kit.Choice()

@@ -32,14 +32,20 @@ from domain.mappings import bind, binding_state, clear, is_complete, mark_absent
 
 from . import kit
 from .balloon_canvas import MODE_SELECT, Balloon, BalloonCanvas
-from .common import iso
+from .common import canon_geometry_label, iso
 from .kit import tokens
 
-COLUMNS = ("Position", "State", "Local number")
+COLUMNS = ("Position", "State", "Local number", "Canon geometry")
 
-#: Индекс позиции и номер размера — идентификаторы: направление объявлено,
-#: выравнивание левое (канон §6).
-NUMERIC_COLUMNS = (0, 2)
+#: Индекс позиции, номер размера и геометрия — направление объявлено, потому что
+#: сильных символов в них нет (канон §6).
+#:
+#: Выравнивание у всех трёх **левое**, включая геометрию. Канон §6 отправляет
+#: вправо `Nominal` и `Tolerance ±` — там, где они стоят **отдельными** колонками
+#: и сравниваются по величине вниз по столбцу. Здесь это одна составная ячейка:
+#: сравнивают в ней номинал, а он у левого края токена — правый край держал бы в
+#: столбик хвост допуска, то есть не то, на что смотрят.
+NUMERIC_COLUMNS = (0, 2, 3)
 
 STATE_LABELS = {
     "linked": "bound",
@@ -59,13 +65,19 @@ class MappingDialog(QDialog):
         self._item_id = item_id
         self._cg_id = cg_id
         self._states: list = []
-        self.resize(tokens.DIALOG_WIDE, tokens.DIALOG_HEIGHT_MEDIUM)
+        # Шире прежнего: с колонкой геометрии (В-6) таблица перестала помещаться
+        # в панель — подписи колонок обрезались, а ячейки переносились в две
+        # строки. Чертёж при этом не ужимается: он остаётся тем, по чему
+        # оператор узнаёт позицию.
+        self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_MEDIUM)
 
         self.canvas = BalloonCanvas(MODE_SELECT)
         self.canvas.balloonClicked.connect(self._on_balloon)
 
         self.table = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS)
         self.table.currentCellChanged.connect(self._on_row)
+        #: Геометрия позиции по её индексу — заполняется вместе с состояниями.
+        self._geometry: dict[int, tuple] = {}
 
         self.bind_button = kit.primary("Set local number…")
         self.absent_button = kit.secondary("Absent from item (99)")
@@ -102,6 +114,7 @@ class MappingDialog(QDialog):
         splitter.addWidget(self.canvas)
         splitter.addWidget(side)
         splitter.setStretchFactor(0, 1)
+        splitter.setSizes([tokens.DIALOG_MEDIUM, tokens.DIALOG_NARROW])
 
         layout = kit.dialog_layout(self)
         layout.addWidget(splitter, 1)
@@ -129,9 +142,22 @@ class MappingDialog(QDialog):
         with session_scope(self._engine) as session:
             item = session.get(Item, self._item_id)
             group = session.get(CharacteristicGroup, self._cg_id)
-            self.setWindowTitle(f"Bind to canon — {item.item_number} · {group.name}")
+            self.setWindowTitle(f"Mapping — {item.item_number} · {group.name}")
             drawing = group.drawing
             self._states = binding_state(session, item, group)
+            # Координаты и геометрию берём из той же коллекции, которую уже
+            # обошёл `binding_state`: новых запросов не нужно, а прежний
+            # `_coordinates` открывал вторую сессию ради тех же строк.
+            positions = sorted(group.positions, key=lambda p: p.g_index)
+            coordinates = [(position.x, position.y) for position in positions]
+            self._geometry = {
+                position.g_index: (
+                    position.nominal,
+                    position.tol_plus,
+                    position.tol_minus,
+                )
+                for position in positions
+            }
 
         self.canvas.set_drawing(drawing)
         self.canvas.set_balloons(
@@ -143,7 +169,7 @@ class MappingDialog(QDialog):
                     state=state.state,
                     label=state.local_number,
                 )
-                for state, (position_x, position_y) in zip(self._states, self._coordinates())
+                for state, (position_x, position_y) in zip(self._states, coordinates)
             ]
         )
 
@@ -152,6 +178,7 @@ class MappingDialog(QDialog):
             self.table.setItem(row, 0, QTableWidgetItem(iso(f"g{state.g_index}")))
             self.table.setItem(row, 1, QTableWidgetItem(STATE_LABELS[state.state]))
             self.table.setItem(row, 2, QTableWidgetItem(state.local_number or ""))
+            self.table.setItem(row, 3, QTableWidgetItem(self._canon_cell(state.g_index)))
 
         complete = is_complete(self._states)
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(complete)
@@ -162,15 +189,16 @@ class MappingDialog(QDialog):
             else "Awaiting a decision: " + ", ".join(iso(name) for name in undecided)
         )
 
-    def _coordinates(self) -> list[tuple[float | None, float | None]]:
-        with session_scope(self._engine) as session:
-            return [
-                (position.x, position.y)
-                for position in sorted(
-                    session.get(CharacteristicGroup, self._cg_id).positions,
-                    key=lambda p: p.g_index,
-                )
-            ]
+    def _canon_cell(self, g_index: int) -> str:
+        """Номинал и допуск позиции — то, **по чему** оператор решает (В-6).
+
+        Привязка — момент, когда он сопоставляет баллон на чертеже с локальным
+        номером детали; без геометрии канона это выбор вслепую, а отправлять за
+        числом в соседний диалог хуже, чем показать его здесь. Дублирование
+        показа не грех; грех — дублирование источника, а источник один.
+        """
+        nominal, plus, minus = self._geometry.get(g_index, (None, None, None))
+        return canon_geometry_label(nominal, plus, minus)
 
     # --- действия --------------------------------------------------------------
 

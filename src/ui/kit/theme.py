@@ -166,8 +166,15 @@ QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDateEdit:disabled {{
     background: {t.N_50};
     color: {t.N_450};
 }}
-QComboBox::drop-down, QSpinBox::up-button, QSpinBox::down-button,
-QDateEdit::up-button, QDateEdit::down-button {{ border: none; }}
+/* The indicator of a styled widget is drawn by whoever was asked last.
+   A bare `border: none` on `::drop-down` looked harmless and took the drawing away
+   from the native style, leaving no arrow at all — measured, zero dark pixels
+   in the arrow zone. Describing it back as a QSS box gives a filled square:
+   Qt fills the sub-control rectangle and knows nothing of the CSS border
+   triangle. So the sub-control is left undescribed on purpose, and the native
+   chevron does the drawing (17 px of it, verified the same way). The rule of
+   §9 is satisfied by the measurement, not by the presence of a rule. */
+
 QComboBox QAbstractItemView {{
     background: {t.WHITE};
     border: {t.BORDER_WIDTH}px solid {t.N_200};

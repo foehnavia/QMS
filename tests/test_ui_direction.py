@@ -201,6 +201,27 @@ def test_the_delegate_is_wired_into_the_deviation_list(seeded_session) -> None:
     assert COLUMNS.index("Findings") < COLUMNS.index("Decision")
 
 
+def test_canon_geometry_is_two_tokens_in_two_isolates() -> None:
+    """Номинал и допуск — самостоятельные токены, каждый в своём изоляте.
+
+    Один изолят вокруг всей строки задал бы только базу ячейки, а токены
+    остались бы переставленными (`CLAUDE.md` §9).
+    """
+    from ui.common import canon_geometry_label
+
+    cell = canon_geometry_label(38.10, 0.20, -0.10)
+
+    assert strip_iso(cell) == "38.1 +0.2 / −0.1"
+    assert cell.count("⁨") == 2
+
+
+def test_canon_geometry_without_numbers_is_a_dash() -> None:
+    """Позиция без геометрии — прочерк: деталь по ней не засеется, это видно."""
+    from ui.common import NO_GEOMETRY, canon_geometry_label
+
+    assert canon_geometry_label(None, None, None) == NO_GEOMETRY
+
+
 # --- изоляты: один вокруг токена, не два подряд ------------------------------------
 
 

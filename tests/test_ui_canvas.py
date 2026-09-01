@@ -381,3 +381,52 @@ def test_cg_view_lists_groups(group_engine) -> None:
         set_drawing(session, session.query(CharacteristicGroup).one(), make_png(), "cg.png")
     view.reload()
     assert view.table.item(0, 2).text() == "yes"
+
+
+# --- В-6: геометрия канона в диалоге привязки ---------------------------------------
+
+
+def test_mapping_shows_the_canon_geometry_of_each_position(group_engine) -> None:
+    """Привязка — момент, когда оператор решает **по номиналу и допуску** канона.
+
+    Без них он на живых данных выбирает вслепую, а отправлять за числом в
+    соседний диалог хуже дублирования показа: источник у числа один — позиция
+    группы (решение В-6, ревью наряда 0012).
+    """
+    from ui.common import NO_GEOMETRY, strip_iso
+    from ui.mapping_dialog import COLUMNS, MappingDialog
+
+    item_id = _item_id(group_engine)
+    dialog = MappingDialog(group_engine, item_id, _cg_id(group_engine))
+    geometry = COLUMNS.index("Canon geometry")
+
+    assert COLUMNS == ("Position", "State", "Local number", "Canon geometry")
+    assert strip_iso(dialog.table.item(0, geometry).text()) == "3.75 +0.05 / −0.05"
+    # У позиции без допусков остаётся один токен — номинал; пустой части в
+    # ячейке нет, а не «+0 / −0», которого в каноне не записано.
+    assert strip_iso(dialog.table.item(1, geometry).text()) == "2"
+
+    # Позиция без геометрии вовсе — прочерк: деталь по ней не засеется, и это
+    # видно в момент привязки, а не при регистрации отклонения.
+    with session_scope(group_engine) as session:
+        bare = create_group(session, "CG-BARE", (GPositionSpec(1),))
+        bare_id = bare.cg_id
+    bare_dialog = MappingDialog(group_engine, item_id, bare_id)
+    assert bare_dialog.table.item(0, geometry).text() == NO_GEOMETRY
+
+
+def test_mapping_reads_the_group_once(group_engine) -> None:
+    """Геометрия и координаты берутся из той же выборки, что и состояния.
+
+    Прежде координаты открывали вторую сессию ради тех же строк; колонка
+    геометрии новых запросов не добавила.
+    """
+    from conftest import count_queries
+    from ui.mapping_dialog import MappingDialog
+
+    item_id = _item_id(group_engine)
+    with count_queries(group_engine) as statements:
+        MappingDialog(group_engine, item_id, _cg_id(group_engine))
+
+    selects = [text for text in statements if text.lstrip().upper().startswith("SELECT")]
+    assert len(selects) <= 6, selects
