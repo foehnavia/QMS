@@ -74,7 +74,7 @@ class ItemDialog(QDialog):
             read_only=False,
         )
 
-        self.buttons = kit.dialog_buttons()
+        self.buttons = kit.dialog_buttons(accept="Create item")
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 

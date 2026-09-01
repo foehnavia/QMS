@@ -18,6 +18,7 @@
 """
 
 from . import tokens
+from .focus import FocusHalo, FocusHaloController
 from .direction import (
     LTR,
     RTL,
@@ -46,6 +47,7 @@ from .theme import ROLE, apply_theme, font_family, palette, stylesheet
 from .widgets import (
     boxed,
     button_row,
+    column,
     danger,
     data_table,
     dialog_buttons,
@@ -62,8 +64,10 @@ from .widgets import (
     section_caption,
     section_header,
     set_empty_reason,
+    set_section_caption,
     show_error,
     slice_tabs,
+    split_row,
     status_label,
     stretching_form,
     subtitle,
@@ -86,6 +90,7 @@ __all__ = [
     "bind_direction",
     "boxed",
     "button_row",
+    "column",
     "danger",
     "data_table",
     "decision_badge",
@@ -95,6 +100,8 @@ __all__ = [
     "dress_table",
     "empty_state",
     "error_box",
+    "FocusHalo",
+    "FocusHaloController",
     "first_strong",
     "font_family",
     "form",
@@ -113,8 +120,10 @@ __all__ = [
     "section_caption",
     "section_header",
     "set_empty_reason",
+    "set_section_caption",
     "show_error",
     "slice_tabs",
+    "split_row",
     "status_label",
     "stretching_form",
     "strip_iso",

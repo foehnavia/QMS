@@ -115,16 +115,29 @@ def status_label(text: str = "") -> QLabel:
 
 
 def section_header(text: str, caption: str = "") -> QWidget:
-    """Заголовок раздела: имя экрана и, если есть, строка о его назначении."""
+    """Заголовок раздела: имя экрана и строка о том, что сейчас показано.
+
+    Подзаголовок держим виджетом на самом заголовке: он меняется вместе с
+    выдачей («Measurement zones · 14 values»), а не описывает экран вообще.
+    """
     box = QWidget()
     layout = QVBoxLayout(box)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
-    layout.addWidget(title(text))
-    if caption:
-        layout.addWidget(subtitle(caption))
+    box.title_label = title(text)
+    box.caption_label = subtitle(caption)
+    layout.addWidget(box.title_label)
+    layout.addWidget(box.caption_label)
+    box.caption_label.setVisible(bool(caption))
     box.setFixedHeight(t.SECTION_HEADER_HEIGHT)
     return box
+
+
+def set_section_caption(header: QWidget, caption: str) -> QWidget:
+    """Обновить строку подзаголовка — что именно показано сейчас."""
+    header.caption_label.setText(iso(caption))
+    header.caption_label.setVisible(bool(caption))
+    return header
 
 
 # --- форма -----------------------------------------------------------------------
@@ -148,6 +161,32 @@ def stretching_form() -> QFormLayout:
     layout = QFormLayout()
     layout.setHorizontalSpacing(t.GAP_CONTROL)
     layout.setVerticalSpacing(t.GAP_CONTROL)
+    return layout
+
+
+def column(*parts) -> QVBoxLayout:
+    """Вертикаль с воздухом канона; последний растягивающийся аргумент — таблица."""
+    layout = QVBoxLayout()
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(t.GAP_CONTROL)
+    for part in parts:
+        if isinstance(part, QWidget):
+            layout.addWidget(part)
+        else:
+            layout.addLayout(part)
+    return layout
+
+
+def split_row(*parts) -> QHBoxLayout:
+    """Ряд «панель + рабочая область»: зазор канона, панель своей ширины."""
+    layout = QHBoxLayout()
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(t.GAP_CONTROL)
+    for part in parts:
+        if isinstance(part, QWidget):
+            layout.addWidget(part)
+        else:
+            layout.addLayout(part)
     return layout
 
 

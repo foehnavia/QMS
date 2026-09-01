@@ -100,7 +100,7 @@ class CgDialog(QDialog):
         add_row.clicked.connect(self.add_row)
         drop_row.clicked.connect(self.drop_row)
 
-        self.buttons = kit.dialog_buttons()
+        self.buttons = kit.dialog_buttons(accept="Create group")
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 

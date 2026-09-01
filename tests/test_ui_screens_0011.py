@@ -117,7 +117,8 @@ def test_the_decision_cell_carries_its_code_for_the_pill(engine, no_modals) -> N
     cell = view.table.item(0, COLUMNS.index("Decision"))
 
     assert cell.data(kit.DECISION_ROLE) == "sorting"
-    assert cell.text() == "Sorting — 100 % inspection"
+    # В колонке списка исход назван коротко; полная формулировка — в диалоге.
+    assert cell.text() == "Sorting"
     assert no_modals == []
 
 
@@ -321,7 +322,7 @@ def test_the_precedent_pill_is_painted_by_its_code(engine, no_modals) -> None:
     card = CardDialog(engine, deviation_id)
     cell = card.same_position.item(0, PRECEDENT_DECISION_COLUMN)
 
-    assert cell.text() == "Approved — use as is"
+    assert cell.text() == "Approved"
     assert cell.data(kit.DECISION_ROLE) == "approved"
     assert no_modals == []
 
@@ -430,28 +431,37 @@ def test_the_chassis_is_a_ribbon_not_a_sidebar(engine) -> None:
         for button in window.ribbon.findChildren(QPushButton)
         if not button.isEnabled()
     ]
-    assert [button.text() for button in disabled] == [kit.iso("Search  (S8)")]
+    assert [kit.strip_iso(button.text()) for button in disabled] == [
+        "Search — not built yet"
+    ]
     window.close()
 
 
-def test_the_footer_carries_the_database_path_and_the_summary(engine) -> None:
-    """Критерий 5: подвал отвечает «с какой базой я работаю» и «сколько записей»."""
+def test_the_footer_carries_the_database_path_and_the_selection(engine) -> None:
+    """Подвал: что выбрано слева, с какой базой работаем справа (макет S1).
+
+    Счётчик выдачи сюда не пишется: он стоит в подзаголовке экрана, и второй
+    раз то же число на одном экране не показывается.
+    """
     window = MainWindow(engine)
     window.select_section(3)
 
     assert str(engine.url) in window.database.text()
-    assert "Deviations in the database" in window.summary.text()
+    assert window.summary.text() == "No selection"
+    assert "deviations" in window.deviation_view.summary_text()
     window.close()
 
 
-def test_switching_a_section_repaints_the_footer(engine) -> None:
-    """Сводку в подвале пишет активный экран, а не последний перечитанный."""
+def test_switching_a_section_repaints_the_header(engine) -> None:
+    """Счётчик выдачи принадлежит экрану и меняется вместе с разделом."""
     window = MainWindow(engine)
 
     window.select_section(2)
-    assert "Items in the database" in window.summary.text()
+    assert "items" in window.item_view.summary_text()
     window.select_section(1)
-    assert "Groups in the database" in window.summary.text()
+    assert "groups" in window.cg_view.summary_text()
+    # Подвал при этом говорит про выбор, а не про счётчик.
+    assert window.summary.text() == "No selection"
     window.close()
 
 

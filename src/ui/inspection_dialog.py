@@ -71,7 +71,7 @@ class InspectionDialog(QDialog):
             "the deviation is a separate decision."
         )
 
-        self.buttons = kit.dialog_buttons()
+        self.buttons = kit.dialog_buttons(accept="Add inspection")
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 

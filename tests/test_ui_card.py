@@ -335,7 +335,8 @@ def test_decision_from_the_card_uses_the_untouched_dialog(engine, monkeypatch) -
     monkeypatch.setattr(module.DecisionDialog, "run", staticmethod(decide))
 
     card = CardDialog(engine, deviation_id)
-    assert card.decision.text() == "no decision yet"
+    # Шапка карточки — полная формулировка, колонка списка — короткая.
+    assert card.decision.text() == "No decision yet"
 
     card.set_decision()
 
@@ -522,7 +523,9 @@ def test_precedent_row_carries_the_whole_deviation(engine) -> None:
     assert _text(card.same_dimension.item(row, 0)) == past_number
     assert _text(card.same_dimension.item(row, 2)) == "C1-08375A"
     assert _text(card.same_dimension.item(row, 3)) == "W26007336"
-    assert card.same_dimension.item(row, 6).text() == "Repair — legalised deviation"
+    # Колонка списка несёт **короткую** метку; полная формулировка живёт в
+    # диалоге решения и в шапке карточки (дизайн-система, макет S13).
+    assert card.same_dimension.item(row, 6).text() == "Repair"
     assert "доработка по месту" in card.same_dimension.item(row, 7).text()
     # Обоснование целиком — в подсказке, чтобы длинный текст не рвал вёрстку.
     assert card.same_dimension.item(row, 7).toolTip().startswith("доработка")
@@ -543,8 +546,10 @@ def test_navigation_has_no_card_section(engine) -> None:
     titles = [button.text() for button in sections]
 
     assert not any("Card" in title for title in titles)
-    assert PLANNED_SECTIONS == (("Search", "S8"),)
-    assert any("Search" in title and "S8" in title for title in titles)
+    # Пометка называет не спринт, а причину: подпись на ленте объясняет, почему
+    # раздел серый — всплывающей подсказки там нет (макет S1, заметка 3).
+    assert PLANNED_SECTIONS == (("Search", "not built yet"),)
+    assert any("Search" in title and "not built yet" in title for title in titles)
     # Выключенный пункт виден, но нажать его нельзя: порядок сборки показан.
     search = next(button for button in sections if "Search" in button.text())
     assert not search.isEnabled()

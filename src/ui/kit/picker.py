@@ -28,8 +28,8 @@ from PySide6.QtWidgets import (
 )
 
 from . import tokens as t
-from .direction import bind_direction, directional
-from .widgets import dialog_buttons, dialog_layout, hint
+from .direction import bind_direction, directional, iso
+from .widgets import dialog_buttons, dialog_layout, empty_state, hint, set_empty_reason
 
 
 class PickerDialog(QDialog):
@@ -55,12 +55,16 @@ class PickerDialog(QDialog):
         bind_direction(self.filter)
         self.filter.textChanged.connect(self._apply_filter)
 
+        # Сколько из скольких отобрано — рядом со строкой отбора: без счётчика
+        # непонятно, сузил ли отбор список до одного или не нашёл ничего.
+        self.count = hint("")
         self.values = QListWidget()
         # Строка списка разворачивается по своему содержимому: каталожный номер
         # латинский, значение справочника бывает ивритским.
         directional(self.values)
         self.values.itemDoubleClicked.connect(lambda *_args: self.accept())
 
+        self.empty = empty_state("", "", compact=True)
         self.buttons = dialog_buttons(accept="Select")
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
@@ -68,12 +72,15 @@ class PickerDialog(QDialog):
         layout = dialog_layout(self)
         layout.addWidget(hint(prompt))
         layout.addWidget(self.filter)
+        layout.addWidget(self.count)
         layout.addWidget(self.values, 1)
+        layout.addWidget(self.empty)
         layout.addWidget(self.buttons)
 
         # Короткому списку строка отбора только мешает (граница решения В-6).
         self.filter.setVisible(len(rows) > t.PICKER_FILTER_THRESHOLD)
         self._fill(rows)
+        self._show_result(rows, "")
 
     # --- список -------------------------------------------------------------------
 
@@ -88,9 +95,29 @@ class PickerDialog(QDialog):
 
     def _apply_filter(self, text: str) -> None:
         needle = (text or "").strip().casefold()
-        self._fill(
-            [row for row in self._rows if not needle or needle in row[1].casefold()]
-        )
+        matched = [row for row in self._rows if not needle or needle in row[1].casefold()]
+        self._fill(matched)
+        self._show_result(matched, text)
+
+    def _show_result(self, matched: list, text: str) -> None:
+        """Счётчик отбора и пустое состояние — канон §8 в компактном варианте.
+
+        Пустой список без объяснения читается как «таких значений нет», хотя на
+        деле их не пропустил отбор: выход отсюда — снять строку, а не заводить
+        новое значение.
+        """
+        total = len(self._rows)
+        self.count.setText(iso(f"{len(matched)} of {total}"))
+        self.count.setVisible(self.filter.isVisibleTo(self))
+        empty = not matched
+        self.values.setVisible(not empty)
+        self.empty.setVisible(empty)
+        if empty:
+            set_empty_reason(
+                self.empty,
+                f"Nothing matches “{text.strip()}”",
+                f"all {total} values are still there; the filter hides them",
+            )
 
     # --- результат ----------------------------------------------------------------
 

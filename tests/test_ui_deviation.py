@@ -564,10 +564,12 @@ def test_view_lists_deviations_with_counts_and_decision(engine_with_item) -> Non
     assert view.table.rowCount() == 1
     # Колонки адресуем по имени: наряд 0011 переставил `Findings` перед
     # `Decision` и добавил `Explanation`, и номер здесь ничего не проверяет.
-    assert view.table.item(0, COLUMNS.index("Decision")).text() == "no decision yet"
+    # Короткая метка колонки списка (макет S13, дизайн-система rev. 1.4).
+    assert view.table.item(0, COLUMNS.index("Decision")).text() == "Not decided"
     assert view.table.item(0, COLUMNS.index("Findings")).text() == "1"
-    # Сводку показывает подвал окна, а не сам экран (наряд 0011).
-    assert "undecided: 1" in view.summary_text()
+    # Счётчик выдачи — в подзаголовке экрана (макет S9); подвал показывает
+    # выбранную запись, а не то же число второй раз (наряд 0012).
+    assert "1 undecided" in view.summary_text()
 
 
 def test_view_deletes_a_deviation_with_its_children(engine_with_item, monkeypatch) -> None:

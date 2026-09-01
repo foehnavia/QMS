@@ -11,6 +11,7 @@ from domain.groups import list_groups
 from domain.items import list_items
 
 from . import kit
+from .common import joined, strip_iso
 from .cg_dialog import CgDialog
 from .cg_editor import CgEditor
 from .mapping_dialog import MappingDialog
@@ -34,35 +35,45 @@ EMPTY_BODY = (
 class CgView(QWidget):
     statusChanged = Signal(str)
 
+    #: Счётчик раздела для ленты. Справочники его не имеют намеренно: их шесть
+    #: списков, и одно число рядом с разделом ни на что не отвечало бы.
+    countChanged = Signal(int)
+
+    #: Что сейчас выбрано — это и показывает подвал окна (макет S1…S6).
+    #: Счётчик выдачи переехал в подзаголовок экрана: одно и то же число дважды
+    #: на одном экране — то, ради чего его оттуда и убирали.
+    selectionChanged = Signal(str)
+
     def __init__(self, engine: Engine, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._engine = engine
         self._summary = ""
+        self._rows_shown = 0
 
         self.table = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS)
         self.table.doubleClicked.connect(self.open_editor)
         self.empty = kit.empty_state(EMPTY_TITLE, EMPTY_BODY)
 
-        self.create_button = kit.primary("Create…")
-        self.editor_button = kit.secondary("Editor…")
-        self.bind_button = kit.secondary("Bind item…")
+        self.create_button = kit.primary("New group")
+        self.editor_button = kit.secondary("Open editor")
+        self.bind_button = kit.secondary("Mapping…")
         self.create_button.clicked.connect(self.create_group)
         self.editor_button.clicked.connect(self.open_editor)
         self.bind_button.clicked.connect(self.bind_item)
 
         layout = kit.screen_layout(self)
-        layout.addWidget(
-            kit.section_header(
-                "Characteristic groups",
-                "The canon a family of items shares — g-positions and their geometry",
-            )
+        self.header = kit.section_header(
+            "Characteristic groups",
+            "The canon a family of items shares — g-positions and their geometry",
         )
+        layout.addWidget(self.header)
         layout.addLayout(
             kit.button_row(self.create_button, self.editor_button, self.bind_button)
         )
         layout.addWidget(self.table, 1)
         layout.addWidget(self.empty, 1)
 
+        self.table.itemSelectionChanged.connect(self._announce_selection)
         self.reload()
 
     def reload(self) -> None:
@@ -85,8 +96,31 @@ class CgView(QWidget):
         self.table.setVisible(bool(rows))
         self.empty.setVisible(not rows)
 
-        self._summary = f"Groups in the database: {len(rows)}"
+        without_drawing = sum(1 for row in rows if not row[3])
+        self._summary = strip_iso(
+            joined(
+                f"{len(rows)} groups",
+                f"{without_drawing} without a drawing" if without_drawing else "",
+            )
+        )
+        kit.set_section_caption(self.header, self._summary)
         self.statusChanged.emit(self._summary)
+        self._rows_shown = len(rows)
+        self.countChanged.emit(self._rows_shown)
+
+    def selection_text(self) -> str:
+        """Подпись выбранной строки для подвала; пусто — «ничего не выбрано»."""
+        row = self.table.currentRow()
+        if row < 0:
+            return ""
+        return f"Selected {strip_iso(self.table.item(row, 0).text())}"
+
+    def _announce_selection(self) -> None:
+        self.selectionChanged.emit(self.selection_text())
+
+    def row_count(self) -> int:
+        """Сколько строк в списке — то же число, что уходит в ленту."""
+        return self._rows_shown
 
     def summary_text(self) -> str:
         """Сводка экрана — её показывает **подвал окна**, а не сам экран.

@@ -82,16 +82,16 @@ FINDING_COLUMNS = (
     "Dim.",
     "Canon",
     "Sign · value",
-    "Point",
     "Zone",
     "Deviation type",
+    "Measurement point",
     "Inspections",
 )
 
 #: Числовые колонки таблицы находок: величина со знаком, точка замера, счётчик.
 #: Зона и тип отклонения сюда не входят потому, что это **текст**, а не число:
 #: направление им считается по содержимому, как любой текстовой ячейке.
-FINDING_NUMERIC_COLUMNS = (2, 3, 6)
+FINDING_NUMERIC_COLUMNS = (2, 5, 6)
 
 #: Из них выравнивается вправо только **величина** (решение Cowork по ревью
 #: наряда 0007): разряды встают в столбик, и разброс виден без чтения.
@@ -189,7 +189,7 @@ class DeviationDialog(QDialog):
         self.add_finding = kit.primary("Add finding…")
         self.edit_finding = kit.secondary("Edit…")
         self.drop_finding = kit.danger("Remove")
-        self.map_canon = kit.secondary("Bind to canon…")
+        self.map_canon = kit.secondary("Mapping…")
         self.inspect = kit.secondary("Inspection…")
         self.add_finding.clicked.connect(self.on_add_finding)
         self.edit_finding.clicked.connect(self.on_edit_finding)
@@ -230,7 +230,7 @@ class DeviationDialog(QDialog):
 
         self.status = kit.status_label()
 
-        self.buttons = kit.dialog_buttons()
+        self.buttons = kit.dialog_buttons(accept="Save deviation")
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
@@ -343,9 +343,9 @@ class DeviationDialog(QDialog):
                 iso(row.local_number),
                 iso(row.canon),
                 signed_label(row.direction, row.value),
-                "" if row.dimension_point is None else iso(str(row.dimension_point)),
                 zones.get(row.zone_id, ""),
                 kinds.get(row.deviation_type_id, ""),
+                "" if row.dimension_point is None else iso(str(row.dimension_point)),
                 str(row.inspections),
             )
             for column, value in enumerate(values):

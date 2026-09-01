@@ -11,7 +11,12 @@
 Что стилем задать нельзя (канон §9), делается кодом рядом:
 
 * палитра `QPalette` — календарь `QDateEdit` и подсказки рисуются мимо QSS;
-* направление текста — оно следует за значением, а стиль значений не видит.
+* направление текста — оно следует за значением, а стиль значений не видит;
+* **ореол фокуса** — `outline` в QSS не поддерживается, и лист стиля объявлял
+  ореол, которого на экране не было (замер наряда 0012). Рисует `focus`.
+
+Единица кегля — **пиксель**: числа §2 канона это логические пиксели при
+масштабе 100 %, и `pt` вместо `px` растил весь интерфейс на треть.
 """
 
 from __future__ import annotations
@@ -38,6 +43,8 @@ ROLE_RIBBON = "ribbon"
 ROLE_RIBBON_BRAND = "ribbon-brand"
 ROLE_RIBBON_STATUS = "ribbon-status"
 ROLE_RIBBON_ITEM = "ribbon-item"
+ROLE_RIBBON_MARK = "ribbon-mark"
+ROLE_RIBBON_SEPARATOR = "ribbon-separator"
 
 
 def font_family() -> str:
@@ -57,7 +64,7 @@ QWidget {{
     background: {t.WHITE};
     color: {t.N_900};
     font-family: {t.FONT_FAMILY};
-    font-size: {t.SIZE_BODY}pt;
+    font-size: {t.SIZE_BODY}px;
 }}
 QMainWindow, QDialog {{ background: {t.WHITE}; }}
 /* A label never paints its own ground: on the ribbon it would be a white
@@ -72,34 +79,34 @@ QToolTip {{
 
 /* --- labels -------------------------------------------------------------- */
 QLabel[{ROLE}="{ROLE_TITLE}"] {{
-    font-size: {t.SIZE_TITLE}pt;
+    font-size: {t.SIZE_TITLE}px;
     font-weight: {t.WEIGHT_TITLE};
     color: {t.N_900};
 }}
 QLabel[{ROLE}="{ROLE_SUBTITLE}"] {{
-    font-size: {t.SIZE_SUBTITLE}pt;
+    font-size: {t.SIZE_SUBTITLE}px;
     color: {t.N_400};
 }}
 QLabel[{ROLE}="{ROLE_SECTION}"] {{
-    font-size: {t.SIZE_CAPTION}pt;
+    font-size: {t.SIZE_CAPTION}px;
     font-weight: {t.WEIGHT_HEADER};
     color: {t.N_400};
 }}
 QLabel[{ROLE}="{ROLE_HINT}"] {{
-    font-size: {t.SIZE_SUBTITLE}pt;
+    font-size: {t.SIZE_SUBTITLE}px;
     color: {t.N_500};
 }}
 QLabel[{ROLE}="{ROLE_STATUS}"] {{
-    font-size: {t.SIZE_STATUS}pt;
+    font-size: {t.SIZE_STATUS}px;
     color: {t.N_500};
 }}
 QLabel[{ROLE}="{ROLE_EMPTY_TITLE}"] {{
-    font-size: {t.SIZE_EMPTY_TITLE}pt;
+    font-size: {t.SIZE_EMPTY_TITLE}px;
     font-weight: {t.WEIGHT_EMPTY_TITLE};
     color: {t.N_900};
 }}
 QLabel[{ROLE}="{ROLE_EMPTY_BODY}"] {{
-    font-size: {t.SIZE_EMPTY_BODY}pt;
+    font-size: {t.SIZE_EMPTY_BODY}px;
     color: {t.N_500};
 }}
 
@@ -154,7 +161,6 @@ QPlainTextEdit, QTextEdit {{ padding: {t.GAP_PILL_ICON}px; }}
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus,
 QComboBox:focus, QSpinBox:focus, QDateEdit:focus {{
     border: {t.BORDER_WIDTH}px solid {t.BLUE_600};
-    outline: {t.FOCUS_HALO_WIDTH}px solid {t.BLUE_HALO};
 }}
 QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDateEdit:disabled {{
     background: {t.N_50};
@@ -197,7 +203,7 @@ QHeaderView::section {{
     border-bottom: {t.BORDER_WIDTH}px solid {t.N_200};
     padding: 0px {t.PAD_CELL}px;
     height: {t.TABLE_HEADER_HEIGHT}px;
-    font-size: {t.SIZE_HEADER}pt;
+    font-size: {t.SIZE_HEADER}px;
     font-weight: {t.WEIGHT_HEADER};
     color: {t.N_500};
 }}
@@ -219,7 +225,7 @@ QTabBar::tab {{
     border-bottom: {t.SELECTION_BAR_WIDTH}px solid transparent;
     height: {t.TAB_STRIP_HEIGHT}px;
     padding: 0px {t.PAD_CELL}px;
-    font-size: {t.SIZE_SUBTITLE}pt;
+    font-size: {t.SIZE_SUBTITLE}px;
     color: {t.N_500};
 }}
 QTabBar::tab:hover {{ color: {t.N_900}; }}
@@ -234,7 +240,7 @@ QGroupBox {{
     border-radius: {t.RADIUS_PANEL}px;
     margin-top: {t.PAD_CELL}px;
     padding-top: {t.PAD_CELL}px;
-    font-size: {t.SIZE_HEADER}pt;
+    font-size: {t.SIZE_HEADER}px;
     font-weight: {t.WEIGHT_HEADER};
     color: {t.N_500};
 }}
@@ -248,7 +254,7 @@ QStatusBar {{
     border-top: {t.BORDER_WIDTH}px solid {t.N_200};
     min-height: {t.FOOTER_HEIGHT}px;
     color: {t.N_500};
-    font-size: {t.SIZE_STATUS}pt;
+    font-size: {t.SIZE_STATUS}px;
 }}
 QStatusBar::item {{ border: none; }}
 QScrollBar:vertical {{
@@ -276,12 +282,12 @@ QWidget[{ROLE}="{ROLE_RIBBON}"] {{
 }}
 QLabel[{ROLE}="{ROLE_RIBBON_BRAND}"] {{
     color: {t.RIBBON_TEXT};
-    font-size: {t.SIZE_SUBTITLE}pt;
+    font-size: {t.SIZE_SUBTITLE}px;
     font-weight: {t.WEIGHT_HEADER};
 }}
 QLabel[{ROLE}="{ROLE_RIBBON_STATUS}"] {{
     color: {t.RIBBON_MUTED};
-    font-size: {t.SIZE_STATUS}pt;
+    font-size: {t.SIZE_STATUS}px;
 }}
 QPushButton[{ROLE}="{ROLE_RIBBON_ITEM}"] {{
     background: transparent;
@@ -289,9 +295,12 @@ QPushButton[{ROLE}="{ROLE_RIBBON_ITEM}"] {{
     border-radius: {t.RADIUS_CONTROL}px;
     min-height: {t.NAV_ITEM_HEIGHT}px;
     max-height: {t.NAV_ITEM_HEIGHT}px;
-    padding: 0px {t.PAD_CELL}px;
+    /* Width follows content: the Windows style gives a button a minimum of
+       80 px, and five sections with it do not fit the 1280 minimum window. */
+    min-width: 0px;
+    padding: 0px {t.PAD_NAV_ITEM}px;
     color: {t.RIBBON_MUTED};
-    font-size: {t.SIZE_SUBTITLE}pt;
+    font-size: {t.SIZE_SUBTITLE}px;
 }}
 QPushButton[{ROLE}="{ROLE_RIBBON_ITEM}"]:hover {{ color: {t.RIBBON_TEXT}; }}
 QPushButton[{ROLE}="{ROLE_RIBBON_ITEM}"]:checked {{
@@ -300,6 +309,17 @@ QPushButton[{ROLE}="{ROLE_RIBBON_ITEM}"]:checked {{
     font-weight: {t.WEIGHT_PILL};
 }}
 QPushButton[{ROLE}="{ROLE_RIBBON_ITEM}"]:disabled {{ color: {t.RIBBON_MUTED}; }}
+QLabel[{ROLE}="{ROLE_RIBBON_MARK}"] {{
+    background: {t.BLUE_600};
+    color: {t.RIBBON_TEXT};
+    border-radius: {t.RADIUS_ROW_ACTION}px;
+    font-size: {t.SIZE_HEADER}px;
+    font-weight: {t.WEIGHT_HEADER};
+}}
+QFrame[{ROLE}="{ROLE_RIBBON_SEPARATOR}"] {{
+    background: {t.RIBBON_ACTIVE};
+    border: none;
+}}
 """
 
 
@@ -334,12 +354,18 @@ def palette() -> QPalette:
 def application_font() -> QFont:
     """Шрифт приложения: первое семейство стека, остальные — как fallback.
 
+    Размер — **в пикселях**, а не в пунктах. Числа канона §2 это логические
+    пиксели при масштабе Windows 100 %; объявленные пунктами, они давали на
+    треть более крупный текст (13 pt ≈ 17 px), и всё приложение рисовалось
+    плотнее задуманного — кнопки ленты не помещались в минимум окна 1280.
+    Найдено замером ширин в наряде 0012.
+
     `tnum` не включается намеренно: замер на машине (наряд 0011 §1) показал, что
     все семейства стека уже дают цифрам равную ширину, и фича ничего не меняет.
     """
     font = QFont()
     font.setFamilies([name.strip('"') for name in t.FONT_STACK])
-    font.setPointSizeF(t.SIZE_BODY)
+    font.setPixelSize(round(t.SIZE_BODY))
     return font
 
 
@@ -353,4 +379,9 @@ def apply_theme(app: QApplication) -> QApplication:
     app.setPalette(palette())
     app.setFont(application_font())
     app.setStyleSheet(stylesheet())
+    # Ореол фокуса — виджетом, а не стилем: канон §3 требует его, а `outline`
+    # в QSS не рисуется (наряд 0012, замер).
+    from .focus import install as install_focus_halo
+
+    install_focus_halo(app)
     return app

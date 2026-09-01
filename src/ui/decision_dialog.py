@@ -71,7 +71,7 @@ class DecisionDialog(QDialog):
         self.header = QLabel()
         self.hint = kit.hint()
 
-        self.buttons = kit.dialog_buttons()
+        self.buttons = kit.dialog_buttons(accept="Save decision")
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 

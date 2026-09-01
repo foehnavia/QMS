@@ -268,12 +268,11 @@ def main() -> int:
     # Отдельно — ивритский справочник: делегат разворачивает строку списка по
     # её содержимому, шасси остаётся LTR (наряд 0007, §4а).
     window.select_section(0)
+    lists = window.reference_view.lists
     zone_index = next(
-        index
-        for index in range(window.reference_view.picker.count())
-        if window.reference_view.picker.itemText(index) == "Zone"
+        index for index in range(lists.count()) if lists.item(index).text() == "Zone"
     )
-    window.reference_view.picker.setCurrentIndex(zone_index)
+    lists.setCurrentRow(zone_index)
     shoot(window, "01-section-1b-reference-zone")
 
     # --- 2…14. диалоги ---

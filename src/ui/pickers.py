@@ -22,13 +22,16 @@ from .kit import pick
 
 def pick_item(parent: QWidget | None, items: list[tuple[int, str]]) -> int | None:
     """Выбрать деталь из списка `(item_id, item_number)`."""
-    return pick(parent, "Pick an item", "Item:", list(items))
+    return pick(parent, "Select item", "Item:", list(items))
 
 
 def pick_group(parent: QWidget | None, groups: list[tuple[int, str]]) -> int | None:
     """Выбрать группу характеристик из списка `(cg_id, name)`."""
     return pick(
-        parent, "Pick a characteristic group", "Characteristic group:", list(groups)
+        parent,
+        "Select characteristic group",
+        "Characteristic group:",
+        list(groups),
     )
 
 

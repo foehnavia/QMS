@@ -18,18 +18,27 @@ from sqlalchemy import Engine
 
 from db.models import Item
 from db.session import session_scope
-from domain.precedents import CANON_UNBOUND, canon_labels
+from domain.precedents import canon_labels
 
 from . import kit
-from .common import dimension_sort_key, iso, strip_iso, tolerance_label
+from .common import dimension_sort_key, iso, tolerance_label
 from .kit import tokens
 
-COLUMNS = ("g-position", "Local number", "Nominal", "Tolerance")
+COLUMNS = ("g-position", "Local number", "Nominal", "Tolerance", "State")
 
 #: Индекс позиции и номер размера — идентификаторы: направление им объявляем,
 #: но влево. Вправо только номинал и допуск — их сравнивают по величине.
 NUMERIC_COLUMNS = (0, 1)
 MAGNITUDE_COLUMNS = (2, 3)
+
+#: Состояние привязки — своей колонкой (макет S6). Прежде оно подменяло собой
+#: индекс позиции: у непривязанного размера в колонке `g-position` стояло «not
+#: bound», то есть колонка отвечала то на «какая позиция», то на «привязан ли».
+STATE_BOUND = "bound"
+STATE_UNBOUND = "not bound"
+
+#: Позиции у непривязанного размера нет — прочерк, а не пустая ячейка.
+NO_POSITION = "—"
 
 EMPTY_TITLE = "This item has no characteristics yet"
 EMPTY_BODY = (
@@ -93,13 +102,14 @@ class ItemPositionsDialog(QDialog):
             # её оборачивать нельзя.
             rows = [
                 (
-                    iso(labels.get(characteristic.characteristic_id, CANON_UNBOUND)),
+                    iso(_g_label(labels, characteristic)),
                     iso(characteristic.local_number),
                     iso(_number(_position(characteristic, "nominal"))),
                     tolerance_label(
                         _position(characteristic, "tol_plus"),
                         _position(characteristic, "tol_minus"),
                     ),
+                    STATE_BOUND if characteristic.mapping is not None else STATE_UNBOUND,
                 )
                 for characteristic in characteristics
             ]
@@ -112,11 +122,18 @@ class ItemPositionsDialog(QDialog):
         self.table.setVisible(bool(rows))
         self.empty.setVisible(not rows)
 
-        bound = sum(1 for row in rows if strip_iso(row[0]) != CANON_UNBOUND)
+        bound = sum(1 for row in rows if row[4] == STATE_BOUND)
         self.status.setText(
             f"Characteristics: {len(rows)} · bound to the canon: {bound}. "
             "Binding is what finds the same design node on other items."
         )
+
+
+def _g_label(labels: dict, characteristic) -> str:
+    """Индекс позиции; у непривязанного размера позиции нет — прочерк."""
+    if characteristic.mapping is None:
+        return NO_POSITION
+    return labels.get(characteristic.characteristic_id, NO_POSITION)
 
 
 def _position(characteristic, attribute: str):

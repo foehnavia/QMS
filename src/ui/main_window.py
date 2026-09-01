@@ -29,9 +29,13 @@ from .reference_view import ReferenceView
 #: самостоятельный раздел — показывать её пустой не от чего.
 #: «Поиск» — это конструктор произвольных запросов, Этап 1.5 (`Search.md` →
 #: deep search); S5 ищет только от отклонения, которое на руках.
-PLANNED_SECTIONS = (("Search", "S8"),)
+PLANNED_SECTIONS = (("Search", "not built yet"),)
 
 BRAND = "MIS-QMS"
+
+#: Подвал при пустом выборе говорит это, а не пустоту: пустая строка читается
+#: как «подвал сломался», а не как «ничего не выбрано» (макет S1).
+NO_SELECTION = "No selection"
 
 #: Правая строка ленты: чем эта станция является. Не украшение — инструмент
 #: автономен по решению об изоляции рабочих данных, и это должно быть видно.
@@ -53,13 +57,13 @@ class MainWindow(QMainWindow):
         self.cg_view = CgView(engine)
         self.item_view = ItemView(engine)
         self.deviation_view = DeviationView(engine)
-        self._add_section("Reference data", self.reference_view)
-        self._add_section("Characteristic groups", self.cg_view)
-        self._add_section("Items", self.item_view)
-        self._add_section("Deviations", self.deviation_view)
+        self._add_section("Reference data", self.reference_view, icon="reference")
+        self._add_section("Characteristic groups", self.cg_view, icon="groups")
+        self._add_section("Items", self.item_view, icon="items")
+        self._add_section("Deviations", self.deviation_view, icon="deviations")
 
-        for title, sprint in PLANNED_SECTIONS:
-            self.ribbon.add_section(title, enabled=False, note=sprint)
+        for title, note in PLANNED_SECTIONS:
+            self.ribbon.add_section(title, enabled=False, note=note, icon="search")
 
         self.ribbon.sectionSelected.connect(self._switch)
 
@@ -71,20 +75,30 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.pages, 1)
         self.setCentralWidget(central)
 
-        # Подвал: сводка активного экрана слева, путь к базе справа — он
-        # отвечает на «с какой базой я сейчас работаю», а не на «что в списке».
-        self.summary = kit.status_label()
+        # Подвал: **выбранная запись** слева, путь к базе справа. Счётчик выдачи
+        # живёт в подзаголовке экрана (макет S1…S6): одно и то же число дважды
+        # на одном экране — то, ради чего его из подвала и убирали.
+        self.summary = kit.status_label(NO_SELECTION)
         self.database = kit.status_label(f"Database: {engine.url}")
         self.statusBar().addWidget(self.summary, 1)
         self.statusBar().addPermanentWidget(self.database)
 
         self.ribbon.select(0)
 
-    def _add_section(self, title: str, page: QWidget) -> None:
-        self.ribbon.add_section(title)
+    def _add_section(self, title: str, page: QWidget, *, icon: str = "") -> None:
+        index = self.pages.count()
+        self.ribbon.add_section(title, icon=icon)
         self.pages.addWidget(page)
         if hasattr(page, "statusChanged"):
             page.statusChanged.connect(self._on_status)
+        if hasattr(page, "countChanged"):
+            page.countChanged.connect(lambda count, row=index: self.ribbon.set_count(row, count))
+        if hasattr(page, "selectionChanged"):
+            page.selectionChanged.connect(self._on_selection)
+        # Первое число берём сразу: экран уже прочитал базу в конструкторе, и
+        # ждать переключения раздела, чтобы показать счётчик, незачем.
+        if hasattr(page, "row_count"):
+            self.ribbon.set_count(index, page.row_count())
 
     def _switch(self, row: int) -> None:
         if 0 <= row < self.pages.count():
@@ -93,16 +107,23 @@ class MainWindow(QMainWindow):
             # экран мог устареть, пока оператор был в соседнем разделе
             if hasattr(current, "reload"):
                 current.reload()
-            self._on_status(getattr(current, "summary_text", lambda: "")())
+            self._on_selection(getattr(current, "selection_text", lambda: "")())
 
     def _on_status(self, text: str) -> None:
-        """Сводку в подвал пишет только **активный** экран.
+        """Сводка экрана — она же подзаголовок; подвал её не показывает.
+
+        Метод оставлен точкой подключения: экраны шлют сигнал, а окно решает,
+        что с ним делать. Сегодня — ничего: счётчик уже виден в заголовке.
+        """
+
+    def _on_selection(self, text: str) -> None:
+        """Выбранную запись в подвал пишет только **активный** экран.
 
         Соседний раздел перечитывается по переключению и тоже шлёт сигнал; без
-        этой проверки подвал показывал бы счётчик экрана, которого не видно.
+        этой проверки подвал показывал бы выбор экрана, которого не видно.
         """
         if self.sender() in (None, self.pages.currentWidget()):
-            self.summary.setText(text)
+            self.summary.setText(text or NO_SELECTION)
 
     def select_section(self, row: int) -> None:
         """Публичный вход для тестов и снимков: выбрать раздел по порядку."""

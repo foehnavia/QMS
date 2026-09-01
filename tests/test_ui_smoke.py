@@ -21,6 +21,7 @@ from ui.cg_dialog import CgDialog, parse_optional_number
 from ui.item_dialog import NO_GROUP, NO_TYPE, ItemDialog
 from ui.item_view import ItemView
 from ui.main_window import MainWindow
+from ui.common import strip_iso
 from ui.reference_view import ReferenceView
 
 pytestmark = pytest.mark.usefixtures("qt_app")
@@ -62,16 +63,25 @@ def test_application_shell_is_left_to_right(qt_app: QApplication) -> None:
 
 
 def test_reference_view_lists_all_six_dictionaries(seeded_engine) -> None:
+    """Список списков — панелью (макет S2): видно, какие словари есть вообще."""
+    from ui.reference_view import STATE_DEFAULT
+
     view = ReferenceView(seeded_engine)
-    assert view.picker.count() == 6
+    assert view.lists.count() == 6
 
-    names = []
-    for index in range(view.picker.count()):
-        view.picker.setCurrentIndex(index)
-        names.append([view.values.item(row).text() for row in range(view.values.count())])
+    seen = []
+    for index in range(view.lists.count()):
+        view.lists.setCurrentRow(index)
+        for row in range(view.values.rowCount()):
+            seen.append(
+                (
+                    strip_iso(view.values.item(row, 0).text()),
+                    view.values.item(row, 2).text(),
+                )
+            )
 
-    flat = [label for group in names for label in group]
-    assert any("General" in label and "default" in label for label in flat)
+    # Структурный дефолт назван строкой таблицы, а не догадкой по кнопке.
+    assert ("General", STATE_DEFAULT) in seen
 
 
 def test_item_dialog_preselects_general(seeded_engine) -> None:

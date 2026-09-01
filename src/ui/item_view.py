@@ -20,7 +20,7 @@ from db.session import session_scope
 from domain.items import groups_of, list_items
 
 from . import kit
-from .common import iso, joined
+from .common import iso, joined, strip_iso
 from .item_dialog import ItemDialog
 from .item_positions_dialog import ItemPositionsDialog
 from .mapping_dialog import MappingDialog
@@ -42,32 +42,44 @@ EMPTY_BODY = (
 class ItemView(QWidget):
     statusChanged = Signal(str)
 
+    #: Счётчик раздела для ленты. Справочники его не имеют намеренно: их шесть
+    #: списков, и одно число рядом с разделом ни на что не отвечало бы.
+    countChanged = Signal(int)
+
+    #: Что сейчас выбрано — это и показывает подвал окна (макет S1…S6).
+    #: Счётчик выдачи переехал в подзаголовок экрана: одно и то же число дважды
+    #: на одном экране — то, ради чего его оттуда и убирали.
+    selectionChanged = Signal(str)
+
     def __init__(self, engine: Engine, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._engine = engine
         self._summary = ""
+        self._rows_shown = 0
 
         self.table = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS)
         self.table.doubleClicked.connect(self.open_positions)
         self.empty = kit.empty_state(EMPTY_TITLE, EMPTY_BODY)
 
-        self.add_button = kit.primary("Add item…")
+        self.add_button = kit.primary("New item")
         self.positions_button = kit.secondary("Positions…")
-        self.map_button = kit.secondary("Bind to canon…")
+        self.map_button = kit.secondary("Mapping…")
         self.add_button.clicked.connect(self.add_item)
         self.positions_button.clicked.connect(self.open_positions)
         self.map_button.clicked.connect(self.map_item)
 
         layout = kit.screen_layout(self)
-        layout.addWidget(
-            kit.section_header("Items", "Catalogue numbers and their characteristics")
+        self.header = kit.section_header(
+            "Items", "Catalogue numbers and their characteristics"
         )
+        layout.addWidget(self.header)
         layout.addLayout(
             kit.button_row(self.add_button, self.positions_button, self.map_button)
         )
         layout.addWidget(self.table, 1)
         layout.addWidget(self.empty, 1)
 
+        self.table.itemSelectionChanged.connect(self._announce_selection)
         self.reload()
 
     def reload(self) -> None:
@@ -99,8 +111,31 @@ class ItemView(QWidget):
         self.table.setVisible(bool(rows))
         self.empty.setVisible(not rows)
 
-        self._summary = f"Items in the database: {len(rows)}"
+        without_group = sum(1 for row in rows if not row[6])
+        self._summary = strip_iso(
+            joined(
+                f"{len(rows)} items",
+                f"{without_group} without a group" if without_group else "",
+            )
+        )
+        kit.set_section_caption(self.header, self._summary)
         self.statusChanged.emit(self._summary)
+        self._rows_shown = len(rows)
+        self.countChanged.emit(self._rows_shown)
+
+    def selection_text(self) -> str:
+        """Подпись выбранной строки для подвала; пусто — «ничего не выбрано»."""
+        row = self.table.currentRow()
+        if row < 0:
+            return ""
+        return f"Selected {strip_iso(self.table.item(row, 0).text())}"
+
+    def _announce_selection(self) -> None:
+        self.selectionChanged.emit(self.selection_text())
+
+    def row_count(self) -> int:
+        """Сколько строк в списке — то же число, что уходит в ленту."""
+        return self._rows_shown
 
     def summary_text(self) -> str:
         """Сводка экрана — её показывает **подвал окна**, а не сам экран.

@@ -111,7 +111,7 @@ class FindingDialog(QDialog):
         self.canon_label = QLabel()
         self.canon_label.setWordWrap(True)
 
-        self.buttons = kit.dialog_buttons()
+        self.buttons = kit.dialog_buttons(accept="Add finding")
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 

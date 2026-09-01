@@ -115,6 +115,12 @@ NO_SELECTION_HINT = (
 #: Та же причина одной фразой — для компактных секций вкладки «точные».
 NO_SELECTION_SHORT = "pick a finding above; precedents are searched by its characteristic"
 
+#: Подписи вкладок. Счётчик на вкладке отвечает «сколько там есть» до того,
+#: как оператор туда заглянул (макет S14), — иначе пустую вкладку он открывает,
+#: чтобы это выяснить.
+EXACT_TAB = "Exact precedents (L1)"
+DESCRIPTIVE_TAB = "Descriptive precedents (L2)"
+
 NO_PRECEDENTS_TITLE = "No precedents yet"
 #: Компактная секция говорит одной фразой: читатель просматривает вкладку, а не
 #: секцию, и абзац на каждую из двух пустых секций он всё равно не читает.
@@ -157,7 +163,7 @@ class PrecedentTable(QTableWidget):
                 iso(row.wo),
                 size,
                 signed_label(row.direction, row.value),
-                decision_dev_label(row.decision),
+                decision_dev_label(row.decision, short=True),
                 _one_line(row.explanation),
                 str(row.inspection_count),
             ]
@@ -274,7 +280,7 @@ class CardDialog(QDialog):
         self.findings.currentCellChanged.connect(lambda *_: self.refresh_precedents())
 
         self.inspect_button = kit.secondary("Inspection…")
-        self.map_button = kit.secondary("Bind to canon…")
+        self.map_button = kit.secondary("Mapping…")
         self.inspect_button.clicked.connect(self.open_inspection)
         self.map_button.clicked.connect(self.bind_canon)
 
@@ -312,7 +318,7 @@ class CardDialog(QDialog):
         # (канон §8, наряд 0010 §4): пустая таблица без объяснения это то, как
         # оператор заключает «прецедентов не было» из экрана, который просто
         # ничего не искал.
-        self.position_hint_button = kit.secondary("Bind to canon…")
+        self.position_hint_button = kit.secondary("Mapping…")
         self.position_hint_button.clicked.connect(self.bind_canon)
         self.position_hint_box = kit.empty_state(
             UNBOUND_TITLE, UNBOUND_HINT, self.position_hint_button
@@ -351,8 +357,8 @@ class CardDialog(QDialog):
         similar_layout.addWidget(self.descriptive, 1)
 
         self.tabs = kit.slice_tabs()
-        self.tabs.addTab(_scrolling(exact), "Exact precedents (L1)")
-        self.tabs.addTab(_scrolling(similar), "Descriptive precedents (L2)")
+        self.tabs.addTab(_scrolling(exact), EXACT_TAB)
+        self.tabs.addTab(_scrolling(similar), DESCRIPTIVE_TAB)
 
         self.open_button = kit.secondary("Open precedent…")
         self.open_button.clicked.connect(lambda: self.open_precedent())
@@ -428,9 +434,9 @@ class CardDialog(QDialog):
                 iso(row[1]),
                 iso(row[2]),
                 signed_label(row[3], row[4]),
-                "" if row[5] is None else iso(str(row[5])),
                 row[6],
                 row[7],
+                "" if row[5] is None else iso(str(row[5])),
                 str(row[8]),
             )
             for column, value in enumerate(values):
@@ -525,6 +531,9 @@ class CardDialog(QDialog):
         # Если точных совпадений нет — сразу показываем описательные: иначе
         # оператор видит две пустые таблицы и не догадывается про вторую вкладку.
         # Только при открытии: дальше вкладку выбирает оператор.
+        self.tabs.setTabText(0, f"{EXACT_TAB}  {len(same_dimension) + len(same_position)}")
+        self.tabs.setTabText(1, f"{DESCRIPTIVE_TAB}  {len(descriptive)}")
+
         exact_total = len(same_dimension) + len(same_position)
         if exact_total == 0 and self._first_render:
             self.tabs.setCurrentIndex(1)

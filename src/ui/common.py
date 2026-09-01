@@ -35,10 +35,12 @@ from .kit.widgets import show_error
 
 __all__ = [
     "DECISION_DEV_LABELS",
+    "DECISION_DEV_SHORT",
     "DECISION_INSP_LABELS",
     "DirectionalDelegate",
     "LTR",
     "NO_DECISION_LABEL",
+    "NO_DECISION_SHORT",
     "RTL",
     "apply_direction",
     "apply_rtl",
@@ -70,8 +72,22 @@ DECISION_DEV_LABELS = {
     "repair": "Repair — legalised deviation",
 }
 
+#: Короткая метка **колонки списка**: в диалоге решения, в карточке и в
+#: выходном документе исход называется полной формулировкой, в колонке — одним
+#: словом (дизайн-система, макет S13). Полная формулировка в узкой колонке
+#: всё равно обрезается многоточием, а обрезанная пилюля перестаёт читаться.
+DECISION_DEV_SHORT = {
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "sorting": "Sorting",
+    "repair": "Repair",
+}
+
 #: `decision_dev IS NULL` — регистрация прошла, шаг 8 ещё нет.
-NO_DECISION_LABEL = "no decision yet"
+NO_DECISION_LABEL = "No decision yet"
+
+#: То же состояние в колонке списка — короткой меткой.
+NO_DECISION_SHORT = "Not decided"
 
 #: Вердикт исследования (ратификация В-9, наряд 0010 §11).
 #:
@@ -89,11 +105,18 @@ DECISION_INSP_LABELS = {
 }
 
 
-def decision_dev_label(decision: str | None) -> str:
-    """Подпись исхода отклонения; `None` — «решение не принято»."""
+def decision_dev_label(decision: str | None, *, short: bool = False) -> str:
+    """Подпись исхода отклонения; `None` — «решение не принято».
+
+    `short=True` — метка колонки списка. Разделение не косметика: полная
+    формулировка объясняет исход тому, кто его принимает, и для этого живёт в
+    диалоге и в карточке; в столбце из десяти строк её читают взглядом сверху
+    вниз, и там нужно одно слово.
+    """
     if decision is None:
-        return NO_DECISION_LABEL
-    return DECISION_DEV_LABELS.get(decision, decision)
+        return NO_DECISION_SHORT if short else NO_DECISION_LABEL
+    source = DECISION_DEV_SHORT if short else DECISION_DEV_LABELS
+    return source.get(decision, decision)
 
 
 def signed_label(direction: str, value: float | None) -> str:
