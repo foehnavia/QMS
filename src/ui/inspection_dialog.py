@@ -14,13 +14,8 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
-    QDialogButtonBox,
-    QFormLayout,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
-    QVBoxLayout,
     QWidget,
 )
 from sqlalchemy import Engine
@@ -30,7 +25,9 @@ from db.session import session_scope
 from domain.inspections import create_inspection, update_inspection
 from domain.reference import list_values
 
-from .common import DECISION_INSP_LABELS, bind_direction, joined, show_error
+from . import kit
+from .common import DECISION_INSP_LABELS, bind_direction, joined
+from .kit import tokens
 
 
 class InspectionDialog(QDialog):
@@ -48,7 +45,7 @@ class InspectionDialog(QDialog):
         self._finding_id = finding_id
         self._inspection_id = inspection_id
         self.setWindowTitle("Inspection" if inspection_id is None else "Inspection — edit")
-        self.resize(560, 260)
+        self.resize(tokens.DIALOG_NARROW, tokens.DIALOG_HEIGHT_SHORT)
 
         self.finding_label = QLabel()
         self.finding_label.setWordWrap(True)
@@ -61,32 +58,32 @@ class InspectionDialog(QDialog):
         self.protocol = QLineEdit()
         self.protocol.setPlaceholderText(r"link to the document, e.g. \\srv\qa\SW-2026-14.docx")
         bind_direction(self.protocol)
-        browse = QPushButton("Choose file…")
+        browse = kit.secondary("Choose file…")
         browse.clicked.connect(self.pick_protocol)
 
-        protocol_row = QHBoxLayout()
-        protocol_row.addWidget(self.protocol, 1)
-        protocol_row.addWidget(browse)
+        protocol_row = kit.button_row(self.protocol, browse, stretch_at_end=False)
+        protocol_row.setStretch(0, 1)
 
-        self.hint = QLabel(
+        self.hint = kit.hint(
             "A row is created only when a written, reusable analysis exists; "
-            "a routine check against the drawing is not an inspection."
+            "a routine check against the drawing is not an inspection. "
+            "The result answers whether this can be accepted — the outcome of "
+            "the deviation is a separate decision."
         )
-        self.hint.setWordWrap(True)
 
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
+        self.buttons = kit.dialog_buttons()
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
-        form = QFormLayout()
+        form = kit.stretching_form()
         form.addRow("Finding:", self.finding_label)
         form.addRow("Inspection type:", self.kind)
-        form.addRow("Verdict:", self.verdict)
-        form.addRow("Protocol:", protocol_row)
+        # Подпись поля — «результат», а не «вердикт по отклонению» (В-9):
+        # исследование висит на находке и на исход отклонения не влияет.
+        form.addRow("Inspection result:", self.verdict)
+        form.addRow("Protocol:", kit.boxed(protocol_row))
 
-        layout = QVBoxLayout(self)
+        layout = kit.dialog_layout(self)
         layout.addLayout(form)
         layout.addWidget(self.hint)
         layout.addWidget(self.buttons)
@@ -156,7 +153,7 @@ class InspectionDialog(QDialog):
                         protocol=self.protocol.text(),
                     )
         except Exception as error:
-            show_error(self, error, title="Inspection not saved")
+            kit.show_error(self, error, title="Inspection not saved")
             return
         self.accept()
 

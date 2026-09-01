@@ -12,16 +12,9 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
-    QFormLayout,
     QHBoxLayout,
-    QHeaderView,
-    QLabel,
     QLineEdit,
-    QPushButton,
-    QTableWidget,
     QTableWidgetItem,
-    QVBoxLayout,
     QWidget,
 )
 from sqlalchemy import Engine, select
@@ -32,12 +25,18 @@ from domain.groups import list_groups
 from domain.items import create_item, seed_cg_characteristics
 from domain.reference import list_values
 
+from . import kit
 from .cg_dialog import CgDialog
-from .common import bind_direction, directional, iso, show_error
+from .common import bind_direction, tolerance_label
+from .kit import tokens
 
 NO_GROUP = "— no group —"
 NO_TYPE = "— not set —"
 COLUMNS = ("g-position", "Local number", "Nominal", "Tolerance")
+
+#: Индекс позиции и номер размера — идентификаторы, влево; вправо величины.
+NUMERIC_COLUMNS = (0, 1)
+MAGNITUDE_COLUMNS = (2, 3)
 
 
 class ItemDialog(QDialog):
@@ -48,6 +47,7 @@ class ItemDialog(QDialog):
         self._engine = engine
         self.created_number: str | None = None
         self.setWindowTitle("Add item")
+        self.resize(tokens.DIALOG_MEDIUM, tokens.DIALOG_HEIGHT_MEDIUM)
 
         self.number_edit = QLineEdit()
         self.number_edit.setPlaceholderText('e.g. C1-08375A (מק"ט)')
@@ -59,35 +59,40 @@ class ItemDialog(QDialog):
         self.group = _combo()
         self.group.currentIndexChanged.connect(self.reload_positions)
 
-        new_group = QPushButton(iso("Create group…"))
+        new_group = kit.secondary("Create group…")
         new_group.clicked.connect(self.create_group)
 
         group_row = QHBoxLayout()
+        group_row.setSpacing(tokens.GAP_CONTROL)
         group_row.addWidget(self.group, 1)
         group_row.addWidget(new_group)
 
-        self.positions = QTableWidget(0, len(COLUMNS))
-        self.positions.setHorizontalHeaderLabels(COLUMNS)
-        self.positions.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        directional(self.positions, numeric_columns=(0,), magnitude_columns=(2, 3))
-
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        self.positions = kit.data_table(
+            COLUMNS,
+            numeric_columns=NUMERIC_COLUMNS,
+            magnitude_columns=MAGNITUDE_COLUMNS,
+            read_only=False,
         )
+
+        self.buttons = kit.dialog_buttons()
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
-        form = QFormLayout()
+        form = kit.stretching_form()
         form.addRow("Item number:", self.number_edit)
         form.addRow("Item type:", self.item_type)
         form.addRow("Connection type:", self.connection_type)
         form.addRow("Size class:", self.size)
         form.addRow("Characteristic group:", group_row)
 
-        layout = QVBoxLayout(self)
+        layout = kit.dialog_layout(self)
         layout.addLayout(form)
         layout.addWidget(
-            QLabel("Group positions — set the local number from the item drawing for each:")
+            kit.hint(
+                "Group positions — set the local number from the item drawing for "
+                "each. The number is not prefilled: it comes from the drawing and "
+                "rarely equals the g-position index."
+            )
         )
         layout.addWidget(self.positions, 1)
         layout.addWidget(self.buttons)
@@ -125,7 +130,7 @@ class ItemDialog(QDialog):
                 (
                     position.g_index,
                     _format_number(position.nominal),
-                    _format_tolerance(position.tol_plus, position.tol_minus),
+                    tolerance_label(position.tol_plus, position.tol_minus),
                 )
                 for position in sorted(group.positions, key=lambda p: p.g_index)
             ]
@@ -180,7 +185,7 @@ class ItemDialog(QDialog):
                     seed_cg_characteristics(session, item, group, self.local_numbers())
                 self.created_number = item.item_number
         except Exception as error:
-            show_error(self, error)
+            kit.show_error(self, error)
             return
         self.accept()
 
@@ -213,13 +218,6 @@ def _readonly(text: str, payload=None) -> QTableWidgetItem:
 
 def _format_number(value: float | None) -> str:
     return "" if value is None else f"{value:g}"
-
-
-def _format_tolerance(plus: float | None, minus: float | None) -> str:
-    if plus is None and minus is None:
-        return ""
-    # изолят: иначе ведущие знаки в RTL-контексте переставляются
-    return iso(f"+{_format_number(plus) or '0'} / {_format_number(minus) or '0'}")
 
 
 def _by_name(session, model: type, name: str):

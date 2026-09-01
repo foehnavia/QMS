@@ -1,23 +1,23 @@
 """Создание CharacteristicGroup «на лету» (R3) — имя + g-позиции с геометрией.
 
 Функциональный ввод, без визуального редактора: «шарики» и переиспользуемый UI
-маппинга — это S3 (`docs/staging.md`).
+маппинга — это редактор группы (`cg_editor`).
+
+**Индекс g-позиции руками не вводится** (ратификация В-8, наряд 0010 §10): он
+выдаётся как `max + 1` и больше не меняется никогда. Основание — не ссылочная
+целостность (её держит суррогатный ключ), а общий словарь чертежа и базы: `g5`
+написан на чертеже, в протоколе контроля и в записке оператора, и ярлык, молча
+поменявший смысл между ревизиями, ломает ровно ту функцию, ради которой
+инструмент существует, — сравнение через время.
 """
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
-    QFormLayout,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
     QLineEdit,
-    QPushButton,
-    QTableWidget,
     QTableWidgetItem,
-    QVBoxLayout,
     QWidget,
 )
 from sqlalchemy import Engine
@@ -26,9 +26,15 @@ from db.session import session_scope
 from domain.errors import ValidationError
 from domain.groups import GPositionSpec, create_group
 
-from .common import directional, show_error, strip_iso
+from . import kit
+from .common import strip_iso
+from .kit import tokens
 
 COLUMNS = ("g-position", "Nominal", "Tolerance +", "Tolerance −")
+
+#: Индекс позиции — идентификатор, влево; вправо выравниваются величины.
+NUMERIC_COLUMNS = (0,)
+MAGNITUDE_COLUMNS = (1, 2, 3)
 
 
 def parse_optional_number(text: str, field: str) -> float | None:
@@ -50,41 +56,40 @@ class CgDialog(QDialog):
         self._engine = engine
         self.created_name: str | None = None
         self.setWindowTitle("New characteristic group")
+        self.resize(tokens.DIALOG_MEDIUM, tokens.DIALOG_HEIGHT_MEDIUM)
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g. Implant_Con_375_C1")
 
-        self.table = QTableWidget(0, len(COLUMNS))
-        self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        # Вся таблица числовая; вправо выравниваются величины — номинал и
-        # оба допуска. Индекс позиции — идентификатор, он влево.
-        directional(self.table, numeric_columns=(0,), magnitude_columns=(1, 2, 3))
+        self.table = kit.data_table(
+            COLUMNS,
+            numeric_columns=NUMERIC_COLUMNS,
+            magnitude_columns=MAGNITUDE_COLUMNS,
+            read_only=False,
+        )
 
-        add_row = QPushButton("Add position")
-        drop_row = QPushButton("Remove position")
+        add_row = kit.secondary("Add position")
+        drop_row = kit.secondary("Remove position")
         add_row.clicked.connect(self.add_row)
         drop_row.clicked.connect(self.drop_row)
 
-        row_buttons = QHBoxLayout()
-        row_buttons.addWidget(add_row)
-        row_buttons.addWidget(drop_row)
-        row_buttons.addStretch(1)
-
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
+        self.buttons = kit.dialog_buttons()
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
-        form = QFormLayout()
+        form = kit.stretching_form()
         form.addRow("Group name:", self.name_edit)
 
-        layout = QVBoxLayout(self)
+        layout = kit.dialog_layout(self)
         layout.addLayout(form)
-        layout.addWidget(QLabel("Canonical positions (nominal and tolerance come from the drawing):"))
+        layout.addWidget(
+            kit.hint(
+                "Canonical positions — nominal and tolerance come from the drawing. "
+                "The g-position index is issued automatically and never reused."
+            )
+        )
         layout.addWidget(self.table, 1)
-        layout.addLayout(row_buttons)
+        layout.addLayout(kit.button_row(add_row, drop_row))
         layout.addWidget(self.buttons)
 
         self.add_row()
@@ -92,9 +97,19 @@ class CgDialog(QDialog):
     def add_row(self) -> None:
         row = self.table.rowCount()
         self.table.insertRow(row)
-        self.table.setItem(row, 0, QTableWidgetItem(str(row + 1)))
+        self.table.setItem(row, 0, _issued_index(self._next_index()))
         for column in range(1, len(COLUMNS)):
             self.table.setItem(row, column, QTableWidgetItem(""))
+
+    def _next_index(self) -> int:
+        """Следующий индекс — `max + 1`. Дыра в середине не заполняется."""
+        taken = []
+        for row in range(self.table.rowCount()):
+            cell = self.table.item(row, 0)
+            text = strip_iso(cell.text()).strip() if cell else ""
+            if text.isdigit():
+                taken.append(int(text))
+        return max(taken, default=0) + 1
 
     def drop_row(self) -> None:
         row = self.table.currentRow()
@@ -107,11 +122,16 @@ class CgDialog(QDialog):
         """Собрать g-позиции из таблицы; ошибки ввода — доменными сообщениями."""
         specs: list[GPositionSpec] = []
         for row in range(self.table.rowCount()):
-            raw_index = (self.table.item(row, 0).text() if self.table.item(row, 0) else "").strip()
-            if not raw_index:
-                raise ValidationError(f"Row {row + 1}: no g-position index given.")
+            raw_index = strip_iso(
+                self.table.item(row, 0).text() if self.table.item(row, 0) else ""
+            ).strip()
+            # Индекс выдаём мы сами и правке он не подлежит; проверка осталась
+            # страховкой на случай, если ячейку когда-нибудь снова откроют.
             if not raw_index.isdigit():
-                raise ValidationError(f"Row {row + 1}: index “{raw_index}” is not a whole number.")
+                raise ValidationError(
+                    f"Row {row + 1}: the g-position index is issued by the form "
+                    "and must be a whole number."
+                )
 
             def cell(column: int) -> str:
                 item = self.table.item(row, column)
@@ -134,6 +154,17 @@ class CgDialog(QDialog):
                 group = create_group(session, self.name_edit.text(), specs)
                 self.created_name = group.name
         except Exception as error:
-            show_error(self, error, title="Group not created")
+            kit.show_error(self, error, title="Group not created")
             return
         self.accept()
+
+
+def _issued_index(g_index: int) -> QTableWidgetItem:
+    """Ячейка выданного индекса: только чтение (ратификация В-8)."""
+    cell = QTableWidgetItem(str(g_index))
+    cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
+    cell.setToolTip(
+        "The g-position index is issued as max + 1 and never reused: it is the "
+        "shared label of the drawing and the database."
+    )
+    return cell

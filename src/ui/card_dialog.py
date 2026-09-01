@@ -21,15 +21,11 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
-    QFormLayout,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
-    QPushButton,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -49,15 +45,17 @@ from domain.precedents import (
     precedents_same_position,
 )
 
+from . import kit
 from .common import (
+    DECISION_DEV_LABELS,
     decision_dev_label,
     dimension_sort_key,
-    directional,
     iso,
     joined,
-    show_error,
     signed_label,
 )
+from .kit import tokens
+from .kit.pills import DECISION_ROLE, DecisionPillDelegate
 from .decision_dialog import DecisionDialog
 from .deviation_dialog import (
     FINDING_COLUMNS,
@@ -87,6 +85,9 @@ PRECEDENT_NUMERIC_COLUMNS = (1, 5, 8)
 #: Вправо — только «знак · величина»: её и сравнивают вниз по столбцу.
 PRECEDENT_MAGNITUDE_COLUMNS = (5,)
 
+#: Колонка исхода — рисуется пилюлей (канон §1).
+PRECEDENT_DECISION_COLUMN = 6
+
 #: Подписи для колонки «совпало по» вкладки L2.
 MATCH_LABELS = {
     "zone+type": "zone and type",
@@ -94,18 +95,27 @@ MATCH_LABELS = {
     "type": "deviation type",
 }
 
+UNBOUND_TITLE = "Search by canonical position is unavailable"
 UNBOUND_HINT = (
-    "This characteristic is not bound to the canon — search by position is "
-    "unavailable. Binding is exactly what finds the same design node on other items."
+    "This characteristic is not bound to the canon. Binding is exactly what "
+    "finds the same design node on other items."
 )
 
+NO_LABELS_TITLE = "Descriptive search has nothing to rest on"
 NO_LABELS_HINT = (
     "The finding carries neither a zone nor a deviation type — descriptive search "
     "rests on exactly these two fields. Fill them in and this tab comes alive."
 )
 
+NO_SELECTION_TITLE = "No finding selected"
 NO_SELECTION_HINT = (
     "Pick a finding in the table above — precedents are searched by its characteristic."
+)
+
+NO_PRECEDENTS_TITLE = "No precedents yet"
+NO_PRECEDENTS_HINT = (
+    "Nothing decided on this characteristic before. Only deviations that already "
+    "carry a decision are listed — a precedent without a decision teaches nothing."
 )
 
 
@@ -117,10 +127,16 @@ class PrecedentTable(QTableWidget):
         super().__init__(0, len(columns), parent)
         self._with_match = with_match
         self.setHorizontalHeaderLabels(columns)
-        self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        directional(self, PRECEDENT_NUMERIC_COLUMNS, PRECEDENT_MAGNITUDE_COLUMNS)
+        # Одевается тем же кодом, что и всякая таблица данных: разошедшиеся
+        # настройки двух таблиц — та самая болезнь, ради которой заведён `kit`.
+        kit.dress_table(
+            self,
+            numeric_columns=PRECEDENT_NUMERIC_COLUMNS,
+            magnitude_columns=PRECEDENT_MAGNITUDE_COLUMNS,
+        )
+        self.setItemDelegateForColumn(
+            PRECEDENT_DECISION_COLUMN, DecisionPillDelegate(self)
+        )
 
     def fill(self, rows: list[PrecedentRow]) -> None:
         # Выбор сбрасываем: строки другие, а уцелевшее выделение делало бы вид,
@@ -154,6 +170,9 @@ class PrecedentTable(QTableWidget):
                     # Узкая колонка съедает имя группы — оно нужно, чтобы понять,
                     # по какому канону совпало; держим в подсказке.
                     cell.setToolTip(f"{row.local_number} · {row.g_label}")
+                if column == PRECEDENT_DECISION_COLUMN:
+                    # Код исхода рядом с подписью: пилюлю красит он.
+                    cell.setData(DECISION_ROLE, _decision_code(row.decision))
                 if column == 7:
                     # Обоснование в строке урезано, целиком — в подсказке: это
                     # главный текст прецедента, терять его нельзя.
@@ -178,7 +197,7 @@ class CardDialog(QDialog):
         # Автопереход на L2 — только при открытии карточки: иначе смена
         # находки выкидывала бы оператора с вкладки, выбранной руками.
         self._first_render = True
-        self.resize(1180, 820)
+        self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_TALL)
 
         # --- шапка ---
         self.number = QLabel()
@@ -190,18 +209,18 @@ class CardDialog(QDialog):
         self.ncr = QLabel()
         self.attachment = QLabel()
         self.attachment.setWordWrap(True)
-        self.decision = QLabel()
+        self.decision = kit.decision_badge("", None)
         self.explanation = QLabel()
         self.explanation.setWordWrap(True)
 
         # Поля не растягиваются на всю ширину: иначе значение уезжает от своей
         # подписи через полэкрана и липнет к подписи соседней колонки.
-        head_left = _compact_form()
+        head_left = kit.form()
         head_left.addRow("Deviation:", self.number)
         head_left.addRow("Item:", self.item_label)
         head_left.addRow("WO:", self.wo)
         head_left.addRow("Machine:", self.machine)
-        head_right = _compact_form()
+        head_right = kit.form()
         head_right.addRow("Quantity:", self.quantity)
         head_right.addRow("Date:", self.date)
         head_right.addRow("NCR:", self.ncr)
@@ -210,24 +229,25 @@ class CardDialog(QDialog):
         # Каждая колонка — в своём виджете: соседние QFormLayout иначе делят
         # ширину так, что значение левой оказывается вплотную к подписи правой.
         head_columns = QHBoxLayout()
-        head_columns.addWidget(_boxed(head_left), 1)
-        head_columns.addWidget(_boxed(head_right), 1)
+        head_columns.addWidget(kit.boxed(head_left), 1)
+        head_columns.addWidget(kit.boxed(head_right), 1)
 
-        decision_form = _compact_form()
-        decision_form.addRow("Decision:", self.decision)
+        decision_form = kit.form()
+        # Пилюля не растягивается на ширину формы: её край и есть её форма.
+        decision_row = QHBoxLayout()
+        decision_row.addWidget(self.decision)
+        decision_row.addStretch(1)
+        decision_form.addRow("Decision:", kit.boxed(decision_row))
         decision_form.addRow("Explanation:", self.explanation)
 
-        self.edit_button = QPushButton(iso("Edit…"))
-        self.decision_button = QPushButton(iso("Decision…"))
-        self.close_button = QPushButton("Close")
+        self.edit_button = kit.secondary("Edit…")
+        self.decision_button = kit.primary("Decision…")
+        self.close_button = kit.secondary("Close")
         self.edit_button.clicked.connect(self.edit_deviation)
         self.decision_button.clicked.connect(self.set_decision)
         self.close_button.clicked.connect(self.reject)
 
-        head_buttons = QHBoxLayout()
-        head_buttons.addWidget(self.edit_button)
-        head_buttons.addWidget(self.decision_button)
-        head_buttons.addStretch(1)
+        head_buttons = kit.button_row(self.edit_button, self.decision_button)
 
         header_box = QGroupBox("Deviation")
         header_layout = QVBoxLayout(header_box)
@@ -236,23 +256,19 @@ class CardDialog(QDialog):
         header_layout.addLayout(head_buttons)
 
         # --- находки ---
-        self.findings = QTableWidget(0, len(FINDING_COLUMNS))
-        self.findings.setHorizontalHeaderLabels(FINDING_COLUMNS)
-        self.findings.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.findings.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.findings.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.findings = kit.data_table(
+            FINDING_COLUMNS,
+            numeric_columns=FINDING_NUMERIC_COLUMNS,
+            magnitude_columns=FINDING_MAGNITUDE_COLUMNS,
+        )
         self.findings.currentCellChanged.connect(lambda *_: self.refresh_precedents())
-        directional(self.findings, FINDING_NUMERIC_COLUMNS, FINDING_MAGNITUDE_COLUMNS)
 
-        self.inspect_button = QPushButton(iso("Inspection…"))
-        self.map_button = QPushButton(iso("Bind to canon…"))
+        self.inspect_button = kit.secondary("Inspection…")
+        self.map_button = kit.secondary("Bind to canon…")
         self.inspect_button.clicked.connect(self.open_inspection)
         self.map_button.clicked.connect(self.bind_canon)
 
-        finding_buttons = QHBoxLayout()
-        finding_buttons.addWidget(self.inspect_button)
-        finding_buttons.addWidget(self.map_button)
-        finding_buttons.addStretch(1)
+        finding_buttons = kit.button_row(self.inspect_button, self.map_button)
 
         findings_box = QGroupBox(
             "Findings — pick a characteristic; precedents are searched by it"
@@ -260,7 +276,8 @@ class CardDialog(QDialog):
         findings_layout = QVBoxLayout(findings_box)
         findings_layout.addWidget(self.findings, 1)
         findings_layout.addLayout(finding_buttons)
-        self.findings.setFixedHeight(150)
+        kit.inline_table_height(self.findings)
+        self.findings.setMinimumHeight(kit.tokens.INLINE_TABLE_HEIGHT)
 
         # --- прецеденты ---
         self.same_dimension = PrecedentTable()
@@ -278,48 +295,52 @@ class CardDialog(QDialog):
                 lambda source=table: self._on_table_selected(source)
             )
 
-        self.same_dimension_title = QLabel()
-        self.same_position_title = QLabel()
-        self.position_hint = QLabel(UNBOUND_HINT)
-        self.position_hint.setWordWrap(True)
-        self.position_hint_button = QPushButton(iso("Bind to canon…"))
+        self.same_dimension_title = kit.section_caption("")
+        self.same_position_title = kit.section_caption("")
+
+        # Четыре пустых состояния карточки — текстом, а не пустой таблицей
+        # (канон §8, наряд 0010 §4): пустая таблица без объяснения это то, как
+        # оператор заключает «прецедентов не было» из экрана, который просто
+        # ничего не искал.
+        self.position_hint_button = kit.secondary("Bind to canon…")
         self.position_hint_button.clicked.connect(self.bind_canon)
-        hint_row = QHBoxLayout()
-        hint_row.addWidget(self.position_hint, 1)
-        hint_row.addWidget(self.position_hint_button)
-        self.position_hint_box = QWidget()
-        self.position_hint_box.setLayout(hint_row)
+        self.position_hint_box = kit.empty_state(
+            UNBOUND_TITLE, UNBOUND_HINT, self.position_hint_button
+        )
+        self.dimension_empty = kit.empty_state(NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT)
+        self.position_empty = kit.empty_state(NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT)
 
         exact = QWidget()
         exact_layout = QVBoxLayout(exact)
         exact_layout.addWidget(self.same_dimension_title)
         exact_layout.addWidget(self.same_dimension, 1)
+        exact_layout.addWidget(self.dimension_empty)
         exact_layout.addWidget(self.same_position_title)
         exact_layout.addWidget(self.position_hint_box)
         exact_layout.addWidget(self.same_position, 1)
+        exact_layout.addWidget(self.position_empty)
 
-        self.descriptive_hint = QLabel(NO_LABELS_HINT)
-        self.descriptive_hint.setWordWrap(True)
+        self.descriptive_hint = kit.empty_state(NO_LABELS_TITLE, NO_LABELS_HINT)
         similar = QWidget()
         similar_layout = QVBoxLayout(similar)
         similar_layout.addWidget(self.descriptive_hint)
         similar_layout.addWidget(self.descriptive, 1)
 
-        self.tabs = QTabWidget()
+        self.tabs = kit.slice_tabs()
         self.tabs.addTab(exact, "Exact precedents (L1)")
         self.tabs.addTab(similar, "Descriptive precedents (L2)")
 
-        self.open_button = QPushButton(iso("Open precedent…"))
+        self.open_button = kit.secondary("Open precedent…")
         self.open_button.clicked.connect(lambda: self.open_precedent())
-        self.status = QLabel()
-        self.status.setWordWrap(True)
+        self.status = kit.status_label()
 
         footer = QHBoxLayout()
+        footer.setSpacing(tokens.GAP_CONTROL)
         footer.addWidget(self.open_button)
         footer.addStretch(1)
         footer.addWidget(self.close_button)
 
-        layout = QVBoxLayout(self)
+        layout = kit.dialog_layout(self)
         layout.addWidget(header_box)
         layout.addWidget(findings_box)
         layout.addWidget(self.tabs, 1)
@@ -352,7 +373,10 @@ class CardDialog(QDialog):
             self.date.setText(iso(f"{deviation.date:%d.%m.%Y}"))
             self.ncr.setText(iso(deviation.ncr or "—"))
             self.attachment.setText(iso(deviation.attachment or "—"))
-            self.decision.setText(decision_dev_label(deviation.decision_dev))
+            code = deviation.decision_dev
+            # Пилюля — тот же компонент, что и в колонке списка: одно значение
+            # не имеет права выглядеть на двух экранах по-разному.
+            kit.paint_badge(self.decision, decision_dev_label(code), code)
             self.explanation.setText(deviation.explanation or "—")
 
             findings = _load_findings(session, deviation)
@@ -405,11 +429,13 @@ class CardDialog(QDialog):
         if finding_id is None:
             for table in (self.same_dimension, self.same_position, self.descriptive):
                 table.setRowCount(0)
-            self.same_dimension_title.setText(NO_SELECTION_HINT)
+                table.setVisible(False)
+            self.same_dimension_title.setText(NO_SELECTION_TITLE)
             self.same_position_title.setText("")
             self.position_hint_box.setVisible(False)
+            self.dimension_empty.setVisible(True)
+            self.position_empty.setVisible(False)
             self.descriptive_hint.setVisible(True)
-            self.descriptive_hint.setText(NO_SELECTION_HINT)
             self.status.setText(NO_SELECTION_HINT)
             return
 
@@ -439,13 +465,16 @@ class CardDialog(QDialog):
             local_number = characteristic.local_number
 
         self.same_dimension.fill(same_dimension)
+        self.same_dimension.setVisible(bool(same_dimension))
+        self.dimension_empty.setVisible(not same_dimension)
         self.same_dimension_title.setText(
             iso(f"Same item, same characteristic no. {local_number} ({len(same_dimension)})")
         )
 
         self.same_position.fill(same_position)
         self.position_hint_box.setVisible(not bound)
-        self.same_position.setVisible(bound)
+        self.same_position.setVisible(bound and bool(same_position))
+        self.position_empty.setVisible(bound and not same_position)
         self.same_position_title.setText(
             iso(f"Other items, same position {position_label} ({len(same_position)})")
             if bound
@@ -455,7 +484,6 @@ class CardDialog(QDialog):
         self.descriptive.fill(descriptive)
         self.descriptive.setVisible(has_labels)
         self.descriptive_hint.setVisible(not has_labels)
-        self.descriptive_hint.setText(NO_LABELS_HINT)
 
         # Если точных совпадений нет — сразу показываем описательные: иначе
         # оператор видит две пустые таблицы и не догадывается про вторую вкладку.
@@ -557,7 +585,7 @@ class CardDialog(QDialog):
         try:
             CardDialog.run(self._engine, deviation_id, self)
         except Exception as error:  # pragma: no cover - защита от битой ссылки
-            show_error(self, error, title="Precedent not opened")
+            kit.show_error(self, error, title="Precedent not opened")
 
     def _current_table(self) -> PrecedentTable | None:
         """Таблица для кнопки: последняя, где меняли выбор, в пределах вкладки."""
@@ -593,17 +621,16 @@ def _load_findings(session, deviation: Deviation) -> list[Finding]:
     return sorted(findings, key=lambda f: dimension_sort_key(f.characteristic.local_number))
 
 
-def _compact_form() -> QFormLayout:
-    """Форма, в которой поле остаётся рядом с подписью, а не растягивается."""
-    form = QFormLayout()
-    form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
-    return form
+def _decision_code(label: str) -> str | None:
+    """Код исхода по его подписи — пилюля красится кодом, а не текстом.
 
-
-def _boxed(layout: QFormLayout) -> QWidget:
-    box = QWidget()
-    box.setLayout(layout)
-    return box
+    Строка прецедента приходит из домена уже подписью; обратное соответствие
+    строится по тому же словарю, что и прямое, поэтому разойтись им нечем.
+    """
+    for code, text in DECISION_DEV_LABELS.items():
+        if text == label:
+            return code
+    return None
 
 
 def _one_line(text: str | None) -> str:

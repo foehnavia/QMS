@@ -17,8 +17,6 @@ from dataclasses import dataclass, field
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
-    QDialogButtonBox,
-    QFormLayout,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
@@ -33,8 +31,10 @@ from db.session import session_scope
 from domain.errors import ValidationError
 from domain.reference import list_values
 
+from . import kit
 from .cg_dialog import parse_optional_number
-from .common import iso, show_error
+from .common import iso
+from .kit import tokens
 
 NOT_SET = "— not set —"
 
@@ -85,6 +85,7 @@ class FindingDialog(QDialog):
         self._source = row
         self.row: FindingRow | None = None
         self.setWindowTitle("Finding — deviation on a characteristic")
+        self.resize(tokens.DIALOG_NARROW, tokens.DIALOG_HEIGHT_MEDIUM)
 
         self.number_edit = QLineEdit()
         self.number_edit.setPlaceholderText("local number from the item drawing, e.g. 12")
@@ -100,7 +101,7 @@ class FindingDialog(QDialog):
         self.point_edit.setPlaceholderText("measurement point index (not used in search)")
         self.comment_edit = QPlainTextEdit()
         self.comment_edit.setPlaceholderText("qualitative marks: GO / מדיד, pin…")
-        self.comment_edit.setFixedHeight(70)
+        self.comment_edit.setFixedHeight(tokens.TEXT_AREA_HEIGHT)
         # Свободный текст, чаще всего ивритский. Хелпер здесь не нужен:
         # направление абзаца Qt резолвит по содержимому сам (ревью Р-2).
 
@@ -110,9 +111,7 @@ class FindingDialog(QDialog):
         self.canon_label = QLabel()
         self.canon_label.setWordWrap(True)
 
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
+        self.buttons = kit.dialog_buttons()
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
@@ -122,7 +121,7 @@ class FindingDialog(QDialog):
         direction_box = QWidget()
         direction_box.setLayout(directions)
 
-        form = QFormLayout()
+        form = kit.stretching_form()
         form.addRow("Local number:", self.number_edit)
         form.addRow("Canon mapping:", self.canon_label)
         form.addRow("Direction:", direction_box)
@@ -132,7 +131,7 @@ class FindingDialog(QDialog):
         form.addRow("Deviation type:", self.deviation_type)
         form.addRow("Comment:", self.comment_edit)
 
-        layout = QVBoxLayout(self)
+        layout = kit.dialog_layout(self)
         layout.addLayout(form)
         layout.addWidget(self.buttons)
 
@@ -207,7 +206,7 @@ class FindingDialog(QDialog):
                 inspections=self._source.inspections if self._source else 0,
             )
         except Exception as error:
-            show_error(self, error, title="Finding not accepted")
+            kit.show_error(self, error, title="Finding not accepted")
             return
 
         row.canon = canon_state(self._engine, self._item_id, row.local_number)

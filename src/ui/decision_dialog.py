@@ -20,12 +20,9 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
     QDialog,
-    QDialogButtonBox,
-    QFormLayout,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
-    QVBoxLayout,
     QWidget,
 )
 from sqlalchemy import Engine
@@ -34,7 +31,9 @@ from db.models import DECISION_DEV, Deviation
 from db.session import session_scope
 from domain.deviations import set_decision
 
-from .common import DECISION_DEV_LABELS, joined, numeric_field, show_error
+from . import kit
+from .common import DECISION_DEV_LABELS, joined, numeric_field
+from .kit import tokens
 
 NOT_DECIDED = "— no decision yet —"
 
@@ -47,7 +46,7 @@ class DecisionDialog(QDialog):
         self._engine = engine
         self._deviation_id = deviation_id
         self.setWindowTitle("Deviation decision")
-        self.resize(560, 420)
+        self.resize(tokens.DIALOG_NARROW, tokens.DIALOG_HEIGHT_MEDIUM)
 
         self.decision = QComboBox()
         # Пустая строка первая: пока решение не принято, ничего не предвыбрано —
@@ -70,23 +69,20 @@ class DecisionDialog(QDialog):
         self.decision_date.setDisplayFormat("dd.MM.yyyy")
 
         self.header = QLabel()
-        self.hint = QLabel()
-        self.hint.setWordWrap(True)
+        self.hint = kit.hint()
 
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
+        self.buttons = kit.dialog_buttons()
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
-        form = QFormLayout()
+        form = kit.stretching_form()
         form.addRow("Deviation:", self.header)
         form.addRow("Outcome:", self.decision)
         form.addRow("Explanation:", self.explanation)
         form.addRow("NCR:", self.ncr)
         form.addRow("Decision date:", self.decision_date)
 
-        layout = QVBoxLayout(self)
+        layout = kit.dialog_layout(self)
         layout.addLayout(form)
         layout.addWidget(self.hint)
         layout.addWidget(self.buttons)
@@ -126,17 +122,13 @@ class DecisionDialog(QDialog):
             )
         else:
             self.hint.setText(
-                "The inspection verdict does not drive the outcome — the engineer decides."
+                "The inspection result does not drive the outcome — the engineer decides."
             )
 
     def save(self) -> None:
         decision = self.decision.currentData()
         if decision is None:
-            show_error(
-                self,
-                _not_chosen(),
-                title="Decision not saved",
-            )
+            kit.show_error(self, _not_chosen(), title="Decision not saved")
             return
 
         chosen = self.decision_date.date()
@@ -152,7 +144,7 @@ class DecisionDialog(QDialog):
                     decision_date=_stamp(chosen),
                 )
         except Exception as error:
-            show_error(self, error, title="Decision not saved")
+            kit.show_error(self, error, title="Decision not saved")
             return
         self.accept()
 

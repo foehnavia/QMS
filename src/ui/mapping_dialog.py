@@ -18,13 +18,8 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
-    QHBoxLayout,
-    QHeaderView,
     QInputDialog,
-    QLabel,
-    QPushButton,
     QSplitter,
-    QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -35,10 +30,16 @@ from db.models import CharacteristicGroup, GPosition, Item
 from db.session import session_scope
 from domain.mappings import bind, binding_state, clear, is_complete, mark_absent
 
+from . import kit
 from .balloon_canvas import MODE_SELECT, Balloon, BalloonCanvas
-from .common import directional, iso, show_error
+from .common import iso
+from .kit import tokens
 
 COLUMNS = ("Position", "State", "Local number")
+
+#: Индекс позиции и номер размера — идентификаторы: направление объявлено,
+#: выравнивание левое (канон §6).
+NUMERIC_COLUMNS = (0, 2)
 
 STATE_LABELS = {
     "linked": "bound",
@@ -58,27 +59,22 @@ class MappingDialog(QDialog):
         self._item_id = item_id
         self._cg_id = cg_id
         self._states: list = []
-        self.resize(940, 600)
+        self.resize(tokens.DIALOG_WIDE, tokens.DIALOG_HEIGHT_MEDIUM)
 
         self.canvas = BalloonCanvas(MODE_SELECT)
         self.canvas.balloonClicked.connect(self._on_balloon)
 
-        self.table = QTableWidget(0, len(COLUMNS))
-        self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS)
         self.table.currentCellChanged.connect(self._on_row)
-        directional(self.table, numeric_columns=(0,))
 
-        self.bind_button = QPushButton(iso("Set local number…"))
-        self.absent_button = QPushButton("Absent from item (99)")
-        self.clear_button = QPushButton("Clear")
+        self.bind_button = kit.primary("Set local number…")
+        self.absent_button = kit.secondary("Absent from item (99)")
+        self.clear_button = kit.secondary("Clear")
         self.bind_button.clicked.connect(lambda: self._on_balloon(self._current_index()))
         self.absent_button.clicked.connect(self.mark_absent)
         self.clear_button.clicked.connect(self.clear_position)
 
-        self.status = QLabel()
-        self.status.setWordWrap(True)
+        self.status = kit.status_label()
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -91,11 +87,9 @@ class MappingDialog(QDialog):
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
 
-        actions = QHBoxLayout()
-        actions.addWidget(self.bind_button)
-        actions.addWidget(self.absent_button)
-        actions.addWidget(self.clear_button)
-        actions.addStretch(1)
+        actions = kit.button_row(
+            self.bind_button, self.absent_button, self.clear_button
+        )
 
         side = QWidget()
         side_layout = QVBoxLayout(side)
@@ -109,7 +103,7 @@ class MappingDialog(QDialog):
         splitter.addWidget(side)
         splitter.setStretchFactor(0, 1)
 
-        layout = QVBoxLayout(self)
+        layout = kit.dialog_layout(self)
         layout.addWidget(splitter, 1)
         layout.addWidget(self.buttons)
 
@@ -215,7 +209,7 @@ class MappingDialog(QDialog):
                 position = session.get(GPosition, state.g_position_id)
                 bind(session, item, position, number)
         except Exception as error:
-            show_error(self, error, title="Not bound")
+            kit.show_error(self, error, title="Not bound")
             return
         self.reload()
 
@@ -231,7 +225,7 @@ class MappingDialog(QDialog):
                 position = session.get(GPosition, state.g_position_id)
                 mark_absent(session, item, position)
         except Exception as error:
-            show_error(self, error, title="Not marked")
+            kit.show_error(self, error, title="Not marked")
             return
         self.reload()
 
@@ -247,7 +241,7 @@ class MappingDialog(QDialog):
                 position = session.get(GPosition, state.g_position_id)
                 clear(session, item, position)
         except Exception as error:
-            show_error(self, error, title="Not cleared")
+            kit.show_error(self, error, title="Not cleared")
             return
         self.reload()
 

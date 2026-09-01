@@ -12,16 +12,9 @@ from dataclasses import dataclass
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
     QLineEdit,
-    QPushButton,
     QSplitter,
-    QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -41,11 +34,17 @@ from domain.groups import (
     update_position,
 )
 
+from . import kit
 from .balloon_canvas import MODE_EDIT, Balloon, BalloonCanvas
 from .cg_dialog import parse_optional_number
-from .common import directional, iso, show_error, strip_iso
+from .common import iso
+from .kit import tokens
 
 COLUMNS = ("g-position", "Nominal", "Tolerance +", "Tolerance −")
+
+#: Индекс позиции — идентификатор, влево; вправо только величины.
+NUMERIC_COLUMNS = (0,)
+MAGNITUDE_COLUMNS = (1, 2, 3)
 
 
 @dataclass
@@ -73,50 +72,41 @@ class CgEditor(QDialog):
         self._drawing_name: str | None = None
         self._drawing_changed = False
         self.setWindowTitle("Characteristic group editor")
-        self.resize(980, 620)
+        self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_MEDIUM)
 
         self.name_edit = QLineEdit()
         self.canvas = BalloonCanvas(MODE_EDIT)
         self.canvas.balloonMoved.connect(self._on_moved)
 
-        self.table = QTableWidget(0, len(COLUMNS))
-        self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table = kit.data_table(
+            COLUMNS,
+            numeric_columns=NUMERIC_COLUMNS,
+            magnitude_columns=MAGNITUDE_COLUMNS,
+            read_only=False,
+        )
         self.table.currentCellChanged.connect(
             lambda row, *_: self.canvas.select(self._rows[row].g_index if 0 <= row < len(self._rows) else None)
         )
 
-        directional(self.table, numeric_columns=(0,), magnitude_columns=(1, 2, 3))
-
-        load_drawing = QPushButton(iso("Load drawing…"))
-        drop_drawing = QPushButton("Remove drawing")
-        add_row = QPushButton("Add position")
-        drop_row = QPushButton("Remove position")
+        load_drawing = kit.secondary("Load drawing…")
+        drop_drawing = kit.secondary("Remove drawing")
+        add_row = kit.secondary("Add position")
+        drop_row = kit.secondary("Remove position")
         load_drawing.clicked.connect(self.load_drawing)
         drop_drawing.clicked.connect(self.drop_drawing)
         add_row.clicked.connect(self.add_position)
         drop_row.clicked.connect(self.remove_position)
 
-        self.status = QLabel()
-        self.status.setWordWrap(True)
+        self.status = kit.status_label()
 
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
+        self.buttons = kit.dialog_buttons()
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
-        drawing_buttons = QHBoxLayout()
-        drawing_buttons.addWidget(load_drawing)
-        drawing_buttons.addWidget(drop_drawing)
-        drawing_buttons.addStretch(1)
+        drawing_buttons = kit.button_row(load_drawing, drop_drawing)
+        row_buttons = kit.button_row(add_row, drop_row)
 
-        row_buttons = QHBoxLayout()
-        row_buttons.addWidget(add_row)
-        row_buttons.addWidget(drop_row)
-        row_buttons.addStretch(1)
-
-        form = QFormLayout()
+        form = kit.stretching_form()
         form.addRow("Group name:", self.name_edit)
 
         side = QWidget()
@@ -124,7 +114,13 @@ class CgEditor(QDialog):
         side_layout.setContentsMargins(0, 0, 0, 0)
         side_layout.addLayout(form)
         side_layout.addLayout(drawing_buttons)
-        side_layout.addWidget(QLabel("Positions (nominal and tolerance come from the drawing):"))
+        side_layout.addWidget(
+            kit.hint(
+                "Positions — nominal and tolerance come from the drawing. "
+                "The index of an existing position never changes, and a new one "
+                "is issued as max + 1."
+            )
+        )
         side_layout.addWidget(self.table, 1)
         side_layout.addLayout(row_buttons)
         side_layout.addWidget(self.status)
@@ -133,8 +129,11 @@ class CgEditor(QDialog):
         splitter.addWidget(self.canvas)
         splitter.addWidget(side)
         splitter.setStretchFactor(0, 1)
+        # Панель геометрии не уже своей таблицы: при делении пополам подписи
+        # колонок обрезались до «-positio», и оператор читал не их, а догадку.
+        splitter.setSizes([tokens.DIALOG_MEDIUM, tokens.DIALOG_NARROW])
 
-        layout = QVBoxLayout(self)
+        layout = kit.dialog_layout(self)
         layout.addWidget(splitter, 1)
         layout.addWidget(self.buttons)
 
@@ -203,7 +202,7 @@ class CgEditor(QDialog):
         try:
             data = open(path, "rb").read()
         except OSError as error:
-            show_error(self, error, title="File not read")
+            kit.show_error(self, error, title="File not read")
             return
 
         self._drawing, self._drawing_name = data, path.rsplit("/", 1)[-1]
@@ -237,29 +236,22 @@ class CgEditor(QDialog):
                     if used:
                         raise _in_use(position.g_index, used)
             except Exception as error:
-                show_error(self, error, title="Position in use")
+                kit.show_error(self, error, title="Position in use")
                 return
 
         self._rows.pop(current)
         self._refresh()
 
     def _collect(self) -> list[_Row]:
-        """Забрать правки геометрии из таблицы."""
+        """Забрать правки геометрии из таблицы.
+
+        Индекс из таблицы не читается вовсе (ратификация В-8): у существующей
+        позиции он неизменен, у новой выдан формой как `max + 1`. Ячейка закрыта
+        в обоих случаях, и взять оттуда можно было бы только то же значение.
+        """
         rows: list[_Row] = []
         for index, row in enumerate(self._rows):
-            if row.position_id is None:
-                # Индекс редактируется только у новой позиции — у существующей
-                # ячейка закрыта (`_index_cell`), и её значение берём из модели.
-                raw_index = strip_iso(
-                    self.table.item(index, 0).text() if self.table.item(index, 0) else ""
-                ).strip()
-                if not raw_index.isdigit() or int(raw_index) < 1:
-                    raise ValidationError(
-                        f"Row {index + 1}: the position index must be a number ≥ 1."
-                    )
-                g_index = int(raw_index)
-            else:
-                g_index = row.g_index
+            g_index = row.g_index
 
             def cell(column: int) -> str:
                 item = self.table.item(index, column)
@@ -315,26 +307,26 @@ class CgEditor(QDialog):
                             y=row.y,
                         )
         except Exception as error:
-            show_error(self, error, title="Group not saved")
+            kit.show_error(self, error, title="Group not saved")
             return
         self.accept()
 
 
 def _index_cell(row: _Row) -> QTableWidgetItem:
-    """Ячейка индекса: у существующей позиции — только чтение.
+    """Ячейка индекса — только чтение, и у новой позиции тоже (В-8).
 
     Индекс g-позиции — идентичность, на которую ссылаются привязки всех деталей
     (`domain.groups.update_position`). Перенумеровать её в форме значило бы
-    переклеить ярлыки под готовыми привязками; у новой строки индекс ещё ничей,
-    поэтому она остаётся редактируемой.
+    переклеить ярлыки под готовыми привязками. У новой строки индекс тоже не
+    вводится: он выдаётся как `max + 1` и не переиспользуется — `g5` живёт не
+    только в таблице, а ещё на чертеже и в протоколе контроля.
     """
     cell = QTableWidgetItem(str(row.g_index))
-    if row.position_id is not None:
-        cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        cell.setToolTip(
-            "The position number cannot be changed: characteristic mappings point at it. "
-            "Need another number — add a position and drop the old one."
-        )
+    cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
+    cell.setToolTip(
+        "The g-position index is issued as max + 1 and never changes: "
+        "characteristic mappings and the drawing point at it."
+    )
     return cell
 
 

@@ -27,17 +27,12 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
-    QLabel,
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
-    QPushButton,
     QSpinBox,
-    QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -59,19 +54,19 @@ from domain.inspections import remove_inspection
 from domain.items import list_items
 from domain.precedents import CANON_NEW, canon_labels_for_item
 
+from . import kit
 from .common import (
     DECISION_INSP_LABELS,
     bind_direction,
     dimension_sort_key,
-    directional,
     iso,
     numeric_field,
-    show_error,
     signed_label,
 )
 from .finding_dialog import FindingDialog, FindingRow
 from .inspection_dialog import InspectionDialog
 from .item_dialog import ItemDialog
+from .kit import tokens
 from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
 
@@ -79,8 +74,12 @@ from .pickers import choose_cg_for_item
 #: Cowork). Раздельными колонками знак и его величина расходились по краям
 #: соседних столбцов и переставали читаться как одно число; слияние
 #: **отображательное** — таблица read-only, правка идёт диалогом находки.
+#: `Local number` → `Dim.` — язык макета (наряд 0011 §4). Колонки `Result`
+#: здесь нет: она требует вердикта **на находку**, а исследование висит на
+#: находке списком, и колонка появится вместе с раскрытием строки.
+#: `Measurement point` с экрана тоже не снят — снятие сцеплено с раскрытием.
 FINDING_COLUMNS = (
-    "Local number",
+    "Dim.",
     "Canon",
     "Sign · value",
     "Point",
@@ -98,7 +97,10 @@ FINDING_NUMERIC_COLUMNS = (2, 3, 6)
 #: наряда 0007): разряды встают в столбик, и разброс виден без чтения.
 FINDING_MAGNITUDE_COLUMNS = (2,)
 
-INSPECTION_COLUMNS = ("Number", "Characteristic", "Type", "Verdict", "Protocol")
+#: `Verdict` → `Result` (ратификация В-9): исследование отвечает «можно ли это
+#: принять», а не «что решили», и слово «вердикт» рядом с исходом отклонения
+#: читалось как второе решение по той же записи.
+INSPECTION_COLUMNS = ("Number", "Characteristic", "Type", "Result", "Protocol")
 
 NO_ITEM = "— pick an item —"
 
@@ -116,15 +118,16 @@ class DeviationDialog(QDialog):
         self.setWindowTitle(
             "New deviation" if deviation_id is None else "Deviation — edit"
         )
-        self.resize(1040, 720)
+        self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_TALL)
 
         # --- шапка ---
         self.item = QComboBox()
-        self.new_item = QPushButton(iso("Create item…"))
+        self.new_item = kit.secondary("Create item…")
         self.new_item.clicked.connect(self.create_item)
         self.item.currentIndexChanged.connect(self._refresh_actions)
 
         item_row = QHBoxLayout()
+        item_row.setSpacing(tokens.GAP_CONTROL)
         item_row.addWidget(self.item, 1)
         item_row.addWidget(self.new_item)
 
@@ -150,55 +153,57 @@ class DeviationDialog(QDialog):
 
         self.attachment = QPlainTextEdit()
         self.attachment.setPlaceholderText("one link per line")
-        self.attachment.setFixedHeight(60)
+        self.attachment.setFixedHeight(tokens.TEXT_AREA_HEIGHT)
         # Направление текстовой области резолвит Qt по абзацу — вложения
         # бывают и ивритскими, и путями сразу (ревью Р-2).
-        attach_button = QPushButton("Choose file…")
+        attach_button = kit.secondary("Choose file…")
         attach_button.clicked.connect(self.pick_attachment)
         attach_row = QVBoxLayout()
+        attach_row.setSpacing(tokens.GAP_CONTROL)
         attach_row.addWidget(self.attachment)
-        attach_row.addWidget(attach_button)
-        attach_box = QWidget()
-        attach_box.setLayout(attach_row)
+        attach_row.addLayout(kit.button_row(attach_button))
+        attach_box = kit.boxed(attach_row)
 
-        header = QFormLayout()
+        header = kit.stretching_form()
         header.addRow("Item:", item_row)
         header.addRow("WO:", self.wo)
         header.addRow("Machine:", self.machine)
-        header.addRow("Quantity:", self.quantity)
+        # Подпись количества — как в списке (`Dev. qty`): это средний из трёх
+        # уровней количества, а не размер партии (наряд 0011 §4).
+        header.addRow("Deviating quantity:", self.quantity)
         header.addRow("Date:", self.date)
         header.addRow("NCR:", self.ncr)
         header.addRow("Attachments:", attach_box)
 
         # --- находки ---
-        self.findings = QTableWidget(0, len(FINDING_COLUMNS))
-        self.findings.setHorizontalHeaderLabels(FINDING_COLUMNS)
-        self.findings.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.findings.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.findings = kit.data_table(
+            FINDING_COLUMNS,
+            numeric_columns=FINDING_NUMERIC_COLUMNS,
+            magnitude_columns=FINDING_MAGNITUDE_COLUMNS,
+        )
         self.findings.currentCellChanged.connect(lambda *_: self._refresh_actions())
-        directional(self.findings, FINDING_NUMERIC_COLUMNS, FINDING_MAGNITUDE_COLUMNS)
+        # Таблица находок — то, ради чего форма открыта: она не имеет права
+        # схлопнуться в одну шапку, когда шапка отклонения разрослась.
+        self.findings.setMinimumHeight(tokens.INLINE_TABLE_HEIGHT)
 
-        self.add_finding = QPushButton(iso("Add finding…"))
-        self.edit_finding = QPushButton(iso("Edit…"))
-        self.drop_finding = QPushButton("Remove")
-        self.map_canon = QPushButton(iso("Bind to canon…"))
-        self.inspect = QPushButton(iso("Inspection…"))
+        self.add_finding = kit.primary("Add finding…")
+        self.edit_finding = kit.secondary("Edit…")
+        self.drop_finding = kit.danger("Remove")
+        self.map_canon = kit.secondary("Bind to canon…")
+        self.inspect = kit.secondary("Inspection…")
         self.add_finding.clicked.connect(self.on_add_finding)
         self.edit_finding.clicked.connect(self.on_edit_finding)
         self.drop_finding.clicked.connect(self.on_drop_finding)
         self.map_canon.clicked.connect(self.on_map_canon)
         self.inspect.clicked.connect(self.on_inspect)
 
-        finding_buttons = QHBoxLayout()
-        for button in (
+        finding_buttons = kit.button_row(
             self.add_finding,
             self.edit_finding,
             self.drop_finding,
             self.map_canon,
             self.inspect,
-        ):
-            finding_buttons.addWidget(button)
-        finding_buttons.addStretch(1)
+        )
 
         findings_box = QGroupBox("Findings — deviations by characteristic")
         findings_layout = QVBoxLayout(findings_box)
@@ -206,39 +211,30 @@ class DeviationDialog(QDialog):
         findings_layout.addLayout(finding_buttons)
 
         # --- исследования ---
-        self.inspections = QTableWidget(0, len(INSPECTION_COLUMNS))
-        self.inspections.setHorizontalHeaderLabels(INSPECTION_COLUMNS)
-        self.inspections.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.inspections.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.inspections.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.inspections = kit.data_table(INSPECTION_COLUMNS)
         self.inspections.currentCellChanged.connect(lambda *_: self._refresh_actions())
-        directional(self.inspections)
-        self.edit_inspection = QPushButton(iso("Edit inspection…"))
-        self.drop_inspection = QPushButton("Delete inspection")
+        self.edit_inspection = kit.secondary("Edit inspection…")
+        self.drop_inspection = kit.danger("Delete inspection")
         self.edit_inspection.clicked.connect(self.on_edit_inspection)
         self.drop_inspection.clicked.connect(self.on_drop_inspection)
 
-        inspection_buttons = QHBoxLayout()
-        inspection_buttons.addWidget(self.edit_inspection)
-        inspection_buttons.addWidget(self.drop_inspection)
-        inspection_buttons.addStretch(1)
+        inspection_buttons = kit.button_row(
+            self.edit_inspection, self.drop_inspection
+        )
 
         inspections_box = QGroupBox("Inspections of this deviation")
         inspections_layout = QVBoxLayout(inspections_box)
         inspections_layout.addWidget(self.inspections, 1)
         inspections_layout.addLayout(inspection_buttons)
-        self.inspections.setFixedHeight(130)
+        kit.inline_table_height(self.inspections, short=True)
 
-        self.status = QLabel()
-        self.status.setWordWrap(True)
+        self.status = kit.status_label()
 
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
+        self.buttons = kit.dialog_buttons()
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
-        layout = QVBoxLayout(self)
+        layout = kit.dialog_layout(self)
         layout.addLayout(header)
         layout.addWidget(findings_box, 1)
         layout.addWidget(inspections_box)
@@ -560,7 +556,7 @@ class DeviationDialog(QDialog):
             with session_scope(self._engine) as session:
                 remove_inspection(session, session.get(Inspection, inspection_id))
         except Exception as error:
-            show_error(self, error, title="Inspection not deleted")
+            kit.show_error(self, error, title="Inspection not deleted")
             return
         self._reload_inspection_counts()
         self._refresh()
@@ -603,7 +599,7 @@ class DeviationDialog(QDialog):
                 self._write_findings(session, deviation)
                 self._deviation_id = deviation.deviation_id
         except Exception as error:
-            show_error(self, error, title="Deviation not saved")
+            kit.show_error(self, error, title="Deviation not saved")
             return
         self.accept()
 
