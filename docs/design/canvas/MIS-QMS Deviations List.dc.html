@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><style>body{margin:0;background:#E9ECEF;font-family:"Segoe UI","Segoe UI Historic","Arial Hebrew",Arial,Tahoma,sans-serif;-webkit-font-smoothing:antialiased}</style></helmet>
+
+<section id="t1" style="padding:40px 44px 44px">
+  <div style="display:flex;align-items:baseline;gap:11px;margin:0 0 6px">
+    <a href="#t1" style="font:600 10px ui-monospace,Consolas,monospace;padding:3px 7px;background:#16324F;color:#fff;border-radius:4px;text-decoration:none">1</a>
+    <span style="font:600 14px/1.2 'Segoe UI',sans-serif;color:#16202A">Рабочее направление: сводка в строке + раскрытие (§8.6)</span>
+  </div>
+  <div style="font:13px/1.55 'Segoe UI',sans-serif;color:#46525E;max-width:1180px;margin-bottom:26px;text-wrap:pretty">Семь отклонений: две записи по одной детали <b>C1-08375A</b> (различаются только находками), отклонение с шестью находками, отклонение с quantity = 9999 (значение показано как есть, без интерпретации) и ивритский Item. Направления <b>1b</b> и <b>1c</b> скрыты по решению пользователя — вёрстка сохранена в файле и возвращается по запросу. Уровень находки развёрнут: Result и Inspections — свои колонки в строке находки, Measurement point на экране не показывается и живёт только в карточке.</div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:34px;align-items:flex-start">
+
+    <div id="1a" style="flex:none;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:9px;font:400 12px/1.3 'Segoe UI',sans-serif;color:#46525E">
+        <a href="#1a" style="font:600 10.5px ui-monospace,Consolas,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#16202A;border-radius:5px;text-decoration:none">1a</a>
+        <b style="color:#16202A;font-weight:600">Сводка в строке, раскрытие по требованию</b> · находки как пилюли внутри строки отклонения; исследования — только в раскрытии
+      </div>
+
+      <div style="width:1920px;height:1080px;background:#F4F6F8;border:1px solid #C9D2DA;display:flex;flex-direction:column;overflow:hidden;color:#16202A">
+        <!-- section ribbon -->
+        <div style="flex:none;height:44px;background:#16324F;display:flex;align-items:stretch;padding:0 12px;gap:2px">
+          <div style="flex:none;display:flex;align-items:center;gap:9px;padding-right:18px;margin-right:6px;border-right:1px solid #234868">
+            <div style="width:22px;height:22px;background:#2A6FB8;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff">Q</div>
+            <div style="font-size:13.5px;font-weight:600;color:#fff;letter-spacing:.2px">MIS-QMS</div>
+          </div>
+          <sc-for list="{{ nav }}" as="n" hint-placeholder-count="5">
+            <div style="display:flex;align-items:center;gap:8px;height:44px;padding:0 14px;font-size:13px;background:{{ n.bg }};color:{{ n.fg }};font-weight:{{ n.fw }}">
+              <div style="flex:none;width:16px;height:16px;display:flex">{{ n.icon }}</div>
+              <div>{{ n.label }}</div>
+              <div style="font-size:11.5px;font-variant-numeric:tabular-nums;color:{{ n.cntFg }}">{{ n.count }}</div>
+            </div>
+          </sc-for>
+          <div style="margin-left:auto;display:flex;align-items:center;font-size:11.5px;color:#7E9BB8">Offline · single station · DB rev. 2026-08-31</div>
+        </div>
+
+        <div style="flex:1;min-width:0;width:1728px;margin:0 auto;display:flex;flex-direction:column">
+          <!-- app header -->
+          <div style="height:48px;flex:none;background:#fff;border-bottom:1px solid #C9D2DA;display:flex;align-items:center;gap:14px;padding:0 12px">
+            <div style="font-size:20px;font-weight:600">Deviations</div>
+            <div style="font-size:13px;color:#46525E">12 of 341 · slice “Open” + 2 filters</div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+              <div style="width:300px;height:26px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;display:flex;align-items:center;gap:7px;padding:0 6px">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#7A8794" stroke-width="1.5"><path d="M7.2 11.4a4.2 4.2 0 100-8.4 4.2 4.2 0 000 8.4z"></path><path d="M10.4 10.4l3 3"></path></svg>
+                <span style="font-size:13px;color:#7A8794">Search number, item, WO…</span>
+                <span style="margin-left:auto;font-size:11px;color:#A7B4C0">Ctrl+F</span>
+              </div>
+              <span style="display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;font-size:13px;gap:6px"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#46525E" stroke-width="1.5"><path d="M2.5 3h11v10h-11z"></path><path d="M7 3v10"></path><path d="M11 3v10"></path></svg>Columns</span>
+              <span style="display:inline-flex;align-items:center;height:28px;padding:0 14px;border:1px solid #2A6FB8;border-radius:4px;background:#2A6FB8;color:#fff;font-size:13px;font-weight:600">New deviation</span>
+            </div>
+          </div>
+
+          <!-- tabs -->
+          <div style="height:34px;flex:none;background:#fff;border-bottom:1px solid #C9D2DA;display:flex;align-items:stretch;padding:0 12px;gap:2px">
+            <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 12px;border-bottom:2px solid {{ t.bar }};color:{{ t.fg }};font-size:13px;font-weight:{{ t.fw }}">
+                {{ t.label }}<span style="font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums;color:{{ t.badgeFg }};background:{{ t.badgeBg }};border-radius:8px;padding:1px 6px">{{ t.count }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <!-- filters -->
+          <div style="height:44px;flex:none;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:flex;align-items:center;gap:8px;padding:0 12px">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5E6C7A" stroke-width="1.5"><path d="M2.5 4h11"></path><path d="M4.5 8h7"></path><path d="M6.5 12h3"></path></svg>
+            <sc-for list="{{ filterFields }}" as="f" hint-placeholder-count="6">
+              <div style="height:26px;border:1px solid {{ f.bd }};border-radius:4px;background:{{ f.bg }};display:flex;align-items:center;gap:6px;padding:0 6px;font-size:12.5px;color:{{ f.fg }}">
+                <span style="color:#7A8794;font-size:11.5px">{{ f.label }}</span>{{ f.value }}
+                <sc-if value="{{ f.clearable }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#1E5187" stroke-width="1.8"><path d="M4.5 4.5l7 7"></path><path d="M11.5 4.5l-7 7"></path></svg></sc-if>
+              </div>
+            </sc-for>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12.5px">
+              <span style="color:#1E5187">Clear all filters</span>
+              <span style="display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;gap:6px"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#46525E" stroke-width="1.5"><path d="M8 11V2.5"></path><path d="M4.8 5.7L8 2.5l3.2 3.2"></path><path d="M2.5 11v2.5h11V11"></path></svg>Export view</span>
+            </div>
+          </div>
+
+          <!-- hidden count -->
+          <div style="height:32px;flex:none;background:#E8F0F9;border-bottom:1px solid #B9D2EC;display:flex;align-items:center;gap:8px;padding:0 12px;font-size:12.5px;color:#1E5187">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#1E5187" stroke-width="1.5"><path d="M8 2.5l6 11H2z"></path><path d="M8 6.5v3.2"></path><path d="M8 11.4v.6"></path></svg>
+            Slice “Open” and 2 filters hide <b style="font-variant-numeric:tabular-nums">329</b> of 341 deviations. 7 of them match this item.
+          </div>
+
+          <!-- table header -->
+          <div style="flex:none;height:30px;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:grid;grid-template-columns:23px 200px 120px 92px 90px 80px 280px 180px 410px 40px 1fr;align-items:center;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794;white-space:nowrap;border-left:3px solid transparent;box-sizing:border-box">
+            <div></div>
+            <div style="padding:0 6px">Number</div>
+            <div style="padding:0 6px">Item</div>
+            <div style="padding:0 6px">WO</div>
+            <div style="padding:0 6px">Date</div>
+            <div style="padding:0 6px;text-align:center">Dev. qty</div>
+            <div style="padding:0 6px">Findings</div>
+            <div style="padding:0 6px">Decision</div>
+            <div style="padding:0 6px">Explanation</div>
+            <div></div>
+            <div style="padding:0 6px;color:#C1C9D1;font-weight:400;letter-spacing:0;text-transform:none">запас</div>
+          </div>
+
+          <!-- rows -->
+          <div style="flex:1;min-height:0;background:#fff;overflow:hidden">
+            <sc-for list="{{ devs }}" as="d" hint-placeholder-count="7">
+              <div style="border-bottom:1px solid #E3E8ED;background:{{ d.rowBg }}">
+                <div style="min-height:40px;display:grid;grid-template-columns:23px 200px 120px 92px 90px 80px 280px 180px 410px 40px 1fr;align-items:center;font-size:13px;border-left:3px solid {{ d.marker }};box-sizing:border-box">
+                  <div style="display:flex;align-items:center;justify-content:center;color:#5E6C7A">{{ d.chevron }}</div>
+                  <div style="padding:0 6px;font-weight:600;letter-spacing:.2px;font-variant-numeric:tabular-nums" dir="ltr">{{ d.number }}</div>
+                  <div style="padding:0 6px;font-weight:600;letter-spacing:.2px" dir="{{ d.itemDir }}">{{ d.item }}</div>
+                  <div style="padding:0 6px;font-variant-numeric:tabular-nums" dir="ltr">{{ d.wo }}</div>
+                  <div style="padding:0 6px;font-variant-numeric:tabular-nums" dir="ltr">{{ d.date }}</div>
+                  <div style="padding:0 6px;text-align:center;font-variant-numeric:tabular-nums;color:{{ d.qtyFg }}" dir="ltr">{{ d.qty }}</div>
+                  <div style="padding:7px 6px;display:flex;flex-direction:column;align-items:flex-start;gap:4px;overflow:hidden">
+                    <sc-for list="{{ d.chips }}" as="c" hint-placeholder-count="2">
+                      <span style="flex:none;display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 7px;border:1px solid #DDE4EA;border-radius:3px;background:#F7F9FB;font-size:12px;max-width:100%;overflow:hidden">
+                        <span style="color:#7A8794;font-variant-numeric:tabular-nums" dir="ltr">{{ c.local }}</span>
+                        <span style="font-weight:600;font-variant-numeric:tabular-nums" dir="ltr">{{ c.value }}</span>
+                        <span style="color:#46525E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.type }}</span>
+                        <sc-if value="{{ c.hasInsp }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#46525E" stroke-width="1.6"><path d="M6.5 2.5h3"></path><path d="M8 2.5v4.2L4.5 12.5h7L8 6.7"></path></svg></sc-if>
+                      </span>
+                    </sc-for>
+                    <span style="flex:none;font-size:12px;color:#1E5187;padding-left:2px">{{ d.chipsMore }}</span>
+                  </div>
+                                    <div style="padding:0 6px">
+                    <span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px 0 7px;border:1px {{ d.pillStroke }} {{ d.pillBd }};border-radius:3px;background:{{ d.pillBg }};font-size:12px;font-weight:600;color:{{ d.pillFg }}">{{ d.pillIcon }}{{ d.decision }}</span>
+                  </div>
+                  <div style="padding:5px 8px;display:flex;gap:6px;align-items:flex-start"><div style="flex:1;min-width:0;font-size:12px;line-height:15px;max-height:30px;overflow:hidden;color:{{ d.explFg }}">{{ d.explanation }}</div>{{ d.copyIcon }}</div>
+                  <div style="padding:0 6px">{{ d.actions }}</div>
+                  <div></div>
+                </div>
+
+                <sc-if value="{{ d.expanded }}" hint-placeholder-val="{{ false }}">
+                  <div style="background:#F7F9FB;border-top:1px solid #E3E8ED">
+                    <div style="display:grid;grid-template-columns:30px 72px 70px 92px 196px 176px 168px 340px 160px 1fr;height:24px;align-items:center;font-size:10.5px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794;border-bottom:1px solid #E3E8ED">
+                      <div></div><div style="padding:0 6px">Dim.</div><div style="padding:0 6px">Canon</div><div style="padding:0 6px">Sign · value</div><div style="padding:0 6px">Zone</div><div style="padding:0 6px">Deviation type</div><div style="padding:0 6px">Result</div><div style="padding:0 6px">Inspections</div><div></div><div></div>
+                    </div>
+                    <sc-for list="{{ d.findings }}" as="f" hint-placeholder-count="2">
+                      <div style="display:grid;grid-template-columns:30px 72px 70px 92px 196px 176px 168px 340px 160px 1fr;min-height:28px;align-items:start;font-size:12.5px;background:#fff;border-bottom:1px solid #EEF2F5">
+                        <div></div>
+                        <div style="padding:6px;font-variant-numeric:tabular-nums;font-weight:600" dir="ltr">{{ f.local }}</div>
+                        <div style="padding:6px;color:{{ f.canonFg }}" dir="ltr">{{ f.canon }}</div>
+                        <div style="padding:6px;font-weight:600;font-variant-numeric:tabular-nums" dir="ltr">{{ f.value }}</div>
+                        <div style="padding:6px;display:flex;gap:7px;align-items:center;overflow:hidden"><span dir="rtl" style="unicode-bidi:isolate">{{ f.zoneHe }}</span><span style="color:#C9D2DA">/</span><span dir="ltr" style="unicode-bidi:isolate;color:#46525E">{{ f.zone }}</span></div>
+                        <div style="padding:6px;color:#46525E">{{ f.type }}</div>
+                        <div style="padding:6px;display:flex;align-items:center;gap:6px;font-size:12px;color:{{ f.verdictFg }}">{{ f.verdictIcon }}{{ f.verdictText }}</div>
+                        <div style="padding:5px 6px;display:flex;flex-direction:column;gap:3px;font-size:12px">
+                          <sc-for list="{{ f.inspShown }}" as="ins" hint-placeholder-count="1">
+                            <div style="display:flex;align-items:center;gap:8px;color:#46525E">
+                              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#7A8794" stroke-width="1.6"><path d="M6.5 2.5h3"></path><path d="M8 2.5v4.2L4.5 12.5h7L8 6.7"></path></svg>
+                              <span style="font-variant-numeric:tabular-nums" dir="ltr">{{ ins.id }}</span>
+                              <span style="color:#16202A">{{ ins.type }}</span>
+                            </div>
+                          </sc-for>
+                          <div style="color:{{ f.inspMoreFg }}">{{ f.inspMore }}</div>
+                        </div>
+                        <div style="padding:4px 6px">
+                          <span style="display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;font-size:12px;color:#1E5187;white-space:nowrap">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#1E5187" stroke-width="1.5"><path d="M7.2 11.4a4.2 4.2 0 100-8.4 4.2 4.2 0 000 8.4z"></path><path d="M10.4 10.4l3 3"></path></svg>
+                            Find identical
+                          </span>
+                        </div>
+                        <div></div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+
+          <!-- status bar -->
+          <div style="height:26px;flex:none;background:#EDF1F5;border-top:1px solid #C9D2DA;display:flex;align-items:center;gap:16px;padding:0 12px;font-size:12px;color:#46525E">
+            <span>Selected <b style="color:#16202A" dir="ltr">DEV-260820-0001</b> · {{ selInfo }}</span>
+            <span style="color:#C9D2DA">|</span><span>Enter — open card · F2 — edit · Ctrl+D — decision · Del — delete</span>
+            <span style="margin-left:auto;font-variant-numeric:tabular-nums">Rows count deviations, not findings: 12 deviations / 24 findings</span>
+          </div>
+        </div>
+      </div>
+      <div style="width:1920px;background:#fff;border:1px solid #C9D2DA;border-radius:4px;padding:12px 14px;font:12px/1.7 'Segoe UI',sans-serif;color:#46525E;text-wrap:pretty">
+        <div style="font-weight:600;color:#16202A;margin-bottom:6px">Состояния §7, показанные на этом макете</div>
+        <div><b style="color:#16202A">§7.1 Нормальный список</b> — семь отклонений с разными исходами: Not decided, Approved, Sorting, Rejected, Repair.</div>
+        <div><b style="color:#16202A">§7.2 Курсор и выбор</b> — DEV-260821-0004 под курсором (row.hover), DEV-260820-0001 выбрана (row.selected + маркер 3 px слева); крупный кроп — ниже.</div>
+        <div><b style="color:#16202A">§7.3 Применённые фильтры</b> — чипы Item и Zone со снятием и ссылка Clear all filters.</div>
+        <div><b style="color:#16202A">§7.7 Смешанная ивритско-английская ячейка</b> — DEV-260824-0006 с ивритским Item; зоны находок — иврит рядом с английским термином.</div>
+        <div><b style="color:#16202A">§7.9 Разброс числа находок рядом</b> — DEV-260820-0001 с шестью находками стоит между DEV-260819-0005 с одной и DEV-260821-0004 с одной.</div>
+        <div><b style="color:#16202A">§7.10 Разброс числа исследований рядом</b> — в раскрытой записи: Dim. 8, 22 и 31 без исследований (Not researched — норма, а не пустое поле), Dim. 44 с одним, Dim. 3 с тремя, Dim. 14 с четырьмя (показаны два и «+2 inspections»); у Dim. 14 вывод Finding not approved при решении Sorting.</div>
+      </div>
+      <div style="width:1920px;font:12px/1.6 'Segoe UI',sans-serif;color:#46525E;text-wrap:pretty"><b style="color:#16202A">Цена.</b> Находки идут столбиком в своей колонке: две видны целиком, при трёх и более под ними встаёт строка «+4 findings». Высота строки отклонения при этом непостоянна — 40 px при одной находке, 66 px при двух, 82 px при трёх и более (пилюля 22 px, зазор 4 px, отступы 7 px сверху и снизу), — и вертикальный ритм списка теряется. Это единственное место в работе, где строка отклонения не равна 36 px; в рекомендованном 1b и во всех состояниях §7 она 36 px ровно. «+4 findings» — счётчик, то есть §4.4 формально нарушен. Исследования в свёрнутой строке не показаны вовсе: значок мензурки в пилюле находки — только признак наличия, тип и вывод читаются лишь в раскрытии. Числовой колонки «Insp.» здесь нет сознательно — она была бы вторым счётчиком.</div>
+    </div>
+
+    <div id="1b" style="display:none">
+      <div style="display:flex;align-items:baseline;gap:9px;font:400 12px/1.3 'Segoe UI',sans-serif;color:#46525E">
+        <a href="#1b" style="font:600 10.5px ui-monospace,Consolas,monospace;padding:3px 7px;background:#2A6FB8;color:#fff;border-radius:5px;text-decoration:none">1b</a>
+        <b style="color:#16202A;font-weight:600">Постоянно развёрнутые под-строки — рекомендуется</b> · три уровня видны сразу, ни один не свёрнут в число
+      </div>
+
+      <div style="width:1920px;height:1080px;background:#F4F6F8;border:1px solid #C9D2DA;display:flex;overflow:hidden;color:#16202A">
+        <div style="flex:none;width:216px;background:#16324F;display:flex;flex-direction:column">
+          <div style="height:48px;display:flex;align-items:center;gap:9px;padding:0 14px;border-bottom:1px solid #234868">
+            <div style="width:22px;height:22px;background:#2A6FB8;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff">Q</div>
+            <div style="font-size:13.5px;font-weight:600;color:#fff;letter-spacing:.2px">MIS-QMS</div>
+            <div style="margin-left:auto"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7E9BB8" stroke-width="1.5"><path d="M10 4l-4 4 4 4"></path><path d="M13.5 3v10"></path></svg></div>
+          </div>
+          <sc-for list="{{ nav }}" as="n" hint-placeholder-count="5">
+            <div style="height:36px;display:flex;align-items:center;gap:10px;padding:0 14px;font-size:13px;background:{{ n.bg }};color:{{ n.fg }};font-weight:{{ n.fw }}">
+              <div style="flex:none;width:16px;height:16px;display:flex">{{ n.icon }}</div>
+              <div>{{ n.label }}</div>
+              <div style="margin-left:auto;font-size:11.5px;font-variant-numeric:tabular-nums;color:{{ n.cntFg }}">{{ n.count }}</div>
+            </div>
+          </sc-for>
+          <div style="margin-top:auto;padding:12px 14px;border-top:1px solid #234868;font-size:11.5px;color:#7E9BB8;line-height:1.6">Offline · single station<br>DB rev. 2026-08-31</div>
+        </div>
+
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+          <div style="height:48px;flex:none;background:#fff;border-bottom:1px solid #C9D2DA;display:flex;align-items:center;gap:14px;padding:0 12px">
+            <div style="font-size:20px;font-weight:600">Deviations</div>
+            <div style="font-size:13px;color:#46525E">12 of 341 · slice “Open” + 2 filters</div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+              <div style="width:300px;height:26px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;display:flex;align-items:center;gap:7px;padding:0 6px">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#7A8794" stroke-width="1.5"><path d="M7.2 11.4a4.2 4.2 0 100-8.4 4.2 4.2 0 000 8.4z"></path><path d="M10.4 10.4l3 3"></path></svg>
+                <span style="font-size:13px;color:#7A8794">Search number, item, WO…</span>
+                <span style="margin-left:auto;font-size:11px;color:#A7B4C0">Ctrl+F</span>
+              </div>
+              <span style="display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;font-size:13px;gap:6px"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#46525E" stroke-width="1.5"><path d="M2.5 4h11"></path><path d="M4.5 8h7"></path><path d="M6.5 12h3"></path></svg>Findings: shown</span>
+              <span style="display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;font-size:13px;gap:6px"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#46525E" stroke-width="1.5"><path d="M2.5 3h11v10h-11z"></path><path d="M7 3v10"></path><path d="M11 3v10"></path></svg>Columns</span>
+              <span style="display:inline-flex;align-items:center;height:28px;padding:0 14px;border:1px solid #2A6FB8;border-radius:4px;background:#2A6FB8;color:#fff;font-size:13px;font-weight:600">New deviation</span>
+            </div>
+          </div>
+
+          <div style="height:34px;flex:none;background:#fff;border-bottom:1px solid #C9D2DA;display:flex;align-items:stretch;padding:0 12px;gap:2px">
+            <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 12px;border-bottom:2px solid {{ t.bar }};color:{{ t.fg }};font-size:13px;font-weight:{{ t.fw }}">
+                {{ t.label }}<span style="font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums;color:{{ t.badgeFg }};background:{{ t.badgeBg }};border-radius:8px;padding:1px 6px">{{ t.count }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="height:44px;flex:none;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:flex;align-items:center;gap:8px;padding:0 12px">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5E6C7A" stroke-width="1.5"><path d="M2.5 4h11"></path><path d="M4.5 8h7"></path><path d="M6.5 12h3"></path></svg>
+            <sc-for list="{{ filterFields }}" as="f" hint-placeholder-count="6">
+              <div style="height:26px;border:1px solid {{ f.bd }};border-radius:4px;background:{{ f.bg }};display:flex;align-items:center;gap:6px;padding:0 6px;font-size:12.5px;color:{{ f.fg }}">
+                <span style="color:#7A8794;font-size:11.5px">{{ f.label }}</span>{{ f.value }}
+                <sc-if value="{{ f.clearable }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#1E5187" stroke-width="1.8"><path d="M4.5 4.5l7 7"></path><path d="M11.5 4.5l-7 7"></path></svg></sc-if>
+              </div>
+            </sc-for>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12.5px">
+              <span style="color:#1E5187">Clear all filters</span>
+              <span style="display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;gap:6px"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#46525E" stroke-width="1.5"><path d="M8 11V2.5"></path><path d="M4.8 5.7L8 2.5l3.2 3.2"></path><path d="M2.5 11v2.5h11V11"></path></svg>Export view</span>
+            </div>
+          </div>
+
+          <div style="height:32px;flex:none;background:#E8F0F9;border-bottom:1px solid #B9D2EC;display:flex;align-items:center;gap:8px;padding:0 12px;font-size:12.5px;color:#1E5187">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#1E5187" stroke-width="1.5"><path d="M8 2.5l6 11H2z"></path><path d="M8 6.5v3.2"></path><path d="M8 11.4v.6"></path></svg>
+            Slice “Open” and 2 filters hide <b style="font-variant-numeric:tabular-nums">329</b> of 341 deviations. 7 of them match this item.
+          </div>
+
+          <div style="flex:none;height:30px;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:grid;grid-template-columns:200px 120px 92px 90px 80px 280px 180px 410px 40px;align-items:center;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794;white-space:nowrap;padding-left:8px">
+            <div style="padding:0 6px">Number</div>
+            <div style="padding:0 6px">Item</div>
+            <div style="padding:0 6px">WO</div>
+            <div style="padding:0 6px">Date</div>
+            <div style="padding:0 8px;text-align:center">Dev. qty</div>
+            <div style="padding:0 6px">Machine · NCR</div>
+            <div style="padding:0 6px">Decision</div>
+            <div style="padding:0 6px">Explanation</div>
+            <div style="padding:0 6px"></div>
+          </div>
+
+          <div style="flex:1;min-height:0;background:#fff;overflow:hidden">
+            <sc-for list="{{ devs }}" as="d" hint-placeholder-count="4">
+              <div style="border-bottom:1px solid #C9D2DA">
+                <div style="height:40px;display:grid;grid-template-columns:200px 120px 92px 90px 80px 280px 180px 410px 40px;align-items:center;font-size:13px;background:{{ d.rowBg }};border-left:3px solid {{ d.marker }};padding-left:5px;box-sizing:border-box">
+                  <div style="padding:0 6px;font-weight:600;letter-spacing:.2px;font-variant-numeric:tabular-nums" dir="ltr">{{ d.number }}</div>
+                  <div style="padding:0 6px;font-weight:600;letter-spacing:.2px" dir="{{ d.itemDir }}">{{ d.item }}</div>
+                  <div style="padding:0 6px;font-variant-numeric:tabular-nums" dir="ltr">{{ d.wo }}</div>
+                  <div style="padding:0 6px;font-variant-numeric:tabular-nums" dir="ltr">{{ d.date }}</div>
+                  <div style="padding:0 6px;text-align:center;font-variant-numeric:tabular-nums;color:{{ d.qtyFg }}" dir="ltr">{{ d.qty }}</div>
+                  <div style="padding:0 8px;color:#7A8794;font-size:12px">{{ d.machineNcr }}</div>
+                                    <div style="padding:0 6px"><span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px 0 7px;border:1px {{ d.pillStroke }} {{ d.pillBd }};border-radius:3px;background:{{ d.pillBg }};font-size:12px;font-weight:600;color:{{ d.pillFg }}">{{ d.pillIcon }}{{ d.decision }}</span></div>
+                  <div style="padding:5px 8px;display:flex;gap:6px;align-items:flex-start"><div style="flex:1;min-width:0;font-size:12px;line-height:15px;max-height:30px;overflow:hidden;color:{{ d.explFg }}">{{ d.explanation }}</div>{{ d.copyIcon }}</div>
+                  <div style="padding:0 6px">{{ d.actions }}</div>
+                </div>
+
+                <sc-for list="{{ d.findings }}" as="f" hint-placeholder-count="2">
+                  <div>
+                    <div style="height:28px;display:grid;grid-template-columns:30px 82px 78px 100px 216px 186px 1fr;align-items:center;font-size:12.5px;background:#fff;border-top:1px solid #E3E8ED">
+                      <div style="display:flex;justify-content:center;color:#C9D2DA">│</div>
+                      <div style="padding:0 6px;font-variant-numeric:tabular-nums;color:#46525E" dir="ltr">Dim. {{ f.local }}</div>
+                      <div style="padding:0 6px;color:{{ f.canonFg }}" dir="ltr">{{ f.canon }}</div>
+                      <div style="padding:0 6px;font-weight:600;font-variant-numeric:tabular-nums" dir="ltr">{{ f.value }}</div>
+                      <div style="padding:0 6px;display:flex;gap:7px;align-items:center;overflow:hidden"><span dir="rtl" style="unicode-bidi:isolate">{{ f.zoneHe }}</span><span style="color:#C9D2DA">/</span><span dir="ltr" style="unicode-bidi:isolate;color:#46525E">{{ f.zone }}</span></div>
+                      <div style="padding:0 6px;color:#46525E">{{ f.type }}</div>
+                      <div style="padding:0 6px;color:{{ f.pointFg }};font-size:12px">at {{ f.point }}</div>
+                    </div>
+                    <sc-for list="{{ f.inspections }}" as="ins" hint-placeholder-count="1">
+                      <div style="height:24px;display:grid;grid-template-columns:52px 160px 240px 1fr;align-items:center;font-size:12px;background:#F7F9FB;border-top:1px solid #EEF2F5">
+                        <div style="display:flex;justify-content:flex-end;padding-right:8px;color:#C9D2DA">└</div>
+                        <div style="padding:0 6px;display:flex;align-items:center;gap:7px;color:#46525E">
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#7A8794" stroke-width="1.6"><path d="M6.5 2.5h3"></path><path d="M8 2.5v4.2L4.5 12.5h7L8 6.7"></path></svg>
+                          <span style="font-variant-numeric:tabular-nums" dir="ltr">{{ ins.id }}</span>
+                        </div>
+                        <div style="padding:0 6px;color:#16202A">{{ ins.type }}</div>
+                        <div style="padding:0 6px;display:flex;align-items:center;gap:6px;color:{{ ins.fg }}">{{ ins.icon }}{{ ins.result }}</div>
+                      </div>
+                    </sc-for>
+                    <sc-if value="{{ f.noInsp }}" hint-placeholder-val="{{ false }}">
+                      <div style="height:24px;display:grid;grid-template-columns:52px 1fr;align-items:center;font-size:12px;background:#F7F9FB;border-top:1px solid #EEF2F5">
+                        <div style="display:flex;justify-content:flex-end;padding-right:8px;color:#C9D2DA">└</div>
+                        <div style="padding:0 6px;display:flex;align-items:center;gap:8px;color:#7A8794">
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#A7B4C0" stroke-width="1.5"><path d="M8 13.5a5.5 5.5 0 100-11 5.5 5.5 0 000 11z"></path><path d="M5.5 8h5"></path></svg>
+                          No inspections
+                        </div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="height:26px;flex:none;background:#EDF1F5;border-top:1px solid #C9D2DA;display:flex;align-items:center;gap:16px;padding:0 12px;font-size:12px;color:#46525E">
+            <span>Selected <b style="color:#16202A" dir="ltr">DEV-260820-0001</b> · {{ selInfo }}</span>
+            <span style="color:#C9D2DA">|</span><span>Enter — open card · F2 — edit · Ctrl+D — decision · Del — delete</span>
+            <span style="margin-left:auto;font-variant-numeric:tabular-nums">Rows count deviations, not findings: 12 deviations / 24 findings</span>
+          </div>
+        </div>
+      </div>
+      <div style="width:1920px;font:12px/1.6 'Segoe UI',sans-serif;color:#46525E;text-wrap:pretty"><b style="color:#16202A">Цена.</b> Ни находки, ни исследования не свёрнуты в число — экран отвечает на «какой размер ушёл» и «что уже исследовали» без единого клика, и две записи по C1-08375A различаются с первого взгляда. Взамен на экран влезает 4–5 отклонений вместо двенадцати: длинный список приходится листать. Смягчение — переключатель <b style="color:#16202A">Findings: shown / collapsed</b> в заголовке: он меняет глубину для всего списка сразу, а не по строке, и его состояние запоминается.</div>
+    </div>
+
+    <div id="1c" style="display:none">
+      <div style="display:flex;align-items:baseline;gap:9px;font:400 12px/1.3 'Segoe UI',sans-serif;color:#46525E">
+        <a href="#1c" style="font:600 10.5px ui-monospace,Consolas,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#16202A;border-radius:5px;text-decoration:none">1c</a>
+        <b style="color:#16202A;font-weight:600">Компактный список + панель выбранной записи</b> · в строке дайджест находок одной строкой, вся глубина — в панели справа
+      </div>
+
+      <div style="width:1920px;height:1080px;background:#F4F6F8;border:1px solid #C9D2DA;display:flex;overflow:hidden;color:#16202A">
+        <div style="flex:none;width:48px;background:#16324F;display:flex;flex-direction:column;align-items:center;padding-top:0">
+          <div style="height:48px;display:flex;align-items:center;border-bottom:1px solid #234868;width:100%;justify-content:center">
+            <div style="width:22px;height:22px;background:#2A6FB8;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff">Q</div>
+          </div>
+          <sc-for list="{{ nav }}" as="n" hint-placeholder-count="5">
+            <div style="height:36px;width:100%;display:flex;align-items:center;justify-content:center;background:{{ n.bg }}">{{ n.icon }}</div>
+          </sc-for>
+        </div>
+
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+          <div style="height:48px;flex:none;background:#fff;border-bottom:1px solid #C9D2DA;display:flex;align-items:center;gap:14px;padding:0 12px">
+            <div style="font-size:20px;font-weight:600">Deviations</div>
+            <div style="font-size:13px;color:#46525E">12 of 341 · slice “Open” + 2 filters</div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+              <div style="width:300px;height:26px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;display:flex;align-items:center;gap:7px;padding:0 6px">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#7A8794" stroke-width="1.5"><path d="M7.2 11.4a4.2 4.2 0 100-8.4 4.2 4.2 0 000 8.4z"></path><path d="M10.4 10.4l3 3"></path></svg>
+                <span style="font-size:13px;color:#7A8794">Search number, item, WO…</span>
+                <span style="margin-left:auto;font-size:11px;color:#A7B4C0">Ctrl+F</span>
+              </div>
+              <span style="display:inline-flex;align-items:center;height:28px;padding:0 14px;border:1px solid #2A6FB8;border-radius:4px;background:#2A6FB8;color:#fff;font-size:13px;font-weight:600">New deviation</span>
+            </div>
+          </div>
+
+          <div style="height:34px;flex:none;background:#fff;border-bottom:1px solid #C9D2DA;display:flex;align-items:stretch;padding:0 12px;gap:2px">
+            <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 12px;border-bottom:2px solid {{ t.bar }};color:{{ t.fg }};font-size:13px;font-weight:{{ t.fw }}">
+                {{ t.label }}<span style="font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums;color:{{ t.badgeFg }};background:{{ t.badgeBg }};border-radius:8px;padding:1px 6px">{{ t.count }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="flex:1;min-height:0;display:flex">
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;border-right:1px solid #C9D2DA">
+              <div style="height:44px;flex:none;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:flex;align-items:center;gap:8px;padding:0 12px">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5E6C7A" stroke-width="1.5"><path d="M2.5 4h11"></path><path d="M4.5 8h7"></path><path d="M6.5 12h3"></path></svg>
+                <sc-for list="{{ filterFields }}" as="f" hint-placeholder-count="6">
+                  <div style="height:26px;border:1px solid {{ f.bd }};border-radius:4px;background:{{ f.bg }};display:flex;align-items:center;gap:6px;padding:0 6px;font-size:12.5px;color:{{ f.fg }}">
+                    <span style="color:#7A8794;font-size:11.5px">{{ f.label }}</span>{{ f.value }}
+                    <sc-if value="{{ f.clearable }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#1E5187" stroke-width="1.8"><path d="M4.5 4.5l7 7"></path><path d="M11.5 4.5l-7 7"></path></svg></sc-if>
+                  </div>
+                </sc-for>
+                <span style="margin-left:auto;color:#1E5187;font-size:12.5px">Clear all</span>
+              </div>
+              <div style="height:32px;flex:none;background:#E8F0F9;border-bottom:1px solid #B9D2EC;display:flex;align-items:center;gap:8px;padding:0 12px;font-size:12.5px;color:#1E5187">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#1E5187" stroke-width="1.5"><path d="M8 2.5l6 11H2z"></path><path d="M8 6.5v3.2"></path><path d="M8 11.4v.6"></path></svg>
+                Slice “Open” and 2 filters hide <b style="font-variant-numeric:tabular-nums">329</b> of 341 deviations.
+              </div>
+              <div style="flex:none;height:30px;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:grid;grid-template-columns:150px 148px 110px 88px 92px 1fr 176px 300px;align-items:center;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794;white-space:nowrap;padding-left:8px">
+                <div style="padding:0 6px">Number</div><div style="padding:0 6px">Item</div><div style="padding:0 6px">WO</div><div style="padding:0 6px">Date</div><div style="padding:0 8px;text-align:center">Dev. qty</div><div style="padding:0 6px">Findings — one line</div><div style="padding:0 6px">Decision</div><div style="padding:0 6px">Explanation</div>
+              </div>
+              <div style="flex:1;min-height:0;background:#fff;overflow:hidden">
+                <sc-for list="{{ devs }}" as="d" hint-placeholder-count="7">
+                  <div style="height:40px;display:grid;grid-template-columns:150px 148px 110px 88px 92px 1fr 176px 300px;align-items:center;font-size:13px;background:{{ d.rowBg }};border-bottom:1px solid #E3E8ED;border-left:3px solid {{ d.marker }};padding-left:5px;box-sizing:border-box">
+                    <div style="padding:0 6px;font-weight:600;letter-spacing:.2px;font-variant-numeric:tabular-nums" dir="ltr">{{ d.number }}</div>
+                    <div style="padding:0 6px;font-weight:600;letter-spacing:.2px" dir="{{ d.itemDir }}">{{ d.item }}</div>
+                    <div style="padding:0 6px;font-variant-numeric:tabular-nums" dir="ltr">{{ d.wo }}</div>
+                    <div style="padding:0 6px;font-variant-numeric:tabular-nums" dir="ltr">{{ d.date }}</div>
+                    <div style="padding:0 6px;text-align:center;font-variant-numeric:tabular-nums;color:{{ d.qtyFg }}" dir="ltr">{{ d.qty }}</div>
+                    <div style="padding:0 6px;font-size:12.5px;color:#46525E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" dir="ltr">{{ d.digest }}</div>
+                                        <div style="padding:0 6px"><span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px 0 7px;border:1px {{ d.pillStroke }} {{ d.pillBd }};border-radius:3px;background:{{ d.pillBg }};font-size:12px;font-weight:600;color:{{ d.pillFg }}">{{ d.pillIcon }}{{ d.decision }}</span></div>
+                    <div style="padding:5px 8px;display:flex;gap:6px;align-items:flex-start"><div style="flex:1;min-width:0;font-size:12px;line-height:15px;max-height:30px;overflow:hidden;color:{{ d.explFg }}">{{ d.explanation }}</div>{{ d.copyIcon }}</div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="height:26px;flex:none;background:#EDF1F5;border-top:1px solid #C9D2DA;display:flex;align-items:center;gap:16px;padding:0 12px;font-size:12px;color:#46525E">
+                <span>Selected <b style="color:#16202A" dir="ltr">DEV-260820-0001</b></span>
+                <span style="margin-left:auto;font-variant-numeric:tabular-nums">12 deviations / 24 findings</span>
+              </div>
+            </div>
+
+            <div style="flex:none;width:420px;background:#fff;display:flex;flex-direction:column">
+              <div style="flex:none;padding:10px 14px;border-bottom:1px solid #C9D2DA;background:#EDF1F5">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="font-size:13px;font-weight:600;letter-spacing:.2px;font-variant-numeric:tabular-nums" dir="ltr">DEV-260820-0001</div>
+                  <span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px 0 7px;border:1px solid #CFD6DD;border-radius:3px;background:#EAEDF1;font-size:12px;font-weight:600;color:#46525E"><svg width="11" height="11" viewBox="0 0 11 11"><rect x="1" y="1.5" width="4" height="4" fill="#46525E"></rect><rect x="6" y="5.5" width="4" height="4" fill="none" stroke="#46525E" stroke-width="1.4"></rect></svg>Sorting</span>
+                </div>
+                <div style="font-size:12.5px;color:#46525E;margin-top:5px">MF5-10375A-N · W26007352 · 21.08.2026 · 6 in deviation · CNC-3 · NCR-118 <span style="color:#7A8794">(Machine и NCR — только здесь, в карточке)</span></div>
+                <div style="margin-top:8px;background:#fff;border:1px solid #C9D2DA;border-radius:4px;padding:7px 9px;display:flex;gap:8px;align-items:flex-start">
+                  <div style="flex:1;min-width:0;font-size:12px;line-height:1.5;color:#46525E">Six findings across two zones. Parts carrying Dim. 14 (cone seat +0.22) go to sorting; the remaining ones pass on the drawing. <span dir="rtl" style="unicode-bidi:isolate">הופרד לשתי קבוצות לפי מושב חרוט, 6 יחידות סה"כ.</span></div>
+                  <span style="flex:none;width:18px;height:18px;border:1px solid #C9D2DA;border-radius:3px;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#46525E" stroke-width="1.5"><path d="M5.5 5.5h8v8h-8z"></path><path d="M5.5 10.5h-3v-8h8v3"></path></svg></span>
+                </div>
+                <div style="display:flex;gap:6px;margin-top:9px">
+                  <span style="display:inline-flex;align-items:center;height:26px;padding:0 12px;border:1px solid #2A6FB8;border-radius:4px;background:#2A6FB8;color:#fff;font-size:12.5px;font-weight:600">Open card</span>
+                  <span style="display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;font-size:12.5px">Edit</span>
+                  <span style="display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;font-size:12.5px">Decision</span>
+                  <span style="margin-left:auto;display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid #E0A9A3;border-radius:4px;background:#fff;color:#B3261E;font-size:12.5px">Delete</span>
+                </div>
+              </div>
+              <div style="flex:none;padding:7px 14px;border-bottom:1px solid #E3E8ED;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794">Findings and inspections</div>
+              <div style="flex:1;min-height:0;overflow:hidden">
+                <sc-for list="{{ panelFindings }}" as="f" hint-placeholder-count="6">
+                  <div style="border-bottom:1px solid #E3E8ED">
+                    <div style="padding:7px 14px;display:flex;align-items:baseline;gap:8px;font-size:12.5px">
+                      <span style="font-variant-numeric:tabular-nums;color:#46525E" dir="ltr">Dim. {{ f.local }}</span>
+                      <span style="color:{{ f.canonFg }}" dir="ltr">{{ f.canon }}</span>
+                      <span style="margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums" dir="ltr">{{ f.value }}</span>
+                    </div>
+                    <div style="padding:0 14px 7px;display:flex;gap:7px;align-items:center;font-size:12px;color:#46525E">
+                      <span dir="rtl" style="unicode-bidi:isolate">{{ f.zoneHe }}</span><span style="color:#C9D2DA">/</span><span dir="ltr" style="unicode-bidi:isolate">{{ f.zone }}</span><span style="color:#C9D2DA">·</span><span>{{ f.type }}</span>
+                    </div>
+                    <sc-for list="{{ f.inspections }}" as="ins" hint-placeholder-count="1">
+                      <div style="background:#F7F9FB;border-top:1px solid #EEF2F5;padding:5px 14px 5px 30px;font-size:12px;display:flex;align-items:center;gap:8px">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#7A8794" stroke-width="1.6"><path d="M6.5 2.5h3"></path><path d="M8 2.5v4.2L4.5 12.5h7L8 6.7"></path></svg>
+                        <span style="color:#16202A">{{ ins.type }}</span>
+                        <span style="margin-left:auto;display:flex;align-items:center;gap:5px;color:{{ ins.fg }}">{{ ins.icon }}{{ ins.result }}</span>
+                      </div>
+                    </sc-for>
+                    <sc-if value="{{ f.noInsp }}" hint-placeholder-val="{{ false }}">
+                      <div style="background:#F7F9FB;border-top:1px solid #EEF2F5;padding:5px 14px 5px 30px;font-size:12px;color:#7A8794">No inspections</div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="width:1920px;font:12px/1.6 'Segoe UI',sans-serif;color:#46525E;text-wrap:pretty"><b style="color:#16202A">Цена.</b> Двенадцать отклонений видны разом, действия живут при выбранной записи, панель показывает все три уровня целиком. Но дайджест находок обрезается по ширине колонки: при шести находках с экрана читаются две-три, остальные требуют выбора строки. Сравнить находки двух записей по одной детали одновременно нельзя — панель показывает одну.</div>
+
+  </div>
+</section>
+
+<section id="t1s" style="padding:36px 44px 60px;border-top:1px solid rgba(0,0,0,.1)">
+  <div style="display:flex;align-items:baseline;gap:11px;margin:0 0 6px">
+    <a href="#t1s" style="font:600 10px ui-monospace,Consolas,monospace;padding:3px 7px;background:#16324F;color:#fff;border-radius:4px;text-decoration:none">S</a>
+    <span style="font:600 14px/1.2 'Segoe UI',sans-serif;color:#16202A">Состояния §7 и сетка колонок §10.2</span>
+  </div>
+  <div style="font:13px/1.55 'Segoe UI',sans-serif;color:#46525E;max-width:1180px;margin-bottom:24px;text-wrap:pretty">Состояния нарисованы на рекомендованном направлении <a href="#1b" style="font:600 10.5px ui-monospace,Consolas,monospace;padding:2px 6px;background:rgba(0,0,0,.08);color:#16202A;border-radius:5px;text-decoration:none">1b</a>. Нормальный список, разброс «одна находка против шести», а также находки с 0 / 1 / 2 исследованиями видны там же в полном размере.</div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
+
+    <div style="flex:none;width:1728px;display:flex;flex-direction:column;gap:8px">
+      <div style="font:600 12.5px 'Segoe UI',sans-serif;color:#16202A">§7.2 Строка под курсором и строка выбранная</div>
+      <div style="background:#fff;border:1px solid #C9D2DA">
+        <div style="height:30px;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:grid;grid-template-columns:200px 120px 92px 90px 80px 280px 180px 410px 40px;align-items:center;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794;white-space:nowrap;padding-left:8px"><div style="padding:0 6px">Number</div><div style="padding:0 6px">Item</div><div style="padding:0 6px">WO</div><div style="padding:0 6px">Date</div><div style="padding:0 8px;text-align:center">Dev. qty</div><div style="padding:0 6px">Findings</div><div style="padding:0 6px">Decision</div><div style="padding:0 6px">Explanation</div><div></div></div>
+        <div style="height:40px;display:grid;grid-template-columns:200px 120px 92px 90px 80px 280px 180px 410px 40px;align-items:center;font-size:13px;border-bottom:1px solid #E3E8ED;padding-left:8px">
+          <div style="padding:0 6px;font-weight:600;font-variant-numeric:tabular-nums">DEV-260819-0002</div><div style="padding:0 6px;font-weight:600">C1-08375A</div><div style="padding:0 6px;font-variant-numeric:tabular-nums">W26007336</div><div style="padding:0 6px;font-variant-numeric:tabular-nums">19.08.2026</div><div style="padding:0 6px;text-align:center;font-variant-numeric:tabular-nums">12</div><div style="padding:0 6px;display:flex;flex-direction:column;gap:4px;align-items:flex-start"><span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 7px;border:1px solid #DDE4EA;border-radius:3px;background:#F7F9FB;font-size:12px"><span style="color:#7A8794">Dim. 12</span><span style="font-weight:600">+0.08</span><span style="color:#46525E">thread burr</span></span></div><div style="padding:0 6px"><span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px 0 7px;border:1px dashed #2A6FB8;border-radius:3px;background:#fff;font-size:12px;font-weight:600;color:#1E5187"><svg width="11" height="11" viewBox="0 0 11 11"><circle cx="5.5" cy="5.5" r="4" fill="none" stroke="#1E5187" stroke-width="1.5"></circle></svg>Not decided</span></div><div style="padding:5px 8px;font-size:12px;line-height:15px;max-height:30px;overflow:hidden;color:#7A8794">No decision yet — nothing to explain</div><div></div>
+        </div>
+        <div style="height:40px;display:grid;grid-template-columns:200px 120px 92px 90px 80px 280px 180px 410px 40px;align-items:center;font-size:13px;border-bottom:1px solid #E3E8ED;background:#F0F4F8;padding-left:8px">
+          <div style="padding:0 6px;font-weight:600;font-variant-numeric:tabular-nums">DEV-260819-0005</div><div style="padding:0 6px;font-weight:600">C1-08375A</div><div style="padding:0 6px;font-variant-numeric:tabular-nums">W26007341</div><div style="padding:0 6px;font-variant-numeric:tabular-nums">20.08.2026</div><div style="padding:0 6px;text-align:center;font-variant-numeric:tabular-nums">40</div><div style="padding:0 6px;display:flex;flex-direction:column;gap:4px;align-items:flex-start"><span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 7px;border:1px solid #DDE4EA;border-radius:3px;background:#F7F9FB;font-size:12px"><span style="color:#7A8794">Dim. 77</span><span style="font-weight:600">−0.12</span><span style="color:#46525E">oversize cone</span></span></div><div style="padding:0 6px"><span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px 0 7px;border:1px solid #B7DCC2;border-radius:3px;background:#E7F3EA;font-size:12px;font-weight:600;color:#1B6B33"><svg width="11" height="11" viewBox="0 0 11 11"><path d="M1.5 6L4 8.5L9.5 2.5" fill="none" stroke="#1B6B33" stroke-width="1.8"></path></svg>Approved</span></div>
+          <div style="padding:5px 8px;display:flex;gap:6px;align-items:flex-start"><div style="flex:1;min-width:0;font-size:12px;line-height:15px;max-height:30px;overflow:hidden;color:#46525E">Thread root burr stays inside the functional envelope: SolidWorks assembly shows no interference at Ø3.40. אושר לשימוש כפי שהוא.</div><span style="flex:none;width:18px;height:18px;border:1px solid #C9D2DA;border-radius:3px;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#46525E" stroke-width="1.5"><path d="M5.5 5.5h8v8h-8z"></path><path d="M5.5 10.5h-3v-8h8v3"></path></svg></span></div>
+          <div style="padding:0 6px;display:flex;justify-content:flex-end">
+            <span style="width:22px;height:22px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 16 16"><circle cx="4" cy="8" r="1.3" fill="#46525E"></circle><circle cx="8" cy="8" r="1.3" fill="#46525E"></circle><circle cx="12" cy="8" r="1.3" fill="#46525E"></circle></svg></span>
+          </div>
+        </div>
+        <div style="height:40px;display:grid;grid-template-columns:200px 120px 92px 90px 80px 280px 180px 410px 40px;align-items:center;font-size:13px;border-bottom:1px solid #E3E8ED;background:#DCE9F6;border-left:3px solid #2A6FB8;padding-left:5px;box-sizing:border-box">
+          <div style="padding:0 6px;font-weight:600;font-variant-numeric:tabular-nums">DEV-260820-0001</div><div style="padding:0 6px;font-weight:600">MF5-10375A-N</div><div style="padding:0 6px;font-variant-numeric:tabular-nums">W26007352</div><div style="padding:0 6px;font-variant-numeric:tabular-nums">21.08.2026</div><div style="padding:0 6px;text-align:center;font-variant-numeric:tabular-nums">6</div><div style="padding:0 6px;display:flex;flex-direction:column;gap:4px;align-items:flex-start"><span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 7px;border:1px solid #DDE4EA;border-radius:3px;background:#F7F9FB;font-size:12px"><span style="color:#7A8794">Dim. 3</span><span style="font-weight:600">+0.11</span><span style="color:#46525E">thread burr</span></span></div><div style="padding:0 6px"><span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px 0 7px;border:1px solid #CFD6DD;border-radius:3px;background:#EAEDF1;font-size:12px;font-weight:600;color:#46525E"><svg width="11" height="11" viewBox="0 0 11 11"><rect x="1" y="1.5" width="4" height="4" fill="#46525E"></rect><rect x="6" y="5.5" width="4" height="4" fill="none" stroke="#46525E" stroke-width="1.4"></rect></svg>Sorting</span></div>
+          <div style="padding:5px 8px;display:flex;gap:6px;align-items:flex-start"><div style="flex:1;min-width:0;font-size:12px;line-height:15px;max-height:30px;overflow:hidden;color:#46525E">Six findings across two zones. Parts carrying Dim. 14 go to sorting; the rest pass. הופרד לשתי קבוצות.</div><span style="flex:none;width:18px;height:18px;border:1px solid #C9D2DA;border-radius:3px;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#46525E" stroke-width="1.5"><path d="M5.5 5.5h8v8h-8z"></path><path d="M5.5 10.5h-3v-8h8v3"></path></svg></span></div>
+          <div style="padding:0 6px;display:flex;justify-content:flex-end">
+            <span style="width:22px;height:22px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 16 16"><circle cx="4" cy="8" r="1.3" fill="#46525E"></circle><circle cx="8" cy="8" r="1.3" fill="#46525E"></circle><circle cx="12" cy="8" r="1.3" fill="#46525E"></circle></svg></span>
+          </div>
+        </div>
+      </div>
+      <div style="font:12px/1.6 'Segoe UI',sans-serif;color:#46525E">Строка 1 — обычная. Строка 2 — под курсором: фон <b>row.hover</b>, кнопка действий проявляется справа. Строка 3 — выбранная: фон <b>row.selected</b>, маркер 3 px слева, кнопка остаётся видимой, под-строки находок красятся тем же фоном. Действия собраны в одну кнопку «три точки» 22×22 (колонка 40 px): она открывает меню Open card · Edit registration · Decision… · Copy number · Delete тем же составом, что правая кнопка мыши. Четыре отдельные иконки заняли бы 104 px в каждой строке — место отдано находкам и обоснованию. Действия живут в строке, а не над таблицей: «оператор выбирает строку, идёт наверх и получает „ничего не выбрано“» — этот путь убран.</div>
+    </div>
+
+    <div style="flex:none;width:600px;display:flex;flex-direction:column;gap:8px">
+      <div style="font:600 12.5px 'Segoe UI',sans-serif;color:#16202A">§7.4 Фильтры не дали результата</div>
+      <div style="background:#fff;border:1px solid #C9D2DA;height:300px;display:flex;flex-direction:column">
+        <div style="height:44px;flex:none;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:flex;align-items:center;gap:8px;padding:0 10px">
+          <div style="height:26px;border:1px solid #B9D2EC;border-radius:4px;background:#E8F0F9;display:flex;align-items:center;gap:6px;padding:0 6px;font-size:12.5px;color:#1E5187"><span style="color:#7A8794;font-size:11.5px">Item</span>C1-08375A<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#1E5187" stroke-width="1.8"><path d="M4.5 4.5l7 7"></path><path d="M11.5 4.5l-7 7"></path></svg></div>
+          <div style="height:26px;border:1px solid #B9D2EC;border-radius:4px;background:#E8F0F9;display:flex;align-items:center;gap:6px;padding:0 6px;font-size:12.5px;color:#1E5187"><span style="color:#7A8794;font-size:11.5px">Zone</span>neck<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#1E5187" stroke-width="1.8"><path d="M4.5 4.5l7 7"></path><path d="M11.5 4.5l-7 7"></path></svg></div>
+          <div style="height:26px;border:1px solid #B9D2EC;border-radius:4px;background:#E8F0F9;display:flex;align-items:center;gap:6px;padding:0 6px;font-size:12.5px;color:#1E5187"><span style="color:#7A8794;font-size:11.5px">Date</span>01.08 — 15.08.2026<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#1E5187" stroke-width="1.8"><path d="M4.5 4.5l7 7"></path><path d="M11.5 4.5l-7 7"></path></svg></div>
+          <span style="margin-left:auto;color:#1E5187;font-size:12.5px">Clear all</span>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#F7F9FB;padding:0 40px;text-align:center">
+          <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="#7A8794" stroke-width="1.4"><path d="M8 2.5l6 11H2z"></path><path d="M8 6.5v3.2"></path><path d="M8 11.4v.6"></path></svg>
+          <div style="font-size:14px;font-weight:600;color:#16202A">No deviations match these 3 filters</div>
+          <div style="font-size:12.5px;color:#46525E;line-height:1.6;text-wrap:pretty">3 filters hide all <b>341</b> deviations. Without the date range: <b>7</b> deviations. Without the zone filter: <b>19</b>.</div>
+          <div style="display:flex;gap:6px;margin-top:2px">
+            <span style="display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;font-size:12.5px">Drop date range</span>
+            <span style="display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid #2A6FB8;border-radius:4px;background:#2A6FB8;color:#fff;font-size:12.5px;font-weight:600">Clear all filters</span>
+          </div>
+        </div>
+      </div>
+      <div style="font:12px/1.6 'Segoe UI',sans-serif;color:#46525E">Пустой экран никогда не выглядит как «прецедентов не было»: названо число скрытых записей и что даст снятие каждого фильтра по отдельности.</div>
+    </div>
+
+    <div style="flex:none;width:600px;display:flex;flex-direction:column;gap:8px">
+      <div style="font:600 12.5px 'Segoe UI',sans-serif;color:#16202A">§7.5 Пустая база, первый запуск</div>
+      <div style="background:#fff;border:1px solid #C9D2DA;height:300px;display:flex;flex-direction:column">
+        <div style="height:30px;flex:none;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:flex;align-items:center;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794">Number · Item · WO · Date · Qty in dev. · Decision</div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:12px;background:#F7F9FB;padding:0 44px">
+          <div style="font-size:15px;font-weight:600;color:#16202A">The deviation register is empty</div>
+          <div style="font-size:12.5px;color:#46525E;line-height:1.7;text-wrap:pretty">A deviation needs an <b>Item</b> and at least one <b>Finding</b>. Zones, deviation types and inspection types come from reference data — set them up first, otherwise the finding form has nothing to pick from.</div>
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:12.5px">
+            <div style="display:flex;align-items:center;gap:9px"><span style="width:18px;height:18px;border:1px solid #B9D2EC;border-radius:3px;background:#E8F0F9;color:#1E5187;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">1</span><span>Reference data — zones, deviation types, inspection types</span></div>
+            <div style="display:flex;align-items:center;gap:9px"><span style="width:18px;height:18px;border:1px solid #B9D2EC;border-radius:3px;background:#E8F0F9;color:#1E5187;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">2</span><span>Items and characteristic groups</span></div>
+            <div style="display:flex;align-items:center;gap:9px"><span style="width:18px;height:18px;border:1px solid #B9D2EC;border-radius:3px;background:#E8F0F9;color:#1E5187;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">3</span><span>First deviation</span></div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:2px">
+            <span style="display:inline-flex;align-items:center;height:28px;padding:0 12px;border:1px solid #2A6FB8;border-radius:4px;background:#2A6FB8;color:#fff;font-size:13px;font-weight:600">Open reference data</span>
+            <span style="display:inline-flex;align-items:center;height:28px;padding:0 12px;border:1px solid #C9D2DA;border-radius:4px;background:#fff;font-size:13px">New deviation</span>
+          </div>
+        </div>
+      </div>
+      <div style="font:12px/1.6 'Segoe UI',sans-serif;color:#46525E">Порядок, а не картинка: экран называет предусловия ввода и ведёт в справочники.</div>
+    </div>
+
+    <div style="flex:none;width:600px;display:flex;flex-direction:column;gap:8px">
+      <div style="font:600 12.5px 'Segoe UI',sans-serif;color:#16202A">§7.6 Длинное значение в ячейке</div>
+      <div style="background:#fff;border:1px solid #C9D2DA;padding:0">
+        <div style="height:30px;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:grid;grid-template-columns:100px 186px 1fr;align-items:center;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794"><div style="padding:0 6px">Dim.</div><div style="padding:0 6px">Zone</div><div style="padding:0 6px">Deviation type</div></div>
+        <div style="height:28px;display:grid;grid-template-columns:100px 186px 1fr;align-items:center;font-size:12.5px;border-bottom:1px solid #E3E8ED"><div style="padding:0 8px;color:#46525E">Dim. 14</div><div style="padding:0 8px;display:flex;gap:6px;white-space:nowrap;overflow:hidden;color:#46525E"><span dir="rtl" style="unicode-bidi:isolate">מושב חרוט פנימי</span><span style="color:#C9D2DA">/</span><span style="overflow:hidden;text-overflow:ellipsis">inner cone se…</span></div><div style="padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#46525E">oversize cone seat after re-cut, seco…</div></div>
+        <div style="padding:10px 8px 12px;position:relative">
+          <div style="display:inline-block;max-width:420px;background:#fff;border:1px solid #A7B4C0;border-radius:4px;padding:7px 9px;font-size:12.5px;color:#16202A;line-height:1.5">oversize cone seat after re-cut, second pass</div>
+          <div style="font-size:11.5px;color:#7A8794;margin-top:7px">Показаны колонки строки находки — Zone и Deviation type; правило одно для всех колонок таблицы. Подсказка появляется по наведению на обрезанную ячейку, задержка 500 мс, показывает значение целиком в одну или несколько строк. Переноса внутри строки таблицы нет — иначе высота строк перестаёт быть одинаковой и список теряет ритм. Исключение — ячейка Explanation: у неё две строки и раскрытие по клику вместо подсказки (§7.11). В смешанной ячейке обрезается только латинский фрагмент, ивритский остаётся целым.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:600px;display:flex;flex-direction:column;gap:8px">
+      <div style="font:600 12.5px 'Segoe UI',sans-serif;color:#16202A">§7.7 Смешанная ивритско-английская ячейка</div>
+      <div style="background:#fff;border:1px solid #C9D2DA">
+        <div style="height:30px;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:grid;grid-template-columns:150px 100px 1fr;align-items:center;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794"><div style="padding:0 6px">Item</div><div style="padding:0 8px;text-align:right">Sign · value</div><div style="padding:0 6px">Zone · type</div></div>
+        <div style="height:28px;display:grid;grid-template-columns:150px 100px 1fr;align-items:center;font-size:12.5px;border-bottom:1px solid #E3E8ED">
+          <div style="padding:0 6px;font-weight:600" dir="rtl"><span style="unicode-bidi:isolate">מברג ידני 2.5</span></div>
+          <div style="padding:0 8px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums" dir="ltr"><span style="unicode-bidi:isolate">−0.02</span></div>
+          <div style="padding:0 8px;display:flex;gap:7px;align-items:center"><span dir="rtl" style="unicode-bidi:isolate">ידית</span><span style="color:#C9D2DA">/</span><span dir="ltr" style="unicode-bidi:isolate;color:#46525E">handle</span><span style="color:#C9D2DA">·</span><span style="color:#46525E">surface finish</span></div>
+        </div>
+        <div style="height:28px;display:grid;grid-template-columns:150px 100px 1fr;align-items:center;font-size:12.5px">
+          <div style="padding:0 6px;font-weight:600" dir="ltr"><span style="unicode-bidi:isolate">C1-08375A</span></div>
+          <div style="padding:0 8px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums" dir="ltr"><span style="unicode-bidi:isolate">+0.08</span></div>
+          <div style="padding:0 8px;display:flex;gap:7px;align-items:center"><span dir="rtl" style="unicode-bidi:isolate">אזור הברגה</span><span style="color:#C9D2DA">/</span><span dir="ltr" style="unicode-bidi:isolate;color:#46525E">thread root</span><span style="color:#C9D2DA">·</span><span style="color:#46525E">thread burr</span></div>
+        </div>
+      </div>
+      <div style="font:12px/1.6 'Segoe UI',sans-serif;color:#46525E">Шасси LTR. Ивритский Item выравнивается по правому краю своей ячейки и разворачивается сам; числовые колонки и идентификаторы объявлены dir="ltr" принудительно; каждый фрагмент смешанной ячейки изолирован. Высота строки не меняется — 28 px рассчитаны с запасом на ивритские выносные.</div>
+    </div>
+
+    <div style="flex:none;width:1240px;display:flex;flex-direction:column;gap:8px">
+      <div style="font:600 12.5px 'Segoe UI',sans-serif;color:#16202A">§7.8 Окно уменьшено до минимума — 1280×760 (лента разделов только иконками)</div>
+      <div style="width:1280px;height:400px;background:#F4F6F8;border:1px solid #C9D2DA;display:flex;flex-direction:column;overflow:hidden">
+        <div style="flex:none;height:36px;background:#16324F;display:flex;align-items:stretch;padding:0 10px;gap:2px">
+          <div style="flex:none;display:flex;align-items:center;padding-right:12px;margin-right:4px;border-right:1px solid #234868"><div style="width:20px;height:20px;background:#2A6FB8;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;color:#fff">Q</div></div>
+          <sc-for list="{{ nav }}" as="n" hint-placeholder-count="5"><div style="height:36px;padding:0 10px;display:flex;align-items:center;justify-content:center;background:{{ n.bg }}">{{ n.icon }}</div></sc-for>
+        </div>
+        <div style="flex:1;min-width:0;width:1152px;margin:0 auto;display:flex;flex-direction:column">
+          <div style="height:48px;flex:none;background:#fff;border-bottom:1px solid #C9D2DA;display:flex;align-items:center;gap:10px;padding:0 10px">
+            <div style="font-size:20px;font-weight:600">Deviations</div>
+            <div style="font-size:12.5px;color:#46525E">12 of 341</div>
+            <span style="margin-left:auto;display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px solid #2A6FB8;border-radius:4px;background:#2A6FB8;color:#fff;font-size:13px;font-weight:600">New</span>
+          </div>
+          <div style="height:34px;flex:none;background:#fff;border-bottom:1px solid #C9D2DA;display:flex;align-items:center;padding:0 10px;gap:2px;font-size:12.5px">
+            <span style="display:flex;align-items:center;gap:6px;height:34px;padding:0 10px;border-bottom:2px solid #2A6FB8;font-weight:600">Open<span style="font-size:11.5px;font-weight:600;color:#fff;background:#2A6FB8;border-radius:8px;padding:1px 6px">12</span></span>
+            <span style="display:flex;align-items:center;gap:6px;height:34px;padding:0 10px;color:#46525E">All<span style="font-size:11.5px;font-weight:600;color:#5E6C7A;background:#EAEDF1;border-radius:8px;padding:1px 6px">341</span></span>
+            <span style="display:flex;align-items:center;gap:6px;height:34px;padding:0 10px;color:#46525E">Decided<span style="font-size:11.5px;font-weight:600;color:#5E6C7A;background:#EAEDF1;border-radius:8px;padding:1px 6px">329</span></span>
+            <span style="margin-left:auto;display:inline-flex;align-items:center;height:26px;padding:0 8px;border:1px solid #B9D2EC;border-radius:4px;background:#E8F0F9;color:#1E5187;font-size:12px;gap:6px"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#1E5187" stroke-width="1.5"><path d="M2.5 4h11"></path><path d="M4.5 8h7"></path><path d="M6.5 12h3"></path></svg>2 filters</span>
+          </div>
+          <div style="height:30px;flex:none;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:grid;grid-template-columns:23px 200px 120px 92px 90px 80px 180px 367px;align-items:center;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794;white-space:nowrap;padding-left:8px"><div></div><div style="padding:0 6px">Number</div><div style="padding:0 6px">Item</div><div style="padding:0 6px">WO</div><div style="padding:0 6px">Date</div><div style="padding:0 6px;text-align:center">Dev. qty</div><div style="padding:0 6px">Decision</div><div style="padding:0 6px">Explanation</div></div>
+          <div style="flex:1;background:#fff;overflow:hidden">
+            <div style="height:36px;display:grid;grid-template-columns:23px 200px 120px 92px 90px 80px 180px 367px;align-items:center;font-size:12.5px;border-bottom:1px solid #E3E8ED;padding-left:8px"><div style="display:flex;align-items:center;justify-content:center;color:#5E6C7A"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#5E6C7A" stroke-width="1.6" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"></path></svg></div><div style="padding:0 6px;font-weight:600;font-variant-numeric:tabular-nums">DEV-260819-0002</div><div style="padding:0 6px;font-weight:600">C1-08375A</div><div style="padding:0 6px;font-variant-numeric:tabular-nums">W26007336</div><div style="padding:0 6px;font-variant-numeric:tabular-nums">19.08.26</div><div style="padding:0 6px;text-align:center;font-variant-numeric:tabular-nums">12</div><div style="padding:0 6px"><span style="display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 8px 0 6px;border:1px dashed #2A6FB8;border-radius:3px;font-size:11.5px;font-weight:600;color:#1E5187"><svg width="10" height="10" viewBox="0 0 11 11"><circle cx="5.5" cy="5.5" r="4" fill="none" stroke="#1E5187" stroke-width="1.5"></circle></svg>Not decided</span></div><div style="padding:5px 6px;font-size:12px;line-height:15px;max-height:30px;overflow:hidden;color:#7A8794">No decision yet — nothing to explain</div></div>
+            <div style="height:24px;display:grid;grid-template-columns:26px 66px 60px 80px 150px 130px 150px 1fr;align-items:center;font-size:10.5px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794;background:#F7F9FB;border-bottom:1px solid #E3E8ED"><div></div><div style="padding:0 6px">Dim.</div><div style="padding:0 6px">Canon</div><div style="padding:0 6px">Value</div><div style="padding:0 6px">Zone</div><div style="padding:0 6px">Type</div><div style="padding:0 6px">Result</div><div style="padding:0 6px">Inspections</div></div>
+            <div style="min-height:28px;display:grid;grid-template-columns:26px 66px 60px 80px 150px 130px 150px 1fr;align-items:start;font-size:12px;border-bottom:1px solid #E3E8ED"><div style="text-align:center;color:#C9D2DA;padding-top:6px">│</div><div style="padding:6px;color:#46525E">Dim. 12</div><div style="padding:6px">g1</div><div style="padding:6px;font-weight:600;font-variant-numeric:tabular-nums">+0.08</div><div style="padding:6px;display:flex;gap:6px"><span dir="rtl" style="unicode-bidi:isolate">אזור הברגה</span><span style="color:#C9D2DA">/</span><span style="color:#46525E">thread root</span></div><div style="padding:6px;color:#46525E">thread burr</div><div style="padding:6px;display:flex;align-items:center;gap:5px;color:#1B6B33"><svg width="10" height="10" viewBox="0 0 11 11"><path d="M1.5 6L4 8.5L9.5 2.5" fill="none" stroke="#1B6B33" stroke-width="1.8"></path></svg>Finding approved</div><div style="padding:6px;color:#46525E">INSP-260819-003 Solidworks assembly</div></div>
+            <div style="min-height:28px;display:grid;grid-template-columns:26px 66px 60px 80px 150px 130px 150px 1fr;align-items:start;font-size:12px;border-bottom:1px solid #E3E8ED"><div style="text-align:center;color:#C9D2DA;padding-top:6px">│</div><div style="padding:6px;color:#46525E">Dim. 19</div><div style="padding:6px;color:#7A8794">unlinked</div><div style="padding:6px;font-weight:600;font-variant-numeric:tabular-nums">−0.05</div><div style="padding:6px;display:flex;gap:6px"><span dir="rtl" style="unicode-bidi:isolate">כתף</span><span style="color:#C9D2DA">/</span><span style="color:#46525E">shoulder</span></div><div style="padding:6px;color:#46525E">undersize</div><div style="padding:6px;display:flex;align-items:center;gap:5px;color:#7A8794"><svg width="10" height="10" viewBox="0 0 11 11"><circle cx="5.5" cy="5.5" r="4" fill="none" stroke="#A7B4C0" stroke-width="1.4"></circle><path d="M3.5 5.5h4" stroke="#A7B4C0" stroke-width="1.4"></path></svg>Not researched</div><div style="padding:6px;color:#7A8794">No inspections</div></div>
+          </div>
+          <div style="height:26px;flex:none;background:#EDF1F5;border-top:1px solid #C9D2DA;display:flex;align-items:center;padding:0 10px;font-size:11.5px;color:#46525E;gap:12px"><span>Right-click a row for actions</span><span style="margin-left:auto">12 deviations / 24 findings</span></div>
+        </div>
+      </div>
+      <div style="font:12px/1.6 'Segoe UI',sans-serif;color:#46525E;max-width:1240px;text-wrap:pretty">Минимум окна — <b>1280×760</b>. Правило ширины: таблица никогда не шире 90 % окна — 1728 px при 1920, 1152 px при 1280. Порядок сжатия, одна версия на весь deliverable:<br>(1) лента разделов теряет подписи и счётчики, оставляя иконки, и сжимается с 44 до 36 px; (2) панель фильтров сворачивается в кнопку «2 filters»; (3) дата переходит в короткий формат 19.08.26; (4) в строке находки Inspections теряют Inspection ID, оставляя тип; (5) <b>уходит колонка Findings</b> — сводка не нужна, потому что находки на этой ширине уже показаны строками; (6) <b>уходит колонка действий</b> — «три точки» остаются на правой кнопке мыши и на клавишах; (7) исчезает зона запаса справа; (8) Explanation сжимается с 410 до своего минимума 367 px и остаётся двухстрочной.<br>Больше ничего не исчезает и не сжимается: раскрытие 23 px, Number 200, Item 120, WO 92, Date 90, Dev. qty 80 и Decision 180 сохраняют ширины при любом размере окна. Сумма при 1280: 23 + 200 + 120 + 92 + 90 + 80 + 180 + 367 = <b>1152</b> — ровно 90 % окна. Полный текст обоснования и на этой ширине читается в развёрнутом блоке по клику. Ниже 1280 окно не уменьшается.</div>
+    </div>
+
+    <div style="flex:none;width:1240px;display:flex;flex-direction:column;gap:8px">
+      <div style="font:600 12.5px 'Segoe UI',sans-serif;color:#16202A">§7.11 Колонка Explanation — свёрнута, развёрнута, копирование</div>
+      <div style="display:flex;gap:22px;align-items:flex-start;margin-bottom:26px">
+        <div style="width:600px">
+          <div style="font-size:11.5px;color:#7A8794;margin-bottom:6px">Свёрнута — две строки, колонка 410 px, высота строки 40 px</div>
+          <div style="background:#fff;border:1px solid #C9D2DA">
+            <div style="height:30px;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:grid;grid-template-columns:180px 410px;align-items:center;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794;padding-left:8px"><div style="padding:0 6px">Decision</div><div style="padding:0 6px">Explanation</div></div>
+            <div style="height:40px;display:grid;grid-template-columns:180px 410px;align-items:center;border-bottom:1px solid #E3E8ED;padding-left:8px">
+              <div style="padding:0 6px"><span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px 0 7px;border:1px solid #CFD6DD;border-radius:3px;background:#EAEDF1;font-size:12px;font-weight:600;color:#46525E"><svg width="11" height="11" viewBox="0 0 11 11"><rect x="1" y="1.5" width="4" height="4" fill="#46525E"></rect><rect x="6" y="5.5" width="4" height="4" fill="none" stroke="#46525E" stroke-width="1.4"></rect></svg>Sorting</span></div>
+              <div style="padding:5px 8px;display:flex;gap:6px;align-items:flex-start"><div style="flex:1;min-width:0;font-size:12px;line-height:15px;max-height:30px;overflow:hidden;color:#46525E">Six findings across two zones. Parts carrying Dim. 14 (cone seat +0.22) go to sorting; the remaining ones pass on the drawing.</div><span style="flex:none;width:18px;height:18px;border:1px solid #C9D2DA;border-radius:3px;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#46525E" stroke-width="1.5"><path d="M5.5 5.5h8v8h-8z"></path><path d="M5.5 10.5h-3v-8h8v3"></path></svg></span></div>
+            </div>
+            <div style="height:40px;display:grid;grid-template-columns:180px 410px;align-items:center;padding-left:8px">
+              <div style="padding:0 6px"><span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px 0 7px;border:1px dashed #2A6FB8;border-radius:3px;background:#fff;font-size:12px;font-weight:600;color:#1E5187"><svg width="11" height="11" viewBox="0 0 11 11"><circle cx="5.5" cy="5.5" r="4" fill="none" stroke="#1E5187" stroke-width="1.5"></circle></svg>Not decided</span></div>
+              <div style="padding:5px 8px;font-size:12px;line-height:15px;color:#7A8794">No decision yet — nothing to explain</div>
+            </div>
+          </div>
+        </div>
+        <div style="width:600px">
+          <div style="font-size:11.5px;color:#7A8794;margin-bottom:6px">Развёрнута по клику на ячейке: блок по размеру текста, ложится поверх соседних строк. Блок повторяет ширину своей колонки — 410 px — и растёт только вниз, по тексту; за пределы таблицы не выходит. Рамка 1 px border.control.active, тени нет</div>
+          <div style="background:#fff;border:1px solid #C9D2DA;padding-bottom:14px">
+            <div style="height:30px;background:#EDF1F5;border-bottom:1px solid #C9D2DA;display:grid;grid-template-columns:180px 410px;align-items:center;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794;padding-left:8px"><div style="padding:0 6px">Decision</div><div style="padding:0 6px">Explanation</div></div>
+            <div style="display:grid;grid-template-columns:180px 410px;align-items:start;padding-left:8px;background:#DCE9F6">
+              <div style="padding:10px 8px"><span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px 0 7px;border:1px solid #B7DCC2;border-radius:3px;background:#E7F3EA;font-size:12px;font-weight:600;color:#1B6B33"><svg width="11" height="11" viewBox="0 0 11 11"><path d="M1.5 6L4 8.5L9.5 2.5" fill="none" stroke="#1B6B33" stroke-width="1.8"></path></svg>Approved</span></div>
+              <div style="padding:5px 8px 10px">
+                <div style="width:396px;border:1px solid #2A6FB8;border-radius:4px;background:#fff;padding:8px 9px;box-sizing:border-box;display:flex;gap:8px;align-items:flex-start">
+                  <div style="flex:1;min-width:0;font-size:12px;line-height:1.55;color:#16202A">Thread root burr stays inside the functional envelope: SolidWorks assembly shows no interference at Ø3.40. The torque test flagged the cone seat, so the 40-part batch was checked piece by piece before approval. <span dir="rtl" style="unicode-bidi:isolate">אושר לשימוש כפי שהוא לאחר בדיקת מומנט.</span></div>
+                  <div style="flex:none;display:flex;flex-direction:column;gap:4px">
+                    <span style="width:18px;height:18px;border:1px solid #2A6FB8;border-radius:3px;background:#E8F0F9;display:flex;align-items:center;justify-content:center"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#1E5187" stroke-width="1.5"><path d="M5.5 5.5h8v8h-8z"></path><path d="M5.5 10.5h-3v-8h8v3"></path></svg></span>
+                    <span style="width:18px;height:18px;border:1px solid #C9D2DA;border-radius:3px;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#46525E" stroke-width="1.6"><path d="M4.5 4.5l7 7"></path><path d="M11.5 4.5l-7 7"></path></svg></span>
+                  </div>
+                </div>
+                <div style="font-size:11.5px;color:#1E5187;margin-top:5px">Copied to clipboard</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="font:12px/1.6 'Segoe UI',sans-serif;color:#46525E;max-width:1240px;text-wrap:pretty;margin-bottom:26px">Свёрнутая ячейка — ровно две строки 12 px с межстрочным 15 px, обрезка без переноса за пределы двух строк; высота строки отклонения от неё не зависит (40 px). Клик по ячейке (или Space на выбранной строке) разворачивает обоснование в блок по размеру текста с рамкой border.control.active: ширина ровно по колонке Explanation (410 px), рост только вниз по тексту, блок ложится поверх соседних строк и никогда не выходит за границы таблицы — список под ним не раздвигается, прокрутка не смещается. Иконка копирования — в свёрнутой ячейке серая по наведению, в развёрнутом блоке акцентная; по нажатию под блоком появляется строка «Copied to clipboard» и исчезает через 2 с. Закрывает блок вторая иконка, повторный клик, Esc или выбор другой строки. Ивритский абзац изолируется и разворачивается сам; смешанный абзац не ломает окружающий LTR-текст.</div>
+      <div style="font:600 12.5px 'Segoe UI',sans-serif;color:#16202A">§10.2 Сетка колонок — точные ширины и порядок исчезновения</div>
+      <div style="background:#fff;border:1px solid #C9D2DA;overflow:hidden">
+        <div style="display:grid;grid-template-columns:76px 200px 110px 110px 130px 1fr;background:#EDF1F5;border-bottom:1px solid #C9D2DA;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:#7A8794"><div style="padding:8px 10px">Уровень</div><div style="padding:8px 10px">Колонка</div><div style="padding:8px 10px">Ширина</div><div style="padding:8px 10px">Поведение</div><div style="padding:8px 10px">Выравнивание</div><div style="padding:8px 10px">Направление · порядок ухода при сжатии</div></div>
+        <sc-for list="{{ grid }}" as="g" hint-placeholder-count="12">
+          <div style="display:grid;grid-template-columns:76px 200px 110px 110px 130px 1fr;border-bottom:1px solid #E3E8ED;font-size:12.5px;align-items:center">
+            <div style="padding:6px 10px;color:#7A8794;font-size:11.5px">{{ g.lvl }}</div>
+            <div style="padding:6px 10px;font-weight:600">{{ g.col }}</div>
+            <div style="padding:6px 10px;font-variant-numeric:tabular-nums;color:#46525E">{{ g.w }}</div>
+            <div style="padding:6px 10px;color:#46525E">{{ g.flex }}</div>
+            <div style="padding:6px 10px;color:#46525E">{{ g.align }}</div>
+            <div style="padding:6px 10px;color:#46525E">{{ g.dir }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const h = React.createElement;
+    const nicon = (paths, c) => h('svg', {width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: c, strokeWidth: 1.5},
+      ...paths.map((d, i) => h('path', {key: i, d})));
+    const nav = [
+      {label: 'Deviations', count: '341', icon: nicon(['M2.5 2.5h11v11h-11z', 'M5 6h6', 'M5 9h4'], '#fff'), bg: '#2A6FB8', fg: '#fff', fw: 600, cntFg: 'rgba(255,255,255,.75)'},
+      {label: 'Items', count: '87', icon: nicon(['M8 2.5l5.5 3v5L8 13.5 2.5 10.5v-5z'], '#C6D4E2'), bg: 'transparent', fg: '#C6D4E2', fw: 400, cntFg: '#7E9BB8'},
+      {label: 'Characteristic groups', count: '24', icon: nicon(['M2.5 4h11', 'M2.5 8h11', 'M2.5 12h6'], '#C6D4E2'), bg: 'transparent', fg: '#C6D4E2', fw: 400, cntFg: '#7E9BB8'},
+      {label: 'Reference data', count: '', icon: nicon(['M4 2.5h8v11H4z', 'M6 6h4', 'M6 9h4'], '#C6D4E2'), bg: 'transparent', fg: '#C6D4E2', fw: 400, cntFg: '#7E9BB8'},
+      {label: 'Search — not built yet', count: '', icon: nicon(['M7.2 11.4a4.2 4.2 0 100-8.4 4.2 4.2 0 000 8.4z', 'M10.4 10.4l3 3'], '#4E6A87'), bg: 'transparent', fg: '#4E6A87', fw: 400, cntFg: '#4E6A87'}
+    ];
+    const tabs = [
+      {label: 'Open — no decision', count: '12', bar: '#2A6FB8', fg: '#16202A', fw: 600, badgeBg: '#2A6FB8', badgeFg: '#fff'},
+      {label: 'All', count: '341', bar: 'transparent', fg: '#46525E', fw: 400, badgeBg: '#EAEDF1', badgeFg: '#5E6C7A'},
+      {label: 'Decided', count: '329', bar: 'transparent', fg: '#46525E', fw: 400, badgeBg: '#EAEDF1', badgeFg: '#5E6C7A'},
+      {label: 'This week', count: '7', bar: 'transparent', fg: '#46525E', fw: 400, badgeBg: '#EAEDF1', badgeFg: '#5E6C7A'},
+      {label: 'Repair & Sorting', count: '18', bar: 'transparent', fg: '#46525E', fw: 400, badgeBg: '#EAEDF1', badgeFg: '#5E6C7A'}
+    ];
+    const filterFields = [
+      {label: 'Item', value: 'C1-08375A', bd: '#B9D2EC', bg: '#E8F0F9', fg: '#1E5187', clearable: true},
+      {label: 'Zone', value: 'thread root', bd: '#B9D2EC', bg: '#E8F0F9', fg: '#1E5187', clearable: true},
+      {label: 'WO', value: 'any', bd: '#C9D2DA', bg: '#fff', fg: '#7A8794', clearable: false},
+      {label: 'Date', value: 'any', bd: '#C9D2DA', bg: '#fff', fg: '#7A8794', clearable: false},
+      {label: 'Machine', value: 'any', bd: '#C9D2DA', bg: '#fff', fg: '#7A8794', clearable: false},
+      {label: 'Deviation type', value: 'any', bd: '#C9D2DA', bg: '#fff', fg: '#7A8794', clearable: false}
+    ];
+
+    const chev = (open) => h('svg', {width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: '#5E6C7A', strokeWidth: 1.6,
+      style: {transform: open ? 'rotate(90deg)' : 'none'}}, h('path', {d: 'M6 4l4 4-4 4'}));
+    const pass = h('svg', {width: 11, height: 11, viewBox: '0 0 11 11'}, h('path', {d: 'M1.5 6L4 8.5L9.5 2.5', fill: 'none', stroke: '#1B6B33', strokeWidth: 1.8}));
+    const fail = h('svg', {width: 11, height: 11, viewBox: '0 0 11 11'}, h('path', {d: 'M2 2L9 9M9 2L2 9', fill: 'none', stroke: '#A02015', strokeWidth: 1.8}));
+
+    const noneIcon = h('svg', {width: 11, height: 11, viewBox: '0 0 11 11'}, h('circle', {cx: 5.5, cy: 5.5, r: 4, fill: 'none', stroke: '#A7B4C0', strokeWidth: 1.4}), h('path', {d: 'M3.5 5.5h4', stroke: '#A7B4C0', strokeWidth: 1.4}));
+    const gl = (color, sw) => ({fill: 'none', stroke: color, strokeWidth: sw || 1.8});
+    const pills = {
+      open: {pillBg: '#fff', pillBd: '#2A6FB8', pillStroke: 'dashed', pillFg: '#1E5187', decision: 'Not decided',
+        pillIcon: h('svg', {width: 11, height: 11, viewBox: '0 0 11 11'}, h('circle', Object.assign({cx: 5.5, cy: 5.5, r: 4}, gl('#1E5187', 1.5))))},
+      approved: {pillBg: '#E7F3EA', pillBd: '#B7DCC2', pillStroke: 'solid', pillFg: '#1B6B33', decision: 'Approved',
+        pillIcon: h('svg', {width: 11, height: 11, viewBox: '0 0 11 11'}, h('path', Object.assign({d: 'M1.5 6L4 8.5L9.5 2.5'}, gl('#1B6B33'))))},
+      rejected: {pillBg: '#FBE9E7', pillBd: '#EFC3BE', pillStroke: 'solid', pillFg: '#A02015', decision: 'Rejected',
+        pillIcon: h('svg', {width: 11, height: 11, viewBox: '0 0 11 11'}, h('path', Object.assign({d: 'M2 2L9 9M9 2L2 9'}, gl('#A02015'))))},
+      sorting: {pillBg: '#EAEDF1', pillBd: '#CFD6DD', pillStroke: 'solid', pillFg: '#46525E', decision: 'Sorting',
+        pillIcon: h('svg', {width: 11, height: 11, viewBox: '0 0 11 11'}, h('rect', {x: 1, y: 1.5, width: 4, height: 4, fill: '#46525E'}), h('rect', Object.assign({x: 6, y: 5.5, width: 4, height: 4}, gl('#46525E', 1.4))))},
+      repair: {pillBg: '#FBF0DA', pillBd: '#E6D0A3', pillStroke: 'solid', pillFg: '#7A5406', decision: 'Repair',
+        pillIcon: h('svg', {width: 11, height: 11, viewBox: '0 0 11 11'}, h('rect', Object.assign({x: 1.2, y: 1.2, width: 8.6, height: 8.6}, gl('#7A5406', 1.4))), h('path', Object.assign({d: 'M1.2 9.8L9.8 1.2'}, gl('#7A5406', 1.4))))}
+    };
+
+    const actIcon = (paths, color) => h('svg', {width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: color, strokeWidth: 1.5}, ...paths.map((d, i) => h('path', {key: i, d})));
+    const rowActions = (visible) => visible ? h('div', {style: {display: 'flex', justifyContent: 'flex-end'}},
+      h('span', {style: {width: 22, height: 22, border: '1px solid #C9D2DA', borderRadius: 4, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center'}},
+        h('svg', {width: 14, height: 14, viewBox: '0 0 16 16'},
+          h('circle', {cx: 4, cy: 8, r: 1.3, fill: '#46525E'}),
+          h('circle', {cx: 8, cy: 8, r: 1.3, fill: '#46525E'}),
+          h('circle', {cx: 12, cy: 8, r: 1.3, fill: '#46525E'})))) : null;
+
+    const F = (local, canon, value, zoneHe, zone, type, point, inspections) => ({
+      local, canon: canon || 'unlinked', canonFg: canon ? '#16202A' : '#7A8794',
+      value, zoneHe, zone, type, point: point || 'not recorded', pointFg: point ? '#46525E' : '#7A8794',
+      inspections: (inspections || []).map(i => ({id: i[0], type: i[1], result: i[2],
+        fg: i[3] ? '#1B6B33' : '#A02015', icon: i[3] ? pass : fail})),
+      noInsp: !(inspections || []).length,
+      inspShown: (() => {const l = inspections || []; return (l.length > 3 ? l.slice(0, 2) : l).map(i => ({id: i[0], type: i[1]}));})(),
+      inspMore: (() => {const l = inspections || []; return l.length > 3 ? '+' + (l.length - 2) + ' inspections' : (l.length ? '' : 'No inspections');})(),
+      inspMoreFg: (inspections || []).length > 3 ? '#1E5187' : '#7A8794',
+      verdictText: (() => {const l = inspections || []; if (!l.length) return 'Not researched'; return l.some(i => !i[3]) ? 'Finding not approved' : 'Finding approved';})(),
+      verdictFg: (() => {const l = inspections || []; if (!l.length) return '#7A8794'; return l.some(i => !i[3]) ? '#A02015' : '#1B6B33';})(),
+      verdictIcon: (() => {const l = inspections || []; if (!l.length) return noneIcon; return l.some(i => !i[3]) ? fail : pass;})()
+    });
+
+    const mk = (o) => Object.assign({
+      itemDir: 'ltr', qtyFg: '#16202A', rowBg: '#fff', marker: 'transparent',
+      chevron: chev(o.expanded), actions: rowActions(o.hovered || o.selected),
+      chips: o.findings.slice(0, o.chipLimit || 2).map(f => ({local: 'Dim. ' + f.local, value: f.value, type: f.type, hasInsp: f.inspections.length > 0})),
+      chipsMore: o.findings.length > (o.chipLimit || 2) ? '+' + (o.findings.length - (o.chipLimit || 2)) + ' findings' : '',
+      inspSummary: (() => {const n = o.findings.reduce((s, f) => s + f.inspections.length, 0); return n ? String(n) : '—';})(),
+      digest: o.findings.map(f => 'Dim. ' + f.local + ' ' + f.value + ' ' + f.type).join('  ·  '),
+      digestInsp: o.findings.reduce((a, f) => a.concat(f.inspections.map(i => i.type)), []).join(' · ') || 'no inspections',
+      machineNcr: (o.machine || 'CNC-3') + '  ·  ' + (o.ncr || 'NCR pending')
+    }, pills[o.state], o);
+
+    const devs = [
+      mk({number: 'DEV-260819-0002', item: 'C1-08375A', wo: 'W26007336', date: '19.08.2026', qty: '12', state: 'open', hovered: false,
+        findings: [
+          F(12, 'g1', '+0.08', 'אזור הברגה', 'thread root', 'thread burr', 'thread root', [['INSP-260819-003', 'Solidworks assembly', 'Finding approved', true]]),
+          F(19, null, '−0.05', 'כתף', 'shoulder', 'undersize', null, [])
+        ]}),
+      mk({number: 'DEV-260819-0005', item: 'C1-08375A', wo: 'W26007341', date: '20.08.2026', qty: '40', state: 'approved',
+        findings: [
+          F(77, 'g2', '−0.12', 'מושב חרוט', 'cone seat', 'oversize cone', 'cone seat Ø3.4', [
+            ['INSP-260819-007', 'Solidworks assembly', 'Finding approved', true],
+            ['INSP-260820-002', 'Implantation torque test', 'Finding not approved', false]
+          ])
+        ]}),
+      mk({number: 'DEV-260820-0001', item: 'MF5-10375A-N', wo: 'W26007352', date: '21.08.2026', qty: '6', state: 'sorting', selected: true, expanded: true, rowBg: '#DCE9F6', marker: '#2A6FB8',
+        findings: [
+          F(3, 'g1', '+0.11', 'אזור הברגה', 'thread root', 'thread burr', 'root Ø2.1', [
+            ['INSP-260821-001', 'Solidworks assembly', 'Finding approved', true],
+            ['INSP-260821-002', 'Thread gauge check', 'Finding approved', true],
+            ['INSP-260821-003', 'Implantation torque test', 'Finding approved', true]
+          ]),
+          F(8, 'g1', '−0.04', 'אזור הברגה', 'thread root', 'undersize', null, []),
+          F(14, 'g3', '+0.22', 'מושב חרוט', 'cone seat', 'oversize cone', 'cone seat Ø3.4', [
+            ['INSP-260821-004', 'Implantation torque test', 'Finding not approved', false],
+            ['INSP-260821-005', 'Solidworks assembly', 'Finding approved', true],
+            ['INSP-260822-001', 'Cone seat gauge check', 'Finding not approved', false],
+            ['INSP-260822-004', 'Sterilisation cycle check', 'Finding approved', true]
+          ]),
+          F(22, null, '−0.09', 'צוואר', 'neck', 'undersize', null, []),
+          F(31, 'g2', '+0.06', 'כתף', 'shoulder', 'flatness', 'shoulder face', []),
+          F(44, 'g2', '−0.15', 'כתף', 'shoulder', 'oversize', 'shoulder Ø4.8', [['INSP-260822-006', 'Solidworks assembly', 'Finding approved', true]])
+        ]}),
+      mk({number: 'DEV-260821-0004', item: 'TS-2210B', wo: 'W26007360', date: '24.08.2026', qty: '9999', state: 'open', hovered: true, rowBg: '#F0F4F8',
+        findings: [F(5, 'g1', '+0.03', 'אזור הברגה', 'thread root', 'thread burr', null, [])]}),
+      mk({number: 'DEV-260821-0007', item: 'C1-08420', wo: 'W26007366', date: '25.08.2026', qty: '3', state: 'rejected',
+        findings: [
+          F(41, 'g4', '−0.31', 'מושב חרוט', 'cone seat', 'undersize cone', 'cone seat Ø3.4', [['INSP-260822-001', 'Implantation torque test', 'Finding not approved', false]]),
+          F(52, 'g4', '+0.19', 'צוואר', 'neck', 'oversize', null, [])
+        ]}),
+      mk({number: 'DEV-260824-0002', item: 'AB-3312', wo: 'W26007371', date: '26.08.2026', qty: '18', state: 'repair',
+        findings: [F(9, 'g1', '+0.07', 'אזור הברגה', 'thread root', 'thread burr', 'root Ø2.1', [])]}),
+      mk({number: 'DEV-260824-0006', item: 'מברג ידני 2.5', itemDir: 'rtl', wo: 'W26007374', date: '27.08.2026', qty: '2', state: 'open',
+        findings: [F(2, null, '−0.02', 'ידית', 'handle', 'surface finish', null, [])]})
+    ];
+
+    const copyIcon = h('span', {style: {flex: 'none', width: 18, height: 18, border: '1px solid #C9D2DA', borderRadius: 3, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center'}},
+      h('svg', {width: 11, height: 11, viewBox: '0 0 16 16', fill: 'none', stroke: '#46525E', strokeWidth: 1.5},
+        h('path', {d: 'M5.5 5.5h8v8h-8z'}), h('path', {d: 'M5.5 10.5h-3v-8h8v3'})));
+    const explByDev = {
+      'DEV-260819-0005': 'Thread root burr stays inside the functional envelope: SolidWorks assembly shows no interference at Ø3.40. The torque test flagged the cone seat, so the 40-part batch was checked piece by piece before approval. אושר לשימוש כפי שהוא לאחר בדיקת מומנט.',
+      'DEV-260820-0001': 'Six findings across two zones. Parts carrying Dim. 14 (cone seat +0.22) go to sorting; the remaining ones pass on the drawing. הופרד לשתי קבוצות לפי מושב חרוט, 6 יחידות סה"כ.',
+      'DEV-260821-0007': 'Cone seat 0.31 mm undersize — outside any functional envelope, and the implantation torque test failed at 22 Ncm. All 3 parts scrapped, NCR raised.',
+      'DEV-260824-0002': 'Thread burr is removable by a re-cut without touching the shoulder. 18 parts returned to CNC-3 for rework and re-inspection against the same drawing.'
+    };
+    devs.forEach(d => {
+      d.explanation = explByDev[d.number] || 'No decision yet — nothing to explain';
+      d.explFg = explByDev[d.number] ? '#46525E' : '#7A8794';
+      d.copyIcon = explByDev[d.number] ? copyIcon : null;
+    });
+    const grid = [
+      {lvl: 'Dev', col: 'Раскрытие (chevron)', w: '23 px + 3 px маркер строки', flex: 'фиксирована', align: 'по центру', dir: 'слева всегда, шасси LTR'},
+      {lvl: '—', col: 'ВСЯ ТАБЛИЦА — не шире 90 % окна', w: '1728 px при 1920 · 1152 px при 1280', flex: 'жёсткое правило: остаток ширины окна остаётся фоном экрана, а не колонкой', align: '—', dir: 'сумма колонок уровня отклонения ровно равна этой ширине'},
+      {lvl: 'Dev', col: 'Number', w: '200 px', flex: 'фиксирована', align: 'по левому краю', dir: 'ltr принудительно · не уходит никогда'},
+      {lvl: 'Dev', col: 'Item', w: '120 px', flex: 'минимально необходимая: 12 знаков MF5-10375A-N при 13 px полужирном плюс отступы', align: 'по началу абзаца', dir: 'auto: иврит — вправо, латиница — влево · не уходит'},
+      {lvl: 'Dev', col: 'WO', w: '92 px', flex: 'минимально необходимая: 9 знаков W26007336 табличными цифрами', align: 'по левому краю', dir: 'ltr принудительно · не уходит'},
+      {lvl: 'Dev', col: 'Date', w: '90 px', flex: 'минимально необходимая: 19.08.2026 табличными цифрами', align: 'по левому краю', dir: 'ltr принудительно · короткий формат при сжатии (3)'},
+      {lvl: 'Dev', col: 'Dev. qty — количество деталей в отклонении', w: '80 px', flex: 'фиксирована, минимально возможная под значение', align: 'по центру', dir: 'ltr принудительно · не уходит; полная формулировка «parts in this deviation» — в подсказке по наведению'},
+      {lvl: 'Dev', col: 'Findings — сводка пилюлями', w: '280 px', flex: 'фиксирована; пилюля по размеру содержимого', align: 'по левому краю, столбиком', dir: 'ltr · уходит при сжатии до 1152 px'},
+      {lvl: 'Dev', col: 'Decision', w: '180 px', flex: 'фиксирована', align: 'по левому краю', dir: 'ltr · не уходит'},
+      {lvl: 'Dev', col: 'Explanation — обоснование решения', w: '410 px', flex: 'фиксирована; полный текст — в развёрнутом блоке по клику', align: 'по началу абзаца', dir: 'auto: абзац может быть ивритским целиком или смешанным · не уходит'},
+      {lvl: 'Dev', col: 'Actions — «три точки»', w: '40 px', flex: 'фиксирована', align: 'по правому краю', dir: 'ltr · уходит 6-м, меню остаётся на правой кнопке и на клавишах'},
+      {lvl: 'Dev', col: 'Зона запаса — справа, за колонками', w: '210 px при 1920 (1fr)', flex: 'единственный гибкий трек уровня отклонения: содержимого не имеет, отдана под будущие колонки', align: '—', dir: 'исчезает первой при сжатии — до неё колонки ширину не меняют'},
+      {lvl: 'Dev', col: 'Machine · NCR', w: '—', flex: 'на экране не показывается', align: '—', dir: 'только в карточке отклонения'},
+      {lvl: 'Find', col: 'отступ уровня', w: '30 px', flex: 'фиксирована', align: '—', dir: 'слева всегда, шасси LTR'},
+      {lvl: 'Find', col: 'Dim. — local number размера на чертеже', w: '72 px', flex: 'фиксирована', align: 'по левому краю', dir: 'ltr принудительно · не уходит'},
+      {lvl: 'Find', col: 'Canon', w: '70 px', flex: 'фиксирована', align: 'по левому краю', dir: 'ltr · уходит 8-й'},
+      {lvl: 'Find', col: 'Sign · value', w: '92 px', flex: 'фиксирована', align: 'по левому краю, знак в одной колонке', dir: 'ltr принудительно · не уходит'},
+      {lvl: 'Find', col: 'Zone', w: '196 px', flex: 'фиксирована', align: 'по началу абзаца', dir: 'иврит rtl + латиница ltr, оба изолированы · не уходит'},
+      {lvl: 'Find', col: 'Deviation type', w: '176 px', flex: 'фиксирована', align: 'по левому краю', dir: 'ltr · не уходит'},
+      {lvl: 'Find', col: 'Result — Finding approved / not approved / Not researched', w: '168 px', flex: 'фиксирована', align: 'по левому краю', dir: 'ltr · не уходит'},
+      {lvl: 'Find', col: 'Inspections — до 3 в столбик, дальше 2 + «+x inspections»', w: '340 px', flex: 'фиксирована: вмещает Inspection ID и самый длинный тип из справочника', align: 'по левому краю', dir: 'ltr · при сжатии теряет Inspection ID (4)'},
+      {lvl: 'Find', col: 'Find identical — поиск отклонений с такой же находкой', w: '160 px', flex: 'фиксирована, стоит сразу за Inspections', align: 'по левому краю', dir: 'ltr · кнопка 22 px, действует на уровне находки, но открывает выдачу отклонений'},
+      {lvl: 'Find', col: 'Зона запаса', w: '421 px при 1920 (1fr)', flex: 'гибкая, содержимого не имеет — общая с уровнем отклонения зона расширения', align: '—', dir: 'исчезает первой при сжатии'},
+      {lvl: 'Find', col: 'Measurement point', w: '—', flex: 'на экране не показывается', align: '—', dir: 'только в карточке отклонения'}
+    ];
+    const sel = devs[2];
+    const selInfo = sel.findings.length + ' findings · ' + sel.findings.reduce((s, f) => s + f.inspections.length, 0) + ' inspections';
+    return {nav, tabs, filterFields, devs, grid, selInfo, panelFindings: sel.findings};
+  }
+}
+</script>
+</body>
+</html>
