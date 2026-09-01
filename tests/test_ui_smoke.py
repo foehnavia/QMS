@@ -11,6 +11,8 @@ import re
 from pathlib import Path
 
 import pytest
+
+import ui.kit
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
@@ -34,18 +36,23 @@ def seeded_engine(seeded_session):
 
 
 def test_main_window_builds(seeded_engine, qt_app: QApplication) -> None:
+    """Шасси наряда 0011: лента сверху, разделы под ней, путь базы в подвале."""
+    from ui.kit import tokens
+
     window = MainWindow(seeded_engine)
     window.show()
     qt_app.processEvents()
 
-    assert window.sections.count() >= 4
+    assert window.ribbon.height() == tokens.RIBBON_HEIGHT
     assert window.pages.count() == 4
-    window.sections.setCurrentRow(1)
+    window.select_section(1)
     assert window.pages.currentWidget() is window.cg_view
-    window.sections.setCurrentRow(2)
+    window.select_section(2)
     assert window.pages.currentWidget() is window.item_view
-    window.sections.setCurrentRow(3)
+    window.select_section(3)
     assert window.pages.currentWidget() is window.deviation_view
+    # Подвал отвечает на «с какой базой я работаю» — критерий 5 наряда.
+    assert str(seeded_engine.url) in window.database.text()
     window.close()
 
 
@@ -131,7 +138,7 @@ def test_item_dialog_refuses_to_save_without_local_numbers(seeded_engine, monkey
         create_group(session, "CG-A", (GPositionSpec(1, 3.75), GPositionSpec(2, 2.0)))
 
     shown: list[Exception] = []
-    monkeypatch.setattr(item_dialog, "show_error", lambda parent, error, **kw: shown.append(error))
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
 
     dialog = item_dialog.ItemDialog(seeded_engine)
     dialog.number_edit.setText("C1-08375A")

@@ -182,15 +182,23 @@ def test_counters_and_dates_stay_left() -> None:
 def test_the_delegate_is_wired_into_the_deviation_list(seeded_session) -> None:
     """Механизм должен стоять на боевом экране, а не только в этом тесте."""
     from ui.common import DirectionalDelegate
-    from ui.deviation_view import NUMERIC_COLUMNS, DeviationView
+    from ui.deviation_view import (
+        COLUMNS,
+        MAGNITUDE_COLUMNS,
+        NUMERIC_COLUMNS,
+        DeviationView,
+    )
 
     seeded_session.commit()
     view = DeviationView(seeded_session.get_bind())
 
     assert isinstance(view.table.itemDelegate(), DirectionalDelegate)
-    # Дата, количество и два счётчика — числовые; величин в списке нет,
-    # поэтому вправо здесь не выравнивается ничего.
-    assert NUMERIC_COLUMNS == (3, 4, 6, 7)
+    # Дата, количество и два счётчика — числовые.
+    assert NUMERIC_COLUMNS == (3, 4, 5, 8)
+    # Вправо — только количество отклонения: его и сравнивают по величине.
+    # Счётчики находок и исследований остаются влево (канон §6).
+    assert MAGNITUDE_COLUMNS == (COLUMNS.index("Dev. qty"),)
+    assert COLUMNS.index("Findings") < COLUMNS.index("Decision")
 
 
 # --- изоляты: один вокруг токена, не два подряд ------------------------------------

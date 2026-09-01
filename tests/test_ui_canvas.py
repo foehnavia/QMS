@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pytest
+
+import ui.kit
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QDialogButtonBox
@@ -170,17 +172,23 @@ def test_editor_saves_geometry_and_name(group_engine) -> None:
         assert next(p for p in group.positions if p.g_index == 1).nominal == 4.25
 
 
-def test_editor_locks_the_index_of_an_existing_position(group_engine) -> None:
-    """Ревью S3, п. 1: номер существующей позиции не редактируется.
+def test_editor_locks_the_index_of_every_position(group_engine) -> None:
+    """Ревью S3 п. 1 + ратификация В-8: индекс не вводится руками вообще.
 
-    На него ссылаются привязки всех деталей — перенумерация переклеила бы ярлыки
-    под готовыми привязками. У новой строки индекс ещё ничей, она открыта.
+    У существующей позиции на него ссылаются привязки всех деталей —
+    перенумерация переклеила бы ярлыки под готовыми привязками. У новой
+    позиции индекс тоже закрыт: он выдаётся как `max + 1` и не
+    переиспользуется, потому что `g5` живёт не только в таблице, но и на
+    чертеже и в протоколе контроля (наряд 0010 §10).
     """
     editor = CgEditor(group_engine, _cg_id(group_engine))
     assert not editor.table.item(0, 0).flags() & Qt.ItemFlag.ItemIsEditable
 
     editor.add_position()
-    assert editor.table.item(3, 0).flags() & Qt.ItemFlag.ItemIsEditable
+
+    assert not editor.table.item(3, 0).flags() & Qt.ItemFlag.ItemIsEditable
+    # Выдан следующий за максимальным, а не занявший дыру.
+    assert editor.table.item(3, 0).text() == "4"
 
 
 def test_editor_ignores_a_forced_index_swap(group_engine) -> None:
@@ -227,7 +235,7 @@ def test_editor_refuses_to_remove_a_used_position(group_engine, monkeypatch) -> 
         bind(session, item, group.positions[0], "12")
 
     shown: list[Exception] = []
-    monkeypatch.setattr(module, "show_error", lambda parent, error, **kw: shown.append(error))
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
 
     editor = CgEditor(group_engine, _cg_id(group_engine))
     editor.table.setCurrentCell(0, 0)
@@ -262,7 +270,7 @@ def test_editor_rejects_a_bad_number(group_engine, monkeypatch) -> None:
     import ui.cg_editor as module
 
     shown: list[Exception] = []
-    monkeypatch.setattr(module, "show_error", lambda parent, error, **kw: shown.append(error))
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
 
     editor = CgEditor(group_engine, _cg_id(group_engine))
     editor.table.item(0, 1).setText("три")
@@ -339,7 +347,7 @@ def test_mapping_dialog_reports_a_refused_rebinding(group_engine, monkeypatch) -
 
     monkeypatch.setattr(module.QInputDialog, "getText", staticmethod(lambda *a, **k: ("12", True)))
     shown: list[Exception] = []
-    monkeypatch.setattr(module, "show_error", lambda parent, error, **kw: shown.append(error))
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
 
     dialog = MappingDialog(group_engine, _item_id(group_engine), _cg_id(group_engine))
     dialog._on_balloon(1)

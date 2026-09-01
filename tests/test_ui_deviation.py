@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+
+import ui.kit
 from PySide6.QtCore import QDate
 from PySide6.QtWidgets import QDialogButtonBox
 
@@ -118,7 +120,7 @@ def test_form_reports_a_domain_error_instead_of_an_integrity_error(
     import ui.deviation_dialog as module
 
     shown: list[Exception] = []
-    monkeypatch.setattr(module, "show_error", lambda parent, error, **kw: shown.append(error))
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
 
     dialog = DeviationDialog(engine_with_item)
     _fill_header(dialog, wo="   ")
@@ -311,7 +313,7 @@ def test_finding_dialog_demands_a_direction(engine_with_item, monkeypatch) -> No
     import ui.finding_dialog as module
 
     shown: list[Exception] = []
-    monkeypatch.setattr(module, "show_error", lambda parent, error, **kw: shown.append(error))
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
 
     dialog = FindingDialog(engine_with_item, _item_id(engine_with_item))
     dialog.number_edit.setText("12")
@@ -367,7 +369,7 @@ def test_finding_dialog_rejects_a_non_numeric_point(engine_with_item, monkeypatc
     import ui.finding_dialog as module
 
     shown: list[Exception] = []
-    monkeypatch.setattr(module, "show_error", lambda parent, error, **kw: shown.append(error))
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
 
     dialog = FindingDialog(engine_with_item, _item_id(engine_with_item))
     dialog.number_edit.setText("12")
@@ -404,7 +406,7 @@ def test_decision_dialog_refuses_approval_without_an_explanation(
     import ui.decision_dialog as module
 
     shown: list[Exception] = []
-    monkeypatch.setattr(module, "show_error", lambda parent, error, **kw: shown.append(error))
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
     deviation_id = _register(engine_with_item)
 
     dialog = DecisionDialog(engine_with_item, deviation_id)
@@ -422,7 +424,7 @@ def test_decision_dialog_refuses_an_unset_outcome(engine_with_item, monkeypatch)
     import ui.decision_dialog as module
 
     shown: list[Exception] = []
-    monkeypatch.setattr(module, "show_error", lambda parent, error, **kw: shown.append(error))
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
 
     dialog = DecisionDialog(engine_with_item, _register(engine_with_item))
     dialog.save()
@@ -491,7 +493,7 @@ def test_inspection_dialog_refuses_an_empty_protocol(engine_with_item, monkeypat
     import ui.inspection_dialog as module
 
     shown: list[Exception] = []
-    monkeypatch.setattr(module, "show_error", lambda parent, error, **kw: shown.append(error))
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
 
     dialog = InspectionDialog(engine_with_item, _finding_id(engine_with_item))
     dialog.protocol.setText("   ")
@@ -555,12 +557,17 @@ def test_the_form_refuses_to_remove_a_studied_finding(engine_with_item, monkeypa
 def test_view_lists_deviations_with_counts_and_decision(engine_with_item) -> None:
     _finding_id(engine_with_item)
 
+    from ui.deviation_view import COLUMNS
+
     view = DeviationView(engine_with_item)
 
     assert view.table.rowCount() == 1
-    assert view.table.item(0, 5).text() == "no decision yet"
-    assert view.table.item(0, 6).text() == "1"
-    assert "undecided: 1" in view.status.text()
+    # Колонки адресуем по имени: наряд 0011 переставил `Findings` перед
+    # `Decision` и добавил `Explanation`, и номер здесь ничего не проверяет.
+    assert view.table.item(0, COLUMNS.index("Decision")).text() == "no decision yet"
+    assert view.table.item(0, COLUMNS.index("Findings")).text() == "1"
+    # Сводку показывает подвал окна, а не сам экран (наряд 0011).
+    assert "undecided: 1" in view.summary_text()
 
 
 def test_view_deletes_a_deviation_with_its_children(engine_with_item, monkeypatch) -> None:
@@ -681,7 +688,7 @@ def test_all_findings_can_be_replaced_in_one_edit(engine_with_item, monkeypatch)
     import ui.deviation_dialog as module
 
     shown: list[Exception] = []
-    monkeypatch.setattr(module, "show_error", lambda parent, error, **kw: shown.append(error))
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
 
     dialog = DeviationDialog(engine_with_item)
     _fill_header(dialog)

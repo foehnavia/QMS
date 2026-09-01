@@ -1,4 +1,4 @@
-"""Снимки всех экранов на нативной платформе — критерий 3 наряда 0007 (QMS-016).
+"""Снимки всех экранов на нативной платформе — критерий 6 наряда 0011 (QMS-016).
 
 Offscreen для снимков непригоден: база шрифтов пуста, иврит и латиница выходят
 «тофу» (`CLAUDE.md` §9). Поэтому платформа нативная, но `show()` не зовём —
@@ -53,11 +53,16 @@ from domain.inspections import create_inspection  # noqa: E402
 from domain.items import create_item  # noqa: E402
 from domain.mappings import bind  # noqa: E402
 from domain.reference import add_value, list_values  # noqa: E402
+from domain.errors import ValidationError  # noqa: E402
 from seed.reference import ref, seed_reference  # noqa: E402
-from ui.common import LTR  # noqa: E402
+from ui import kit  # noqa: E402
 
 OUT = REPO_ROOT / "build" / "screens"
 DB = REPO_ROOT / "build" / "screens-demo.sqlite"
+
+#: Ширина показа списков — вторая, 1280, снимается отдельно (наряд 0010 §8.5).
+WIDE = 1920
+TALL = 1080
 
 TODAY = date.today()
 POSITIONS = (
@@ -220,7 +225,9 @@ def shoot(widget: QWidget, name: str) -> None:
 def main() -> int:
     engine, url, ids = build_database()
     app = QApplication.instance() or QApplication([])
-    app.setLayoutDirection(LTR)  # шасси LTR, как в боевом запуске
+    # Одевание — то же, что в боевом запуске: снимок без темы показывал бы не
+    # приложение, а виджеты Windows (наряд 0011).
+    kit.apply_theme(app)
 
     from ui.card_dialog import CardDialog
     from ui.cg_dialog import CgDialog
@@ -230,23 +237,32 @@ def main() -> int:
     from ui.finding_dialog import FindingDialog
     from ui.inspection_dialog import InspectionDialog
     from ui.item_dialog import ItemDialog
+    from ui.item_positions_dialog import ItemPositionsDialog
     from ui.main_window import MainWindow
     from ui.mapping_dialog import MappingDialog
 
     print(f"Database: {url}")
     print("Screens:")
 
+    # --- 1. шасси: лента навигации и четыре раздела ---
     window = MainWindow(engine)
-    window.resize(1200, 700)
+    window.resize(WIDE, TALL)
     for row, name in enumerate(
         ("reference-data", "characteristic-groups", "items", "deviations")
     ):
-        window.sections.setCurrentRow(row)
+        window.select_section(row)
         shoot(window, f"01-section-{row + 1}-{name}")
+
+    # Лента при минимальной ширине: уходят подписи и правая строка состояния,
+    # высота остаётся 44 (решение В-5).
+    window.resize(kit.tokens.WINDOW_MIN_WIDTH, kit.tokens.WINDOW_MIN_HEIGHT)
+    window.select_section(3)
+    shoot(window, "01-section-4b-deviations-1280")
+    window.resize(WIDE, TALL)
 
     # Отдельно — ивритский справочник: делегат разворачивает строку списка по
     # её содержимому, шасси остаётся LTR (наряд 0007, §4а).
-    window.sections.setCurrentRow(0)
+    window.select_section(0)
     zone_index = next(
         index
         for index in range(window.reference_view.picker.count())
@@ -255,29 +271,40 @@ def main() -> int:
     window.reference_view.picker.setCurrentIndex(zone_index)
     shoot(window, "01-section-1b-reference-zone")
 
+    # --- 2…14. диалоги ---
     shoot(ItemDialog(engine), "02-dialog-item")
     shoot(CgDialog(engine), "03-dialog-cg-new")
-
-    editor = CgEditor(engine, ids["cg_id"])
-    editor.resize(980, 620)
-    shoot(editor, "04-dialog-cg-editor")
-
-    mapping = MappingDialog(engine, ids["other_id"], ids["cg_id"])
-    mapping.resize(940, 600)
-    shoot(mapping, "05-dialog-mapping")
-
-    form = DeviationDialog(engine, ids["current_id"])
-    form.resize(1040, 760)
-    shoot(form, "06-dialog-deviation-edit")
+    shoot(CgEditor(engine, ids["cg_id"]), "04-dialog-cg-editor")
+    shoot(MappingDialog(engine, ids["other_id"], ids["cg_id"]), "05-dialog-mapping")
+    shoot(DeviationDialog(engine, ids["current_id"]), "06-dialog-deviation-edit")
     shoot(DeviationDialog(engine), "07-dialog-deviation-new")
-
     shoot(FindingDialog(engine, ids["item_id"]), "08-dialog-finding")
     shoot(InspectionDialog(engine, ids["finding_id"]), "09-dialog-inspection")
     shoot(DecisionDialog(engine, ids["current_id"]), "10-dialog-decision")
+    shoot(CardDialog(engine, ids["current_id"]), "11-dialog-card")
+    shoot(ItemPositionsDialog(engine, ids["item_id"]), "12-dialog-item-positions")
 
-    card = CardDialog(engine, ids["current_id"])
-    card.resize(1180, 860)
-    shoot(card, "11-dialog-card")
+    # --- 15. модальное сообщение об ошибке ---
+    # Собираем, но не показываем: показанный модальный диалог ждёт ответа и
+    # снимку не даётся (`kit.error_box` для того и отделён от `show_error`).
+    shoot(
+        kit.error_box(
+            None,
+            ValidationError(
+                "Approval requires an explanation: the text goes into אישור חריגה."
+            ),
+            title="Decision not saved",
+        ),
+        "15-dialog-error",
+    )
+
+    # --- 16. пикер: тот же диалог в обоих состояниях строки отбора ---
+    short = [(index, f"C1-0837{index}A") for index in range(4)]
+    long = [(index, f"MF5-1037{index:02d}A-N") for index in range(30)]
+    shoot(kit.PickerDialog("Pick an item", "Item:", short), "16-picker-short")
+    picker = kit.PickerDialog("Pick an item", "Item:", long)
+    picker.filter.setText("103710")
+    shoot(picker, "16-picker-filtered")
 
     engine.dispose()
     print(f"-> {OUT}")

@@ -192,7 +192,9 @@ def test_unbound_dimension_explains_instead_of_showing_an_empty_table(engine) ->
 
     assert card.position_hint_box.isHidden() is False
     assert card.same_position.isHidden() is True
-    assert "not bound to the canon" in card.position_hint.text()
+    # Пустое состояние канона §8: что пусто, почему и один выход — кнопка.
+    assert "not bound to the canon" in card.position_hint_box.body_label.text()
+    assert card.position_hint_button.isHidden() is False
 
 
 def test_binding_from_the_card_revives_the_position_section(engine, monkeypatch) -> None:
@@ -301,7 +303,7 @@ def test_descriptive_without_labels_explains_itself(engine) -> None:
     card = CardDialog(engine, deviation_id)
 
     assert card.descriptive.isHidden() is True
-    assert card.descriptive_hint.text() == NO_LABELS_HINT
+    assert NO_LABELS_HINT in card.descriptive_hint.body_label.text()
 
 
 # --- Критерий 9: решение из карточки ------------------------------------------------
@@ -530,22 +532,22 @@ def test_navigation_has_no_card_section(engine) -> None:
     """Решение 7: карточка открывается от отклонения, разделом не заводится.
 
     А «Поиск» остаётся выключенным — это конструктор запросов Этапа 1.5, не S5.
+    Навигация с наряда 0011 — лента, а не боковой список.
     """
+    from PySide6.QtWidgets import QPushButton
+
     from ui.main_window import PLANNED_SECTIONS, MainWindow
 
     window = MainWindow(engine)
-    titles = [window.sections.item(i).text() for i in range(window.sections.count())]
+    sections = window.ribbon.findChildren(QPushButton)
+    titles = [button.text() for button in sections]
 
     assert not any("Card" in title for title in titles)
     assert PLANNED_SECTIONS == (("Search", "S8"),)
     assert any("Search" in title and "S8" in title for title in titles)
-    # Выключенный пункт — без флагов, кликнуть нельзя.
-    search = next(
-        window.sections.item(i)
-        for i in range(window.sections.count())
-        if "Search" in window.sections.item(i).text()
-    )
-    assert search.flags() == Qt.ItemFlag.NoItemFlags
+    # Выключенный пункт виден, но нажать его нельзя: порядок сборки показан.
+    search = next(button for button in sections if "Search" in button.text())
+    assert not search.isEnabled()
     window.close()
 
 
