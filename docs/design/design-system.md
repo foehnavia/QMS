@@ -5,7 +5,7 @@ status: ratified
 task: QMS-016
 branch: run/qms-016
 updated: 2026-09-01
-revision: 1.3
+revision: 1.5
 ---
 
 # MIS-QMS design system — tokens and rules
@@ -197,9 +197,12 @@ the ribbon is untouched at 44 (B-5), and so is the 40 px row.
 **The ribbon is always 44** (В-5). Height does not follow width: squeezing at 1280 is
 horizontal, and what leaves the ribbon is section captions, counters and the right-hand
 status string — never pixels of height. Counted, not tasted: full chrome at the 760 minimum
-is 44 + 64 + 52 + 44 + 34 + 36 = 274, leaving 12.15 rows of 40; a 36 px ribbon would buy one
+is 44 + 48 + 52 + 34 + 30 + 26 = **234**, leaving **13.15** rows of 40; a 36 px ribbon would buy one
 fifth of a row and cost a second vertical state that every screen, screenshot and test would
-have to carry. If vertical space ever runs short, the 64 px section header is what gives.
+have to carry. If vertical space ever runs short, the 48 px section header is what gives.
+> The old chrome summed to 274 and left 12.15 rows: the tightening bought **exactly one row**,
+> which is the whole basis on which it was ratified — the figure now checks out, whereas this
+> paragraph carried the pre-tightening arithmetic until QMS-016 caught it.
 
 ## 4. Controls
 
@@ -256,6 +259,14 @@ render as `2026.08.19`. Numeric columns are **declared in a list**, not guessed.
 - **Left** — dates, counters (`Findings`, `Inspections`, `Characteristics`, `Positions`),
   identifiers and numbers. Nothing to compare, and the left edge keeps them under their header.
 
+**The right-alignment rule is about a magnitude in a column of its own.** In a **composite
+cell** — nominal and tolerance joined as two isolated tokens — alignment follows the token the
+eye actually compares. That is the nominal, and it sits at the leading edge of the cell, so the
+cell aligns **left**: aligning right would line up the tail of the tolerance instead, which
+nobody compares. Applies to `Canon geometry` in the mapping dialog (QMS-016, В-6). The letter of
+the rule and its reason part company here — the reason wins, and this note records why, so the
+next reader does not "fix" it back.
+
 > **Qt trap, already paid for once:** `QStyle.visualAlignment` is applied on top of
 > `displayAlignment`, so under an RTL base a request for "right" becomes "left". A test that
 > asserts the *requested* alignment passes while the screen is wrong. Assert what is drawn, or
@@ -283,6 +294,9 @@ Two variants, and the choice between them is not about space:
 | Variant | Shape | Where |
 |---|---|---|
 | **Full** | icon 34 `n-300` · title 14/650 · body 12/`n-500` · one button | the empty state **of a screen or a tab** — the whole surface is empty, and the button is the way out |
+
+The **modal message** takes the same icon size, **34** — no new number is introduced. Both
+cases explain a situation rather than label an element, and that is what the size answers to.
 | **Compact** | one line, 12/`n-500`, no icon and no button | a **section inside** a screen that has siblings — the way out belongs to the surface around it |
 
 The rule is the unit, not the pixel count: a section that is one of several in a view states
@@ -318,12 +332,12 @@ has left the design system, and the guard in `tests/test_ui_kit.py` fails on it.
 | `field_row` | caption + control, one row of a form | caption stands beside its own field, never above a stretched one |
 | `dialog` | the frame: title, body, button row | chassis LTR; one primary action |
 | `primary` / `secondary` / `danger` buttons | §4 | one primary per screen; danger is an outline, never a filled red block |
-| `slice_tab` | a tab strip 44 px | counts on tabs ignore filters — they answer "how much is there" |
+| `slice_tab` | a tab strip 34 px | counts on tabs ignore filters — they answer "how much is there" |
 | `decision_badge` | the pill of §1 | undecided is the only outlined one; the word always accompanies the colour |
 | `hint` | a line of explanation under a control | says why, not what |
 | `empty_state` | §8, full and **compact** | full for a screen or a tab, compact for a section that has siblings |
 | `error_box` | the modal of a `DomainError` | the domain writes the text; the UI does not rephrase it |
-| `status_bar` | the 36 px footer | carries counts and the database path |
+| `status_bar` | the 26 px status bar | carries counts and the database path |
 | `ribbon` | the 44 px navigation strip | always 44; captions leave before pixels do |
 | `picker` | a modal choice out of a list | one substring filter row, **hidden at 12 values or fewer**; it narrows the choice, never the list underneath |
 
