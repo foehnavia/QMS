@@ -27,6 +27,7 @@ from db.session import session_scope
 from domain.groups import GPositionSpec, create_group, set_drawing
 from domain.mappings import bind, binding_state, mark_absent
 from ui.cg_dialog import CgDialog
+from ui.common import strip_iso
 from ui.cg_editor import CgEditor
 from ui.cg_view import CgView
 from ui.drawing_view import DrawingPane, DrawingView
@@ -409,6 +410,145 @@ def test_editor_rejects_a_bad_number(group_engine, quiet) -> None:
     editor.save()
 
     assert quiet and "три" in str(quiet[0])
+
+
+# --- №9: форма не теряет набранное между двумя нажатиями внутри себя ---------------
+
+
+def _typed(editor, row: int) -> list[str]:
+    """Что стоит в ячейках строки — то, что видит оператор."""
+    return [strip_iso(editor.table.item(row, column).text()) for column in (1, 2, 3)]
+
+
+def _type(editor, row: int, nominal: str, upper: str, lower: str) -> None:
+    for column, value in ((1, nominal), (2, upper), (3, lower)):
+        editor.table.item(row, column).setText(value)
+
+
+def test_add_position_keeps_what_was_typed(group_engine) -> None:
+    """Критерий 1: набранное переживает «Add position».
+
+    Дефект №9 прогона: значения жили только в ячейках, а `_refresh()`
+    перерисовывал таблицу из `self._rows` — то есть из прочитанного при
+    `reload()`. Обход стоил оператору одного открытия редактора на позицию.
+    """
+    editor = CgEditor(group_engine, _cg_id(group_engine))
+    _type(editor, 0, "4.25", "0.05", "−0.05")
+
+    editor.add_position()
+
+    assert _typed(editor, 0) == ["4.25", "0.05", "−0.05"]
+    # Новая строка пустая и с индексом max + 1 — это правило не тронуто.
+    assert _typed(editor, 3) == ["", "", ""]
+    assert editor.table.item(3, 0).text() == "4"
+
+
+def test_removing_a_position_keeps_what_was_typed_in_the_others(group_engine) -> None:
+    """Критерий 2: снятие строки не трогает набранное в оставшихся."""
+    editor = CgEditor(group_engine, _cg_id(group_engine))
+    _type(editor, 0, "4.25", "0.05", "−0.05")
+    _type(editor, 1, "2.5", "0.02", "0.01")
+    _type(editor, 2, "9.75", "0.1", "−0.1")
+
+    editor.table.setCurrentCell(1, 0)
+    editor.remove_position()
+
+    assert editor.table.rowCount() == 2
+    assert _typed(editor, 0) == ["4.25", "0.05", "−0.05"]
+    assert _typed(editor, 1) == ["9.75", "0.1", "−0.1"]
+
+
+def test_changing_the_drawing_keeps_what_was_typed(group_engine, monkeypatch, tmp_path) -> None:
+    """Критерий 3: чертёж к значениям позиций отношения не имеет."""
+    import ui.cg_editor as module
+
+    editor = CgEditor(group_engine, _cg_id(group_engine))
+    _type(editor, 0, "4.25", "0.05", "−0.05")
+
+    picture = tmp_path / "cg.png"
+    picture.write_bytes(make_png(40, 30))
+    monkeypatch.setattr(
+        module.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(picture), "")),
+    )
+
+    editor.load_drawing()
+    assert _typed(editor, 0) == ["4.25", "0.05", "−0.05"]
+
+    editor.drop_drawing()
+    assert _typed(editor, 0) == ["4.25", "0.05", "−0.05"]
+
+
+def test_a_half_typed_value_survives_add_position(group_engine, quiet) -> None:
+    """Критерий 4: `0.` посреди набора — не ошибка, а середина слова.
+
+    Поэтому строка формы носит **сырой текст**, а разбор в число живёт на
+    «Сохранить»: падать на недобранном значении при добавлении строки значило бы
+    наказывать оператора за порядок действий.
+    """
+    editor = CgEditor(group_engine, _cg_id(group_engine))
+    _type(editor, 0, "0.", "−", "")
+
+    editor.add_position()
+
+    assert quiet == []
+    assert _typed(editor, 0) == ["0.", "−", ""]
+
+    # А вот на «Сохранить» недобранное значение уже обязано назваться ошибкой —
+    # и назвать **своё** поле. Одинокий `−` числом не станет; `0.` при этом
+    # разбирается в 0.0, поэтому ошибку называет колонка верхнего отклонения.
+    editor.save()
+    assert quiet and "upper deviation" in str(quiet[0])
+    assert "Row 1" in str(quiet[0])
+
+
+def test_save_writes_what_is_on_screen_after_add_and_remove(group_engine, quiet) -> None:
+    """Критерий 5: серия добавлений и удалений — и в базе ровно видимое."""
+    editor = CgEditor(group_engine, _cg_id(group_engine))
+    _type(editor, 0, "4.25", "0.05", "−0.05")
+
+    editor.add_position()  # g4
+    _type(editor, 3, "1.5", "0.03", "0.01")  # посадка с натягом
+    editor.table.setCurrentCell(1, 0)
+    editor.remove_position()  # снимаем g2
+
+    on_screen = {
+        int(editor.table.item(row, 0).text()): _typed(editor, row)
+        for row in range(editor.table.rowCount())
+    }
+    editor.save()
+
+    assert quiet == []
+    assert on_screen == {
+        1: ["4.25", "0.05", "−0.05"],
+        3: ["0.5", "", ""],
+        4: ["1.5", "0.03", "0.01"],
+    }
+    with session_scope(group_engine) as session:
+        stored = {
+            position.g_index: (position.nominal, position.tol_plus, position.tol_minus)
+            for position in session.query(CharacteristicGroup).one().positions
+        }
+    assert stored == {
+        1: (4.25, 0.05, -0.05),
+        3: (0.5, None, None),
+        4: (1.5, 0.03, 0.01),
+    }
+
+
+def test_reload_is_the_only_thing_that_drops_what_was_typed(group_engine) -> None:
+    """`reload()` затирает набранное **намеренно**: это возврат к записанному.
+
+    Тест держит границу: если забор набранного заедет и сюда, «отменить правки
+    и перечитать группу» перестанет работать, а сказать об этом будет некому.
+    """
+    editor = CgEditor(group_engine, _cg_id(group_engine))
+    _type(editor, 0, "4.25", "0.05", "−0.05")
+
+    editor.reload()
+
+    assert _typed(editor, 0) == ["3.75", "0.05", "-0.05"]
 
 
 # --- Новая группа: число позиций с чертежа -----------------------------------------
