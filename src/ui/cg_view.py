@@ -28,7 +28,7 @@ HAS_DRAWING = "yes"
 EMPTY_TITLE = "No characteristic groups yet"
 EMPTY_BODY = (
     "A group is the drawing shared by a family of items: canonical positions "
-    "with nominal and tolerance. Items bind their own numbers to it."
+    "with nominal and limit deviations. Items bind their own numbers to it."
 )
 
 

@@ -46,16 +46,18 @@ from .common import iso
 from .drawing_view import BROKEN_IMAGE, DrawingPane
 from .kit import tokens
 
-COLUMNS = ("g-position", "Nominal", "Tolerance +", "Tolerance −")
+#: Подписи по ISO 286 (решение 2026-09-02) — те же, что в форме создания.
+COLUMNS = ("g-position", "Nominal", "Upper deviation", "Lower deviation")
 
 #: Индекс позиции — идентификатор, влево; вправо только величины.
 NUMERIC_COLUMNS = (0,)
 MAGNITUDE_COLUMNS = (1, 2, 3)
 
 HINT = (
-    "Positions — nominal and tolerance come from the drawing; both may stay "
-    "empty (a form tolerance has no nominal). The index of an existing "
-    "position never changes, and a new one is issued as max + 1."
+    "Positions — nominal and the limit deviations come from the drawing and may "
+    "stay empty (a form tolerance has no nominal). Each deviation carries its "
+    "own sign: an interference fit has both of them positive. The index of an "
+    "existing position never changes, and a new one is issued as max + 1."
 )
 
 
@@ -240,8 +242,8 @@ class CgEditor(QDialog):
                 _Row(
                     g_index=row.g_index,
                     nominal=parse_optional_number(cell(1), f"Row {index + 1}, nominal"),
-                    tol_plus=parse_optional_number(cell(2), f"Row {index + 1}, tolerance +"),
-                    tol_minus=parse_optional_number(cell(3), f"Row {index + 1}, tolerance −"),
+                    tol_plus=parse_optional_number(cell(2), f"Row {index + 1}, upper deviation"),
+                    tol_minus=parse_optional_number(cell(3), f"Row {index + 1}, lower deviation"),
                     position_id=row.position_id,
                 )
             )

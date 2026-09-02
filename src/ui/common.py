@@ -47,6 +47,7 @@ __all__ = [
     "base_direction",
     "bind_direction",
     "decision_dev_label",
+    "deviation_text",
     "dimension_sort_key",
     "directional",
     "first_strong",
@@ -146,20 +147,38 @@ def signed_label(direction: str, value: float | None) -> str:
     return iso(f"{sign} {number}".strip())
 
 
-def tolerance_text(plus: float | None, minus: float | None) -> str:
-    """Допуск **без изолята**: `+0.05 / −0.05`, годится как часть составной ячейки.
+def deviation_text(value: float | None) -> str:
+    """Одно предельное отклонение со **своим** знаком: `+0.05` · `−0.02` · `+0`.
 
-    Знак минуса — `−` (U+2212), как у `signed_label` и как пишет канон: в базе
-    он ASCII-дефис (единая точка для парсера S6), а дефис и минус — разные
-    символы, и показывать оператору два разных минуса на одном экране незачем.
+    Знак читается из значения, а не дорисовывается шаблоном. До QMS-016 сборка
+    шла как `f"+{abs(plus)} / −{abs(minus)}"`, и у **посадки с натягом**, где оба
+    отклонения уходят в плюс, пара `+0.05 / +0.02` выводилась как
+    `+0.05 / −0.02`: поле допуска зеркально, несимметричная посадка выглядела
+    симметричной. В базе значения были верны — врал показ (дефект Р-2, блокирующий).
+
+    Знак минуса — `−` (U+2212), как у `signed_label` и как пишет канон: в базе он
+    ASCII-дефис (единая точка для парсера S6), а показывать оператору два разных
+    минуса на одном экране незачем. Ноль знака не выдумывает и идёт как `+0`.
     """
-    if plus is None and minus is None:
+    if value is None:
         return ""
-    return f"+{_magnitude(plus)} / −{_magnitude(minus)}"
+    return f"{'−' if value < 0 else '+'}{abs(value):g}"
+
+
+def tolerance_text(plus: float | None, minus: float | None) -> str:
+    """Пара предельных отклонений **без изолята** — часть составной ячейки.
+
+    `+0.05 / −0.05` · `+0.05 / +0.02` · `−0.02 / −0.05`. Пустое отклонение
+    остаётся пустым и разделителя за собой не тянет: `−0` на месте незаполненного
+    значения — то же дорисовывание, ради отмены которого сделан наряд 0015.
+    """
+    return " / ".join(
+        text for text in (deviation_text(plus), deviation_text(minus)) if text
+    )
 
 
 def tolerance_label(plus: float | None, minus: float | None) -> str:
-    """Допуск отдельной ячейкой: тот же токен, обёрнутый **одним** изолятом."""
+    """Отклонения отдельной ячейкой: тот же токен, обёрнутый **одним** изолятом."""
     text = tolerance_text(plus, minus)
     return iso(text) if text else ""
 
@@ -184,11 +203,6 @@ def canon_geometry_label(
 
 def _magnitude_or_empty(value: float | None) -> str:
     return "" if value is None else f"{value:g}"
-
-
-def _magnitude(value: float | None) -> str:
-    """Величина без знака: знак ставит сборщик, иначе выходит `−-0.05`."""
-    return "0" if value is None else f"{abs(value):g}"
 
 
 def dimension_sort_key(local_number: str) -> tuple:

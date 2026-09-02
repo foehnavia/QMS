@@ -42,6 +42,11 @@ class GPositionSpec:
 
     Номинал и допуски необязательны: позиция бывает допуском формы (соосность
     к базам), и номинала у неё нет вовсе (`CharacteristicGroup.md`, QMS-016).
+
+    `tol_plus` / `tol_minus` — **верхнее и нижнее предельные отклонения** по
+    ISO 286, каждое со своим знаком, а не «допуск вверх» и «допуск вниз» по
+    модулю: у посадок с натягом оба уходят в плюс (`+0.05 / +0.02`). Отсюда и
+    единственный инвариант пары — `_check_deviations`.
     """
 
     g_index: int
@@ -71,6 +76,8 @@ def create_group(
         raise DuplicateValue("The g-position indexes inside a group must not repeat.")
     if session.scalar(select(CharacteristicGroup).where(CharacteristicGroup.name == name)):
         raise DuplicateValue(f"Group “{name}” already exists.")
+    for spec in positions:
+        _check_deviations(spec)
 
     group = CharacteristicGroup(name=name)
     group.positions = [_position_from_spec(spec) for spec in sorted(positions, key=_by_index)]
@@ -84,6 +91,38 @@ def create_group(
 
 def _by_index(spec: GPositionSpec) -> int:
     return spec.g_index
+
+
+def _deviation_text(value: float) -> str:
+    """Отклонение для текста ошибки: минус канона, а не ASCII-дефис.
+
+    Сообщение читает оператор в модальном окне — это интерфейс (`CLAUDE.md` §9),
+    и минус в нём тот же, что в ячейке. Форматтер здесь свой на три строки:
+    домен не зависит от `ui` (гард `test_ui_smoke`), а тянуть ради знака
+    зависимость наоборот — плохой размен.
+    """
+    return f"{value:g}".replace("-", "−")
+
+
+def _check_deviations(spec: GPositionSpec) -> GPositionSpec:
+    """Единственный инвариант пары: **верхнее ≥ нижнего**, когда заданы оба.
+
+    Проверки знака здесь нет и быть не должно: законны и `+/+` (посадка с
+    натягом), и `−/−`, и `+/−`. Единственное, что нельзя, — поменять их местами:
+    поле допуска с верхней границей ниже нижней не существует, а на экране такая
+    пара выглядит правдоподобно (решение 2026-09-02, находка Р-2).
+
+    Живёт в домене, а не в форме: путей ввода три — новая группа, редактор
+    группы и правка позиции, — и инвариант, повторённый в каждом, разойдётся на
+    первой же правке.
+    """
+    upper, lower = spec.tol_plus, spec.tol_minus
+    if upper is not None and lower is not None and upper < lower:
+        raise ValidationError(
+            f"Position g{spec.g_index}: upper deviation {_deviation_text(upper)} is "
+            f"below lower deviation {_deviation_text(lower)} — the two are swapped."
+        )
+    return spec
 
 
 def _position_from_spec(spec: GPositionSpec) -> GPosition:
@@ -116,6 +155,7 @@ def add_position(session: Session, group: CharacteristicGroup, spec: GPositionSp
         raise ValidationError("The g-position index must be positive.")
     if any(position.g_index == spec.g_index for position in group.positions):
         raise DuplicateValue(f"Position g{spec.g_index} already exists in this group.")
+    _check_deviations(spec)
 
     position = _position_from_spec(spec)
     position.cg = group
@@ -146,6 +186,9 @@ def update_position(
     Индекс позиции здесь не меняется: на него ссылаются привязки всех деталей,
     и тихая перенумерация переклеила бы ярлыки под готовыми привязками.
     """
+    _check_deviations(
+        GPositionSpec(position.g_index, nominal, tol_plus, tol_minus)
+    )
     position.nominal = nominal
     position.tol_plus = tol_plus
     position.tol_minus = tol_minus

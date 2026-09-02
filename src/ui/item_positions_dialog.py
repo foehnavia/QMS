@@ -8,7 +8,7 @@
 разделителя, перезагрузка панели), а наряд 0011 масштабирует язык, не механики.
 
 Только чтение. Состав колонок — как у таблицы позиций в форме новой детали:
-`g-position` · `Local number` · `Nominal` · `Tolerance`.
+`g-position` · `Local number` · `Nominal` · `Limit deviations`.
 """
 
 from __future__ import annotations
@@ -24,7 +24,11 @@ from . import kit
 from .common import dimension_sort_key, iso, tolerance_label
 from .kit import tokens
 
-COLUMNS = ("g-position", "Local number", "Nominal", "Tolerance", "State")
+#: `Limit deviations` — термин ISO 286 для пары «верхнее · нижнее» (решение
+#: 2026-09-02). Не `Deviations`: `Deviation` в системе занято сущностью —
+#: записью об отклонении производства, и одно слово не должно означать две
+#: разные вещи на соседних экранах.
+COLUMNS = ("g-position", "Local number", "Nominal", "Limit deviations", "State")
 
 #: Индекс позиции и номер размера — идентификаторы: направление им объявляем,
 #: но влево. Вправо только номинал и допуск — их сравнивают по величине.
@@ -74,7 +78,7 @@ class ItemPositionsDialog(QDialog):
         layout = kit.dialog_layout(self)
         layout.addWidget(
             kit.hint(
-                "Read only. Nominal and tolerance come from the canonical "
+                "Read only. Nominal and the limit deviations come from the canonical "
                 "position; the local number is what the item drawing calls it."
             )
         )

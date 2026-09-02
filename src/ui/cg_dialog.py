@@ -34,7 +34,10 @@ from . import kit
 from .common import numeric_field, strip_iso
 from .kit import tokens
 
-COLUMNS = ("g-position", "Nominal", "Tolerance +", "Tolerance −")
+#: Подписи по ISO 286 (решение 2026-09-02): `Tolerance +` / `Tolerance −`
+#: обещали знак, которого не гарантируют — у посадки с натягом оба
+#: отклонения плюсовые. Имена полей базы (`tol_plus`/`tol_minus`) не тронуты.
+COLUMNS = ("g-position", "Nominal", "Upper deviation", "Lower deviation")
 
 #: Индекс позиции — идентификатор, влево; вправо выравниваются величины.
 NUMERIC_COLUMNS = (0,)
@@ -48,7 +51,7 @@ MAX_POSITIONS = 200
 
 #: Знаки, которые приложение **показывает** и обязано принять обратно.
 #:
-#: Минус канона `−` (U+2212) стоит в заголовке `Tolerance −`, в ячейке допуска
+#: Минус канона `−` (U+2212) стоит в ячейке предельных отклонений
 #: `+0.05 / −0.05` и на переключателе направления. Оператор копирует значение из
 #: показанной ячейки в редактируемую — и без этой нормализации получает
 #: «`−0.05` is not a number»: сообщение про текст, который выглядит совершенно
@@ -130,9 +133,9 @@ class CgDialog(QDialog):
         layout.addWidget(
             kit.hint(
                 "State how many positions the drawing carries — the table is laid "
-                "out at once for g1…gN. Nominal and tolerance come from the "
-                "drawing and may stay empty; the index is issued automatically "
-                "and never reused."
+                "out at once for g1…gN. Nominal and the limit deviations come from "
+                "the drawing and may stay empty; each deviation carries its own "
+                "sign, and the index is issued automatically and never reused."
             )
         )
         layout.addWidget(self.table, 1)
@@ -216,8 +219,8 @@ class CgDialog(QDialog):
                 GPositionSpec(
                     g_index=int(raw_index),
                     nominal=parse_optional_number(cell(1), f"Row {row + 1}, nominal"),
-                    tol_plus=parse_optional_number(cell(2), f"Row {row + 1}, tolerance +"),
-                    tol_minus=parse_optional_number(cell(3), f"Row {row + 1}, tolerance −"),
+                    tol_plus=parse_optional_number(cell(2), f"Row {row + 1}, upper deviation"),
+                    tol_minus=parse_optional_number(cell(3), f"Row {row + 1}, lower deviation"),
                 )
             )
         return specs

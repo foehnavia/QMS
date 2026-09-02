@@ -596,6 +596,84 @@ def test_mapping_shows_the_drawing_of_the_group(group_engine) -> None:
     assert dialog.drawing.view.shown_size().width() > 0
 
 
+# --- Р-2: знак предельного отклонения читается из данных ----------------------------
+
+
+def test_mapping_shows_an_interference_fit_as_entered(group_engine) -> None:
+    """Критерий 1: пара `+0.05 / +0.02` показана как есть — по тексту ячейки.
+
+    Посадка с натягом: **оба** предельных отклонения плюсовые. Прежняя сборка
+    рисовала знаки в шаблон поверх `abs(value)` и выводила такую пару как
+    `+0.05 / −0.02` — поле допуска зеркально. Геометрия канона показывается
+    оператору ровно в тот момент, когда он решает, принадлежит ли деталь этой
+    группе, поэтому дефект был блокирующим.
+    """
+    from ui.common import strip_iso
+    from ui.mapping_dialog import COLUMNS
+
+    with session_scope(group_engine) as session:
+        fit = create_group(
+            session,
+            "CG-FIT",
+            (
+                GPositionSpec(1, 3.75, 0.05, 0.02),  # натяг: оба в плюс
+                GPositionSpec(2, 12.0, -0.02, -0.05),  # оба в минус
+                GPositionSpec(3, 8.0, 0.1, None),  # задано одно
+            ),
+        )
+        fit_id = fit.cg_id
+
+    dialog = MappingDialog(group_engine, _item_id(group_engine), fit_id)
+    geometry = COLUMNS.index("Canon geometry")
+    cells = [strip_iso(dialog.table.item(row, geometry).text()) for row in range(3)]
+
+    assert cells == ["3.75 +0.05 / +0.02", "12 −0.02 / −0.05", "8 +0.1"]
+
+
+def test_the_editor_columns_name_the_deviations_by_iso_286(group_engine) -> None:
+    """Критерий 4: `Tolerance +` / `Tolerance −` обещали знак, а не гарантировали.
+
+    Подпись, обещающая знак, у посадки с натягом прямо противоречит содержимому
+    своей же колонки: в «`Tolerance −`» стоит `+0.02`.
+    """
+    from ui.cg_dialog import COLUMNS as new_group_columns
+    from ui.cg_editor import COLUMNS as editor_columns
+
+    expected = ("g-position", "Nominal", "Upper deviation", "Lower deviation")
+    assert editor_columns == new_group_columns == expected
+
+
+def test_the_editor_saves_an_interference_fit(group_engine, quiet) -> None:
+    """Критерий 3 со стороны формы: `+/+` проходит весь путь до базы.
+
+    Плюс в нижнем отклонении — законное значение, а не опечатка: проверки знака
+    в домене нет и быть не должно.
+    """
+    editor = CgEditor(group_engine, _cg_id(group_engine))
+    editor.table.item(0, 2).setText("0.05")
+    editor.table.item(0, 3).setText("0.02")
+    editor.save()
+
+    assert quiet == []
+    with session_scope(group_engine) as session:
+        position = next(
+            p for p in session.query(CharacteristicGroup).one().positions if p.g_index == 1
+        )
+        assert (position.tol_plus, position.tol_minus) == (0.05, 0.02)
+
+
+def test_the_editor_refuses_swapped_deviations(group_engine, quiet) -> None:
+    """Единственный инвариант пары — верхнее ≥ нижнего; форма его не дублирует."""
+    editor = CgEditor(group_engine, _cg_id(group_engine))
+    editor.table.item(0, 2).setText("0.02")  # верхнее
+    editor.table.item(0, 3).setText("0.05")  # нижнее выше верхнего
+    editor.save()
+
+    assert quiet and "swapped" in str(quiet[0])
+    # Сообщение называет обе величины, а не только факт отказа.
+    assert "0.02" in str(quiet[0]) and "0.05" in str(quiet[0])
+
+
 # --- Раздел «Группы характеристик» ------------------------------------------------
 
 

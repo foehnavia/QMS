@@ -222,6 +222,56 @@ def test_canon_geometry_without_numbers_is_a_dash() -> None:
     assert canon_geometry_label(None, None, None) == NO_GEOMETRY
 
 
+# --- предельные отклонения: знак из данных (наряд 0015) ----------------------------
+
+
+@pytest.mark.parametrize(
+    "plus, minus, expected",
+    [
+        (0.05, -0.05, "+0.05 / −0.05"),  # симметричное поле
+        (0.05, 0.02, "+0.05 / +0.02"),  # посадка с натягом — оба в плюс
+        (-0.02, -0.05, "−0.02 / −0.05"),  # оба в минус
+        (0.05, None, "+0.05"),  # задано одно — второе не выдумывается
+        (None, -0.05, "−0.05"),
+        (None, None, ""),  # оба пусты — токена нет вовсе
+        (0, 0, "+0 / +0"),  # ноль знака не несёт: пишем `+0`
+    ],
+)
+def test_each_deviation_carries_its_own_sign(plus, minus, expected) -> None:
+    """Критерий 1–2 наряда 0015: знак читается из значения, а не из шаблона.
+
+    Прежняя сборка была `f"+{abs(plus)} / −{abs(minus)}"`, и пара `+0.05 / +0.02`
+    выводилась как `+0.05 / −0.02`: поле допуска зеркально, несимметричная
+    посадка выглядела симметричной. В базе значения были верны — врал показ.
+    """
+    from ui.common import tolerance_text
+
+    assert tolerance_text(plus, minus) == expected
+
+
+def test_the_minus_of_a_deviation_is_the_canonical_one() -> None:
+    """`−` (U+2212), а не ASCII-дефис: на экране один минус, а не два разных."""
+    from ui.common import tolerance_text
+
+    text = tolerance_text(0.05, -0.05)
+
+    assert "−" in text and "-" not in text
+
+
+def test_a_deviation_pair_stays_one_token_in_one_isolate() -> None:
+    """`CLAUDE.md` §9: пара — атомарный токен, и изолят на неё **один**.
+
+    Два изолята подряд остаются двумя runs и в RTL-контексте раскладываются
+    справа налево, превращая `+0.05 / −0.02` в `−0.02 / +0.05`.
+    """
+    from ui.common import tolerance_label
+
+    cell = tolerance_label(0.05, 0.02)
+
+    assert cell.count("⁨") == 1
+    assert strip_iso(cell) == "+0.05 / +0.02"
+
+
 # --- изоляты: один вокруг токена, не два подряд ------------------------------------
 
 

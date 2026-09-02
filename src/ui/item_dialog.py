@@ -39,7 +39,10 @@ from .kit import tokens
 
 NO_GROUP = "— no group —"
 NO_TYPE = "— not set —"
-COLUMNS = ("g-position", "Local number", "Nominal", "Tolerance")
+#: Та же составная ячейка, что в позициях детали, — и та же подпись ISO 286
+#: (решение 2026-09-02): одно и то же значение не может называться на двух
+#: экранах по-разному.
+COLUMNS = ("g-position", "Local number", "Nominal", "Limit deviations")
 
 #: Индекс позиции и номер размера — идентификаторы, влево; вправо величины.
 NUMERIC_COLUMNS = (0, 1)

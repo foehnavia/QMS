@@ -149,6 +149,83 @@ def test_a_new_position_carries_no_coordinates(seeded_session: Session) -> None:
     assert (added.x, added.y) == (None, None)
 
 
+# --- Предельные отклонения: единственный инвариант пары (наряд 0015) ----------------
+
+
+@pytest.mark.parametrize(
+    "upper, lower",
+    [
+        (0.05, -0.05),  # симметричное поле
+        (0.05, 0.02),  # посадка с натягом: оба в плюс
+        (-0.02, -0.05),  # оба в минус
+        (0.05, 0.05),  # равные — не переставлены
+        (0.05, None),  # задано одно
+        (None, -0.05),
+    ],
+)
+def test_any_pair_with_the_upper_not_below_the_lower_is_accepted(
+    seeded_session: Session, upper, lower
+) -> None:
+    """Критерий 3: проверки знака нет — законны и `+/+`, и `−/−`, и `+/−`.
+
+    Прежняя редакция находки предлагала считать нижнее отклонение всегда
+    отрицательным. Это неправда: у посадок с натягом оба уходят в плюс, и
+    отбивать такую пару значило бы запрещать реальную геометрию.
+    """
+    group = _group(seeded_session)
+
+    added = add_position(seeded_session, group, GPositionSpec(9, 3.75, upper, lower))
+    seeded_session.commit()
+
+    assert (added.tol_plus, added.tol_minus) == (upper, lower)
+
+
+def test_swapped_deviations_are_refused_on_add(seeded_session: Session) -> None:
+    """Верхнее ниже нижнего — поле допуска вывернуто наизнанку."""
+    group = _group(seeded_session)
+
+    with pytest.raises(ValidationError) as excinfo:
+        add_position(seeded_session, group, GPositionSpec(9, 3.75, 0.02, 0.05))
+
+    # Сообщение называет обе величины: оператор должен видеть, что переставлено.
+    assert "0.02" in str(excinfo.value) and "0.05" in str(excinfo.value)
+    assert "swapped" in str(excinfo.value)
+
+
+def test_swapped_deviations_are_refused_on_create(seeded_session: Session) -> None:
+    with pytest.raises(ValidationError):
+        create_group(
+            seeded_session, "CG-SWAP", (GPositionSpec(1, 3.75, -0.05, 0.05),)
+        )
+
+
+def test_swapped_deviations_are_refused_on_update(seeded_session: Session) -> None:
+    """Третий путь ввода — правка позиции; инвариант живёт в домене, не в форме."""
+    group = _group(seeded_session)
+
+    with pytest.raises(ValidationError):
+        update_position(
+            seeded_session,
+            group.positions[0],
+            nominal=3.75,
+            tol_plus=-0.05,
+            tol_minus=0.05,
+        )
+
+
+def test_the_refusal_speaks_the_minus_the_screen_shows(seeded_session: Session) -> None:
+    """Сообщение читает оператор — значит это интерфейс (`CLAUDE.md` §9).
+
+    Минус в нём тот же, что в ячейке: `−` (U+2212), а не ASCII-дефис.
+    """
+    group = _group(seeded_session)
+
+    with pytest.raises(ValidationError) as excinfo:
+        add_position(seeded_session, group, GPositionSpec(9, 3.75, -0.05, -0.02))
+
+    assert "−0.05" in str(excinfo.value) and "-0.05" not in str(excinfo.value)
+
+
 def test_free_position_is_removed(seeded_session: Session) -> None:
     group = _group(seeded_session)
     position = group.positions[1]

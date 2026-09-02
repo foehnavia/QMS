@@ -29,6 +29,8 @@ from domain.reference import list_values
 from ui import kit
 from ui.common import DECISION_INSP_LABELS, strip_iso
 from ui.deviation_view import COLUMNS, DeviationView
+from ui.item_dialog import COLUMNS as ItemDialogColumns
+from ui.item_positions_dialog import COLUMNS as ItemPositionsColumns
 from ui.item_positions_dialog import ItemPositionsDialog
 from ui.item_view import ItemView
 from ui.kit import tokens
@@ -208,9 +210,48 @@ def test_item_positions_open_from_the_characteristics_column(engine, no_modals) 
     assert strip_iso(dialog.table.item(0, 0).text()) == "g1"
     assert strip_iso(dialog.table.item(0, 1).text()) == "12"
     assert strip_iso(dialog.table.item(0, 2).text()) == "3.75"
-    # Допуск — атомарный токен с минусом канона, а не ASCII-дефисом.
+    # Пара отклонений — атомарный токен с минусом канона, а не ASCII-дефисом;
+    # знак каждого прочитан из значения (наряд 0015).
     assert strip_iso(dialog.table.item(0, 3).text()) == "+0.05 / −0.05"
     assert no_modals == []
+
+
+def test_item_positions_show_an_interference_fit_as_entered(engine, no_modals) -> None:
+    """Р-2: у посадки с натягом **оба** отклонения плюсовые — и так и показаны.
+
+    Прежняя сборка рисовала знаки в шаблон поверх `abs(value)` и выводила такую
+    пару как `+0.05 / −0.02`: поле допуска зеркально, несимметричная посадка
+    выглядела симметричной. Тест смотрит на **текст ячейки** — то, что читает
+    оператор, — а не на вызов функции показа (`CLAUDE.md` §9).
+    """
+    from db.models import CharacteristicGroup
+
+    item_id = _bound_item(engine)
+    with session_scope(engine) as session:
+        position = (
+            session.query(CharacteristicGroup).one().positions[0]
+        )
+        position.tol_plus, position.tol_minus = 0.05, 0.02
+
+    dialog = ItemPositionsDialog(engine, item_id)
+    deviations = ItemPositionsColumns.index("Limit deviations")
+
+    assert strip_iso(dialog.table.item(0, deviations).text()) == "+0.05 / +0.02"
+    assert no_modals == []
+
+
+def test_item_positions_name_the_pair_by_iso_286(engine) -> None:
+    """Критерий 4: `Tolerance` обещал знак, которого не гарантирует."""
+    assert ItemPositionsColumns == (
+        "g-position",
+        "Local number",
+        "Nominal",
+        "Limit deviations",
+        "State",
+    )
+    # Та же составная ячейка в форме новой детали названа так же: одно значение
+    # не может называться на двух экранах по-разному.
+    assert ItemDialogColumns[-1] == "Limit deviations"
 
 
 def test_item_positions_are_read_only(engine) -> None:
