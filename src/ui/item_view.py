@@ -163,7 +163,9 @@ class ItemView(QWidget):
         return self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
 
     def add_item(self) -> None:
-        dialog = ItemDialog(self._engine, self)
+        # `parent=` именем, а не позицией: вторым параметром у формы стоит
+        # `item_id`, и `ItemDialog(engine, self)` открывал её «на правку вида».
+        dialog = ItemDialog(self._engine, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.reload()
 

@@ -139,7 +139,7 @@ class CgView(QWidget):
         return self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
 
     def create_group(self) -> None:
-        dialog = CgDialog(self._engine, self)
+        dialog = CgDialog(self._engine, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.reload()
 
@@ -147,7 +147,7 @@ class CgView(QWidget):
         cg_id = self._selected_cg_id()
         if cg_id is None:
             return
-        editor = CgEditor(self._engine, cg_id, self)
+        editor = CgEditor(self._engine, cg_id, parent=self)
         if editor.exec() == QDialog.DialogCode.Accepted:
             self.reload()
 

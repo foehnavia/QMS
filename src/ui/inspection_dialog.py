@@ -38,6 +38,7 @@ class InspectionDialog(QDialog):
         engine: Engine,
         finding_id: int,
         inspection_id: int | None = None,
+        *,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -101,7 +102,7 @@ class InspectionDialog(QDialog):
         inspection_id: int | None = None,
         parent: QWidget | None = None,
     ) -> bool:
-        dialog = cls(engine, finding_id, inspection_id, parent)
+        dialog = cls(engine, finding_id, inspection_id, parent=parent)
         return dialog.exec() == QDialog.DialogCode.Accepted
 
     def reload(self) -> None:

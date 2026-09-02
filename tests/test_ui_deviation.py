@@ -784,3 +784,29 @@ def test_saving_stays_blocked_when_the_last_finding_is_removed(engine_with_item)
     assert "finding" in reopened.status.text()
     with session_scope(engine_with_item) as session:
         assert session.query(Finding).count() == 1
+
+
+# --- наряд 0017: «Create item…» из формы отклонения ----------------------------------
+
+
+def test_create_item_from_the_deviation_form_opens_a_create_form(
+    engine_with_item, monkeypatch
+) -> None:
+    """Тот же промах жил и здесь: `ItemDialog(engine, self)` — родитель в слот `item_id`.
+
+    Второй вход в форму детали (R3: деталь заводится по ходу регистрации) звал её
+    ровно так же, как экран деталей, и падал бы ровно так же — просто до него на
+    прогоне не дошли. Правка одна, поэтому и проверок две.
+    """
+    import ui.deviation_dialog as module
+
+    opened: list = []
+    monkeypatch.setattr(module.ItemDialog, "exec", lambda self: opened.append(self) or 0)
+
+    dialog = DeviationDialog(engine_with_item)
+    dialog.create_item()
+
+    assert opened, "форма детали не открылась"
+    assert opened[0]._item_id is None
+    assert opened[0].windowTitle() == "New item"
+    assert opened[0].parent() is dialog

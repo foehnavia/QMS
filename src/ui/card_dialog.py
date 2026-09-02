@@ -200,7 +200,9 @@ class PrecedentTable(QTableWidget):
 class CardDialog(QDialog):
     """Карточка одного отклонения с автообзором прецедентов."""
 
-    def __init__(self, engine: Engine, deviation_id: int, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, engine: Engine, deviation_id: int, *, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._engine = engine
         self._deviation_id = deviation_id
@@ -382,7 +384,7 @@ class CardDialog(QDialog):
     @classmethod
     def run(cls, engine: Engine, deviation_id: int, parent: QWidget | None = None) -> None:
         """Открыть карточку. Возврата не имеет: карточка ничего не решает сама."""
-        cls(engine, deviation_id, parent).exec()
+        cls(engine, deviation_id, parent=parent).exec()
 
     # --- загрузка ---------------------------------------------------------------
 

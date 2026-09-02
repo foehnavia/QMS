@@ -90,7 +90,7 @@ def parse_optional_number(text: str, field: str) -> float | None:
 class CgDialog(QDialog):
     """Форма новой группы. После accept() имя группы — в `created_name`."""
 
-    def __init__(self, engine: Engine, parent: QWidget | None = None) -> None:
+    def __init__(self, engine: Engine, *, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._engine = engine
         self.created_name: str | None = None

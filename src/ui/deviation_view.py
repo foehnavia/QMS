@@ -220,7 +220,7 @@ class DeviationView(QWidget):
         именно тогда прецеденты и нужны. При правке существующего не открываем:
         оператор уже знает, что там.
         """
-        dialog = DeviationDialog(self._engine, None, self)
+        dialog = DeviationDialog(self._engine, None, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self.reload()

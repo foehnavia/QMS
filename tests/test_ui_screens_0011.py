@@ -417,6 +417,57 @@ def _decided_deviation(engine) -> int:
         return deviation.deviation_id
 
 
+# --- наряд 0017: точка входа в форму детали ------------------------------------------
+
+
+def _opened_dialogs(monkeypatch) -> list:
+    """Перехватить показ формы детали и вернуть список открытых экземпляров.
+
+    Смотрим на то, **с чем форма открылась**, а не на то, что вызов состоялся:
+    дефект №12 был именно в аргументах, а не в самом факте вызова.
+    """
+    import ui.item_view as module
+
+    opened: list = []
+    monkeypatch.setattr(module.ItemDialog, "exec", lambda self: opened.append(self) or 0)
+    return opened
+
+
+def test_new_item_from_the_section_opens_a_create_form(engine, monkeypatch) -> None:
+    """Критерий 1 наряда 0017: «New item» открывает форму заведения.
+
+    `ItemDialog(engine, self)` клал родителя в слот `item_id` — ревью 0012
+    вставило `item_id` вторым параметром, перед `parent`, и вызов молча сменил
+    смысл. Форма шла грузить деталь с идентификатором-виджетом:
+    `sqlite3.ProgrammingError: type 'ItemView' is not supported`.
+    """
+    opened = _opened_dialogs(monkeypatch)
+    view = ItemView(engine)
+
+    view.add_button.click()
+
+    assert opened, "форма детали не открылась"
+    assert opened[0]._item_id is None
+    assert opened[0].windowTitle() == "New item"
+    assert opened[0].parent() is view
+
+
+def test_edit_item_from_the_section_opens_the_selected_item(engine, monkeypatch) -> None:
+    """Критерий 4: правка детали продолжает работать — и это тот же вход кнопкой."""
+    item_id = _bound_item(engine)
+    opened = _opened_dialogs(monkeypatch)
+
+    view = ItemView(engine)
+    view.table.setCurrentCell(0, 0)
+    view.edit_button.click()
+
+    assert opened, "форма детали не открылась"
+    assert opened[0]._item_id == item_id
+    assert opened[0].windowTitle() == "Edit item"
+    # Засев относится к заведению: у существующей детали размеры уже есть.
+    assert not opened[0].positions.isVisibleTo(opened[0])
+
+
 # --- доводка 0012: правка детали, радиокнопки, уплотнение хрома ----------------------
 
 

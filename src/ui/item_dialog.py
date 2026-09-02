@@ -34,7 +34,7 @@ from domain.reference import list_values
 
 from . import kit
 from .cg_dialog import CgDialog
-from .common import bind_direction, tolerance_label
+from .common import bind_direction, optional_id, tolerance_label
 from .kit import tokens
 
 NO_GROUP = "— no group —"
@@ -67,13 +67,14 @@ class ItemDialog(QDialog):
         self,
         engine: Engine,
         item_id: int | None = None,
+        *,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._engine = engine
-        self._item_id = item_id
+        self._item_id = optional_id(item_id, "item_id")
         self.created_number: str | None = None
-        self.setWindowTitle("New item" if item_id is None else "Edit item")
+        self.setWindowTitle("New item" if self._item_id is None else "Edit item")
         self.resize(tokens.DIALOG_MEDIUM, tokens.DIALOG_HEIGHT_MEDIUM)
 
         self.number_edit = QLineEdit()
@@ -137,15 +138,15 @@ class ItemDialog(QDialog):
         layout.addWidget(self.buttons)
 
         self.reload_reference()
-        if item_id is not None:
-            self._load(item_id)
+        if self._item_id is not None:
+            self._load(self._item_id)
 
     @classmethod
     def run(
         cls, engine: Engine, item_id: int | None = None, parent: QWidget | None = None
     ) -> bool:
         """Открыть форму; `True` — деталь заведена или правка сохранена."""
-        return cls(engine, item_id, parent).exec() == QDialog.DialogCode.Accepted
+        return cls(engine, item_id, parent=parent).exec() == QDialog.DialogCode.Accepted
 
     # --- наполнение ------------------------------------------------------------
 
@@ -223,7 +224,7 @@ class ItemDialog(QDialog):
 
     def create_group(self) -> None:
         """R3 — недостающую группу можно завести прямо отсюда."""
-        dialog = CgDialog(self._engine, self)
+        dialog = CgDialog(self._engine, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.created_name:
             self.reload_reference(keep_group=dialog.created_name)
 

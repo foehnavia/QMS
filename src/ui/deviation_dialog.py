@@ -61,6 +61,7 @@ from .common import (
     dimension_sort_key,
     iso,
     numeric_field,
+    optional_id,
     signed_label,
 )
 from .finding_dialog import FindingDialog, FindingRow
@@ -109,14 +110,18 @@ class DeviationDialog(QDialog):
     """Регистрация и правка отклонения. Решение вносится отдельным действием."""
 
     def __init__(
-        self, engine: Engine, deviation_id: int | None = None, parent: QWidget | None = None
+        self,
+        engine: Engine,
+        deviation_id: int | None = None,
+        *,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._engine = engine
-        self._deviation_id = deviation_id
+        self._deviation_id = optional_id(deviation_id, "deviation_id")
         self._rows: list[FindingRow] = []
         self.setWindowTitle(
-            "New deviation" if deviation_id is None else "Deviation — edit"
+            "New deviation" if self._deviation_id is None else "Deviation — edit"
         )
         self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_TALL)
 
@@ -250,7 +255,7 @@ class DeviationDialog(QDialog):
     def run(
         cls, engine: Engine, deviation_id: int | None = None, parent: QWidget | None = None
     ) -> bool:
-        dialog = cls(engine, deviation_id, parent)
+        dialog = cls(engine, deviation_id, parent=parent)
         return dialog.exec() == QDialog.DialogCode.Accepted
 
     @property
@@ -431,7 +436,9 @@ class DeviationDialog(QDialog):
 
     def create_item(self) -> None:
         """Деталь заводится по ходу — штатный путь, а не исключение (§6)."""
-        dialog = ItemDialog(self._engine, self)
+        # `parent=` именем, а не позицией: вторым параметром у формы стоит
+        # `item_id`, и `ItemDialog(engine, self)` открывал её «на правку вида».
+        dialog = ItemDialog(self._engine, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.created_number:
             self.reload_items(preselect=dialog.created_number)
             self._refresh()
@@ -447,7 +454,7 @@ class DeviationDialog(QDialog):
     # --- действия по находкам ----------------------------------------------------
 
     def on_add_finding(self) -> None:
-        dialog = FindingDialog(self._engine, self.item.currentData(), None, self)
+        dialog = FindingDialog(self._engine, self.item.currentData(), None, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.row is not None:
             if any(row.local_number == dialog.row.local_number for row in self._rows):
                 QMessageBox.warning(
@@ -465,7 +472,7 @@ class DeviationDialog(QDialog):
         row = self._current_row()
         if row is None:
             return
-        dialog = FindingDialog(self._engine, self.item.currentData(), row, self)
+        dialog = FindingDialog(self._engine, self.item.currentData(), row, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.row is not None:
             self._rows[index] = dialog.row
             self._refresh()

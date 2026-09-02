@@ -71,7 +71,7 @@ class MappingDialog(QDialog):
     """Привязка детали к канону. Пишет в базу сразу по действию оператора."""
 
     def __init__(
-        self, engine: Engine, item_id: int, cg_id: int, parent: QWidget | None = None
+        self, engine: Engine, item_id: int, cg_id: int, *, parent: QWidget | None = None
     ) -> None:
         super().__init__(parent)
         self._engine = engine
@@ -147,7 +147,7 @@ class MappingDialog(QDialog):
         Публичная точка вызова: раздел «Группы характеристик», карточка детали и
         (в S4) «ранние кнопки» формы ввода отклонения зовут именно её.
         """
-        dialog = cls(engine, item_id, cg_id, parent)
+        dialog = cls(engine, item_id, cg_id, parent=parent)
         return dialog.exec() == QDialog.DialogCode.Accepted
 
     # --- отрисовка -------------------------------------------------------------

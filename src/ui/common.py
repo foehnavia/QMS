@@ -48,6 +48,7 @@ __all__ = [
     "bind_direction",
     "decision_dev_label",
     "deviation_text",
+    "optional_id",
     "dimension_sort_key",
     "directional",
     "first_strong",
@@ -110,6 +111,29 @@ DECISION_INSP_LABELS = {
     "approved": "Acceptable",
     "not_approved": "Not acceptable",
 }
+
+
+def optional_id(value: object, field: str) -> int | None:
+    """Необязательный идентификатор записи — или `None`; иначе `TypeError`.
+
+    Диалог, у которого идентификатор стоит **вторым** параметром, а родитель
+    третьим, ловит один и тот же промах: `Dialog(engine, self)` — родитель
+    уезжает в слот идентификатора. Молча это не падает: `item_id` становится
+    «не None», форма идёт читать запись, и оператор получает
+    `sqlite3.ProgrammingError: type 'ItemView' is not supported` из глубины
+    SQLAlchemy — трассу, по которой до своей же строки вызова доходить долго.
+
+    Отказ здесь называет промах на месте. Тот же приём, что у
+    `bind_direction` на текстовой области (решение 2026-08-19): молча-бесполезный
+    вызов повторил бы ошибку, поэтому хелпер **отказывает**.
+    """
+    if value is None or isinstance(value, int):
+        return value
+    raise TypeError(
+        f"{field} must be an int or None, got {type(value).__name__} — "
+        "a widget in this slot usually means the parent was passed positionally; "
+        "pass it as parent=…"
+    )
 
 
 def decision_dev_label(decision: str | None, *, short: bool = False) -> str:

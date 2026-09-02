@@ -97,7 +97,9 @@ class _Spec:
 class CgEditor(QDialog):
     """Редактор группы. Возвращает `True` из `exec()`, если что-то сохранено."""
 
-    def __init__(self, engine: Engine, cg_id: int, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, engine: Engine, cg_id: int, *, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._engine = engine
         self._cg_id = cg_id

@@ -77,6 +77,7 @@ class FindingDialog(QDialog):
         engine: Engine,
         item_id: int | None,
         row: FindingRow | None = None,
+        *,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)

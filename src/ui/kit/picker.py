@@ -40,6 +40,7 @@ class PickerDialog(QDialog):
         title: str,
         prompt: str,
         rows: list[tuple[object, str]],
+        *,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -138,7 +139,7 @@ def pick(
     """Открыть выбор; `None` — оператор отказался или выбирать не из чего."""
     if not rows:
         return None
-    dialog = PickerDialog(title, prompt, rows, parent)
+    dialog = PickerDialog(title, prompt, rows, parent=parent)
     if dialog.exec() != QDialog.DialogCode.Accepted:
         return None
     return dialog.chosen

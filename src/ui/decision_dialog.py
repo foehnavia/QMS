@@ -51,7 +51,9 @@ OUTCOME_NOTES = {
 class DecisionDialog(QDialog):
     """Внесение и смена решения. `True` из `run` — решение записано."""
 
-    def __init__(self, engine: Engine, deviation_id: int, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, engine: Engine, deviation_id: int, *, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._engine = engine
         self._deviation_id = deviation_id
@@ -104,7 +106,7 @@ class DecisionDialog(QDialog):
     @classmethod
     def run(cls, engine: Engine, deviation_id: int, parent: QWidget | None = None) -> bool:
         """Открыть решение по отклонению; `True` — решение записано."""
-        dialog = cls(engine, deviation_id, parent)
+        dialog = cls(engine, deviation_id, parent=parent)
         return dialog.exec() == QDialog.DialogCode.Accepted
 
     def reload(self) -> None:

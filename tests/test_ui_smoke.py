@@ -228,6 +228,178 @@ def test_bad_number_is_a_domain_error() -> None:
         parse_optional_number("три", "номинал")
 
 
+# --- §3.3 наряда 0017: дымовой тест уровня экрана ---------------------------------
+#
+# Тесты проверяли формы, но не то, **чем их открывают**. Дефект №12 («New item» не
+# открывается: экран передавал себя в слот `item_id`) жил ровно в этом промежутке —
+# все тесты формы конструировали её напрямую, а `add_item`, точку входа оператора,
+# не звал никто.
+#
+# Поэтому кнопки здесь **нажимаются**, а список действий берётся с самого экрана:
+# кнопка, добавленная завтра, попадёт под проверку без правки теста.
+
+
+@pytest.fixture
+def filled_engine(seeded_engine):
+    """Засеянная база: справочники, деталь, группа и отклонение.
+
+    Нужна именно наполненная: половина действий раздела работает над выбранной
+    строкой, и на пустой выдаче эти пути не исполняются вовсе.
+    """
+    from datetime import date
+
+    from conftest import make_item
+    from db.session import session_scope
+    from domain.deviations import register
+    from domain.groups import GPositionSpec, create_group
+
+    with session_scope(seeded_engine) as session:
+        create_group(session, "CG-A", (GPositionSpec(1, 3.75, 0.05, -0.05),))
+        item = make_item(session, "C1-08375A")
+        register(session, item=item, wo="W26007336", quantity=3, date=date.today())
+    return seeded_engine
+
+
+@pytest.fixture
+def deaf(monkeypatch):
+    """Заглушить все модальные пути: под offscreen они вешают прогон.
+
+    Модальное окно ждёт ответа вечно (`CLAUDE.md` §9), поэтому тест уровня экрана
+    обязан перехватить **каждый** способ его показать — иначе первое же нажатие
+    останавливает прогон вместо того, чтобы что-то проверить.
+    """
+    from PySide6.QtWidgets import QDialog, QFileDialog, QInputDialog, QMessageBox
+
+    monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.DialogCode.Rejected.value)
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.StandardButton.No)
+    for name in ("information", "warning", "critical"):
+        monkeypatch.setattr(
+            QMessageBox, name, staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok)
+        )
+    # Ответ на подтверждение — «нет»: дымовой тест ничего не удаляет.
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No)
+    )
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("", False)))
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: ("", "")))
+
+    shown: list[Exception] = []
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
+    return shown
+
+
+def _sections(engine) -> list:
+    """Четыре раздела ленты — те же классы, что поднимает `MainWindow`."""
+    from ui.cg_view import CgView
+    from ui.deviation_view import DeviationView
+    from ui.reference_view import ReferenceView
+
+    return [ItemView(engine), CgView(engine), DeviationView(engine), ReferenceView(engine)]
+
+
+@pytest.fixture
+def slot_errors(monkeypatch):
+    """Ловушка исключений, вылетевших **из слота**.
+
+    Без неё этот тест зелёный на сломанной кнопке: PySide6 не пробрасывает
+    исключение слота через `click()` наружу — оно уходит в `sys.excepthook`, а
+    прогон идёт дальше. Проверено на сломанной сборке: с дефектом №12 на месте
+    тест проходил, пока сюда не заглянули. Тот же класс, что «сверяй то, чем
+    рисуют»: наблюдали не то, чем отказывает.
+    """
+    import sys
+
+    caught: list[BaseException] = []
+    monkeypatch.setattr(sys, "excepthook", lambda kind, value, trace: caught.append(value))
+    return caught
+
+
+def _actions(view) -> list:
+    """Кнопки панели действий — снимком **до** первого нажатия.
+
+    Снимок обязателен: диалог открывается с `parent=view` и тем самым становится
+    его ребёнком, а `findChildren` после первого нажатия вернула бы ещё и кнопки
+    открытой формы. Нажимать «Create item» в пустой форме этот тест не нанимался
+    — он проверяет вход в неё.
+
+    Заодно отбрасываем всё, что живёт в другом окне: у кнопки диалога
+    `window()` — сам диалог.
+    """
+    from PySide6.QtWidgets import QPushButton
+
+    return [
+        button
+        for button in view.findChildren(QPushButton)
+        if button.window() is view.window()
+    ]
+
+
+def _press(buttons) -> list[str]:
+    """Нажать каждую доступную кнопку — как это делает оператор."""
+    pressed = []
+    for button in buttons:
+        if not button.isEnabled():
+            continue
+        pressed.append(strip_iso(button.text()))
+        button.click()
+    return pressed
+
+
+def _select_first_row(view) -> bool:
+    """Выбрать первую строку выдачи, если она есть."""
+    table = getattr(view, "table", None) or getattr(view, "values", None)
+    if table is None or table.rowCount() == 0:
+        return False
+    table.setCurrentCell(0, 0)
+    return True
+
+
+@pytest.mark.parametrize("fixture", ["engine", "filled_engine"], ids=["empty-db", "seeded-db"])
+def test_every_section_action_survives_being_pressed(
+    qt_app, deaf, slot_errors, fixture, request
+) -> None:
+    """Критерий 3 наряда 0017: все действия панелей четырёх разделов зовутся живыми.
+
+    Дважды: на пустой базе и на заполненной, и в заполненной — второй раз с
+    выбранной строкой, потому что действие над записью до выбора и после ведёт
+    себя по-разному (без выбора обязано вежливо сказать «сначала выберите»).
+    """
+    engine = request.getfixturevalue(fixture)
+
+    for view in _sections(engine):
+        actions = _actions(view)
+        assert _press(actions), f"у раздела {type(view).__name__} не нашлось действий"
+        if _select_first_row(view):
+            _press(actions)
+
+    # Доменных отказов на пустом ходу быть не должно: кнопка либо открывает
+    # форму, либо вежливо просит выбрать строку.
+    # Ни одного исключения из слота — иначе кнопка отказывает молча.
+    assert slot_errors == [], [repr(error) for error in slot_errors]
+    # И ни одного доменного отказа на пустом ходу.
+    assert deaf == []
+
+
+def test_a_dialog_refuses_a_positional_parent(seeded_engine) -> None:
+    """Критерий 2: лишний позиционный аргумент — `TypeError`, а не подмена смысла.
+
+    `parent` у конструкторов диалогов стоит **только по имени** (§3.2). Пока он
+    был позиционным, параметр, вставленный перед ним, молча менял смысл уже
+    написанного вызова: ревью 0012 добавило `item_id` вторым — и
+    `ItemDialog(engine, self)` из экрана деталей стал значить «правь деталь с
+    идентификатором-виджетом».
+    """
+    view = ItemView(seeded_engine)
+
+    with pytest.raises(TypeError):
+        ItemDialog(seeded_engine, None, view)  # родитель третьим позиционным
+
+    # Тот же промах в форме прежней подписи — родитель вторым — теперь тоже
+    # называется на месте, а не уходит трассой в глубину SQLAlchemy.
+    with pytest.raises(TypeError):
+        ItemDialog(seeded_engine, view)
+
+
 # --- Критерий 8: домен не зависит от UI ------------------------------------------
 
 

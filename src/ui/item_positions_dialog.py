@@ -55,7 +55,9 @@ EMPTY_BODY = (
 class ItemPositionsDialog(QDialog):
     """Размеры детали и их привязка к канону. Ничего не правит."""
 
-    def __init__(self, engine: Engine, item_id: int, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, engine: Engine, item_id: int, *, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._engine = engine
         self._item_id = item_id
@@ -91,7 +93,7 @@ class ItemPositionsDialog(QDialog):
 
     @classmethod
     def run(cls, engine: Engine, item_id: int, parent: QWidget | None = None) -> None:
-        cls(engine, item_id, parent).exec()
+        cls(engine, item_id, parent=parent).exec()
 
     def reload(self) -> None:
         with session_scope(self._engine) as session:
