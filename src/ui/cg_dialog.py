@@ -1,7 +1,10 @@
 """Создание CharacteristicGroup «на лету» (R3) — имя + g-позиции с геометрией.
 
-Функциональный ввод, без визуального редактора: «шарики» и переиспользуемый UI
-маппинга — это редактор группы (`cg_editor`).
+**Число позиций задаётся здесь** (наряд 0014): оператор смотрит на чертёж,
+видит на нём метки `G1…GN` и называет `N` — таблица разворачивается сразу на
+`g1…gN` пустыми значениями, и остаётся вписать в неё номинал и допуски с
+выносок. Добавление и удаление строки по одной никуда не делись: чертёж бывает
+дочитан не сразу.
 
 **Индекс g-позиции руками не вводится** (ратификация В-8, наряд 0010 §10): он
 выдаётся как `max + 1` и больше не меняется никогда. Основание — не ссылочная
@@ -17,6 +20,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QLineEdit,
+    QSpinBox,
     QTableWidgetItem,
     QWidget,
 )
@@ -27,7 +31,7 @@ from domain.errors import ValidationError
 from domain.groups import GPositionSpec, create_group
 
 from . import kit
-from .common import strip_iso
+from .common import numeric_field, strip_iso
 from .kit import tokens
 
 COLUMNS = ("g-position", "Nominal", "Tolerance +", "Tolerance −")
@@ -35,6 +39,11 @@ COLUMNS = ("g-position", "Nominal", "Tolerance +", "Tolerance −")
 #: Индекс позиции — идентификатор, влево; вправо выравниваются величины.
 NUMERIC_COLUMNS = (0,)
 MAGNITUDE_COLUMNS = (1, 2, 3)
+
+#: Сколько позиций форма готова развернуть разом. Не значение оформления, а
+#: предел ввода: чертежей с сотнями выносок не бывает, а опечатка «1000» иначе
+#: развернула бы таблицу, которую оператор будет удалять строку за строкой.
+MAX_POSITIONS = 200
 
 
 #: Знаки, которые приложение **показывает** и обязано принять обратно.
@@ -88,6 +97,14 @@ class CgDialog(QDialog):
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g. Implant_Con_375_C1")
 
+        #: Сколько выносок на чертеже — столько строк в таблице.
+        #: `numeric_field`: текст внутри редактора рисует Qt, обернуть его
+        #: изолятом нечем, и в RTL-окружении число переставилось бы (§9).
+        self.count = numeric_field(QSpinBox())
+        self.count.setRange(1, MAX_POSITIONS)
+        self.count.setValue(1)
+        self.count.valueChanged.connect(self.set_position_count)
+
         self.table = kit.data_table(
             COLUMNS,
             numeric_columns=NUMERIC_COLUMNS,
@@ -106,27 +123,57 @@ class CgDialog(QDialog):
 
         form = kit.stretching_form()
         form.addRow("Group name:", self.name_edit)
+        form.addRow("Positions on the drawing:", self.count)
 
         layout = kit.dialog_layout(self)
         layout.addLayout(form)
         layout.addWidget(
             kit.hint(
-                "Canonical positions — nominal and tolerance come from the drawing. "
-                "The g-position index is issued automatically and never reused."
+                "State how many positions the drawing carries — the table is laid "
+                "out at once for g1…gN. Nominal and tolerance come from the "
+                "drawing and may stay empty; the index is issued automatically "
+                "and never reused."
             )
         )
         layout.addWidget(self.table, 1)
         layout.addLayout(kit.button_row(add_row, drop_row))
         layout.addWidget(self.buttons)
 
-        self.add_row()
+        self.set_position_count(self.count.value())
+
+    def set_position_count(self, count: int) -> None:
+        """Развернуть таблицу на `g1…gN` — по числу выносок на чертеже.
+
+        Уже введённые строки не пересобираются: оператор мог назвать число
+        после того, как начал вписывать номиналы, и стирать их значило бы
+        наказывать за порядок действий. Лишние снимаются с хвоста — там стоят
+        самые молодые индексы.
+        """
+        while self.table.rowCount() < count:
+            self._append_row()
+        while self.table.rowCount() > count:
+            self.table.removeRow(self.table.rowCount() - 1)
 
     def add_row(self) -> None:
+        self._append_row()
+        self._sync_count()
+
+    def _append_row(self) -> None:
         row = self.table.rowCount()
         self.table.insertRow(row)
         self.table.setItem(row, 0, _issued_index(self._next_index()))
         for column in range(1, len(COLUMNS)):
             self.table.setItem(row, column, QTableWidgetItem(""))
+
+    def _sync_count(self) -> None:
+        """Счётчик и таблица — одно и то же число, кто бы его ни менял.
+
+        Иначе поле показывало бы «3» над таблицей из четырёх строк, и оператор
+        читал бы его как ответ на вопрос «сколько позиций», а это неправда.
+        """
+        self.count.blockSignals(True)
+        self.count.setValue(max(self.table.rowCount(), 1))
+        self.count.blockSignals(False)
 
     def _next_index(self) -> int:
         """Следующий индекс — `max + 1`. Дыра в середине не заполняется."""
@@ -144,6 +191,7 @@ class CgDialog(QDialog):
             row = self.table.rowCount() - 1
         if row >= 0:
             self.table.removeRow(row)
+            self._sync_count()
 
     def specs(self) -> list[GPositionSpec]:
         """Собрать g-позиции из таблицы; ошибки ввода — доменными сообщениями."""

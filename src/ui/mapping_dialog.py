@@ -1,27 +1,29 @@
 """Диалог привязки размеров детали к g-позициям — переиспользуемый.
 
-Поведение по Session-03 §4: клик по баллону → ввод локального номера размера →
-баллон ярко-зелёный; «нет у детали (99)» красит баллон серым; **«Готово»
-активна только когда каждый баллон получил состояние**.
+Строка таблицы = одна g-позиция канона; оператор вписывает **прямо в строку**
+локальный номер размера детали либо отмечает «нет у детали (99)». Баллонов на
+чертеже приложение не расставляет (наряд 0014): чертёж приходит из
+конструкторского отдела уже размеченным, показывается здесь как есть и служит
+тем, по чему оператор сверяет индекс `g5` с выноской.
 
 Каждое действие уходит в базу сразу — случайно закрытое окно не теряет уже
-введённое. Поэтому кнопки называются «Готово» / «Закрыть», а не
-«Сохранить» / «Отмена»: откатывать сеанс привязки нечем.
+введённое. Поэтому кнопки называются «Done» / «Close», а не «Save» / «Cancel»:
+откатывать сеанс привязки нечем. «Done» активна только когда **каждая** позиция
+получила состояние.
 
 Точка вызова из другого кода — `MappingDialog.run(engine, item_id, cg_id, parent)`;
-на неё S4 повесит «ранние кнопки» формы ввода отклонения (R2: канон-привязка
-делается до регистрации отклонения).
+на неё S4 повесил «ранние кнопки» формы ввода отклонения (R2: канон-привязка
+делается до регистрации отклонения). Сигнатура не менялась и меняться не должна.
 """
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
-    QInputDialog,
     QSplitter,
     QTableWidgetItem,
-    QVBoxLayout,
     QWidget,
 )
 from sqlalchemy import Engine
@@ -31,11 +33,15 @@ from db.session import session_scope
 from domain.mappings import bind, binding_state, clear, is_complete, mark_absent
 
 from . import kit
-from .balloon_canvas import MODE_SELECT, Balloon, BalloonCanvas
-from .common import canon_geometry_label, iso
+from .common import canon_geometry_label, iso, strip_iso
+from .drawing_view import DrawingPane
 from .kit import tokens
 
 COLUMNS = ("Position", "State", "Local number", "Canon geometry")
+
+#: Колонка, которую оператор правит прямо в строке. Остальные — чтение:
+#: индекс это идентичность позиции, состояние и геометрия — производные.
+LOCAL_NUMBER = COLUMNS.index("Local number")
 
 #: Индекс позиции, номер размера и геометрия — направление объявлено, потому что
 #: сильных символов в них нет (канон §6).
@@ -48,10 +54,17 @@ COLUMNS = ("Position", "State", "Local number", "Canon geometry")
 NUMERIC_COLUMNS = (0, 2, 3)
 
 STATE_LABELS = {
-    "linked": "bound",
-    "absent": "absent from item (99)",
-    "none": "not decided",
+    "linked": "linked",
+    "absent": "absent (99)",
+    "none": "undecided",
 }
+
+HINT = (
+    "Type the item's local dimension number straight into the row — the "
+    "g-index matches the callout on the drawing above. A position the item "
+    "does not have is marked absent (99). Every action is written at once; "
+    "Done only confirms that no position was left undecided."
+)
 
 
 class MappingDialog(QDialog):
@@ -65,24 +78,25 @@ class MappingDialog(QDialog):
         self._item_id = item_id
         self._cg_id = cg_id
         self._states: list = []
-        # Шире прежнего: с колонкой геометрии (В-6) таблица перестала помещаться
-        # в панель — подписи колонок обрезались, а ячейки переносились в две
-        # строки. Чертёж при этом не ужимается: он остаётся тем, по чему
-        # оператор узнаёт позицию.
-        self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_MEDIUM)
+        #: Пока True, правка ячеек идёт от кода, а не от оператора: `reload`
+        #: переписывает всю таблицу, и без флага каждая её ячейка выглядела бы
+        #: как ввод и уходила бы в базу.
+        self._loading = False
+        # Чертёж занял верх окна и требует высоты; таблица под ним осталась при
+        # своей ширине — с колонкой геометрии (В-6) уже узкой она не бывает.
+        self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_TALL)
 
-        self.canvas = BalloonCanvas(MODE_SELECT)
-        self.canvas.balloonClicked.connect(self._on_balloon)
+        self.drawing = DrawingPane()
 
-        self.table = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS)
-        self.table.currentCellChanged.connect(self._on_row)
+        self.table = kit.data_table(
+            COLUMNS, numeric_columns=NUMERIC_COLUMNS, read_only=False
+        )
+        self.table.itemChanged.connect(self._on_edit)
         #: Геометрия позиции по её индексу — заполняется вместе с состояниями.
         self._geometry: dict[int, tuple] = {}
 
-        self.bind_button = kit.primary("Set local number…")
         self.absent_button = kit.secondary("Absent from item (99)")
         self.clear_button = kit.secondary("Clear")
-        self.bind_button.clicked.connect(lambda: self._on_balloon(self._current_index()))
         self.absent_button.clicked.connect(self.mark_absent)
         self.clear_button.clicked.connect(self.clear_position)
 
@@ -99,22 +113,22 @@ class MappingDialog(QDialog):
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
 
-        actions = kit.button_row(
-            self.bind_button, self.absent_button, self.clear_button
+        side = kit.boxed(
+            kit.column(
+                kit.hint(HINT),
+                self.table,
+                kit.button_row(self.absent_button, self.clear_button),
+                self.status,
+            )
         )
 
-        side = QWidget()
-        side_layout = QVBoxLayout(side)
-        side_layout.setContentsMargins(0, 0, 0, 0)
-        side_layout.addWidget(self.table, 1)
-        side_layout.addLayout(actions)
-        side_layout.addWidget(self.status)
-
-        splitter = QSplitter()
-        splitter.addWidget(self.canvas)
+        # Вертикально, как в редакторе группы: чертёж — то, по чему оператор
+        # узнаёт позицию, и делить с таблицей ширину ему нечем.
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(self.drawing)
         splitter.addWidget(side)
         splitter.setStretchFactor(0, 1)
-        splitter.setSizes([tokens.DIALOG_MEDIUM, tokens.DIALOG_NARROW])
+        splitter.setSizes([tokens.DIALOG_HEIGHT_MEDIUM, tokens.DIALOG_HEIGHT_SHORT])
 
         layout = kit.dialog_layout(self)
         layout.addWidget(splitter, 1)
@@ -145,40 +159,27 @@ class MappingDialog(QDialog):
             self.setWindowTitle(f"Mapping — {item.item_number} · {group.name}")
             drawing = group.drawing
             self._states = binding_state(session, item, group)
-            # Координаты и геометрию берём из той же коллекции, которую уже
-            # обошёл `binding_state`: новых запросов не нужно, а прежний
-            # `_coordinates` открывал вторую сессию ради тех же строк.
-            positions = sorted(group.positions, key=lambda p: p.g_index)
-            coordinates = [(position.x, position.y) for position in positions]
+            # Геометрию берём из той же коллекции, которую уже обошёл
+            # `binding_state`: новых запросов не нужно.
             self._geometry = {
                 position.g_index: (
                     position.nominal,
                     position.tol_plus,
                     position.tol_minus,
                 )
-                for position in positions
+                for position in group.positions
             }
 
-        self.canvas.set_drawing(drawing)
-        self.canvas.set_balloons(
-            [
-                Balloon(
-                    g_index=state.g_index,
-                    x=position_x,
-                    y=position_y,
-                    state=state.state,
-                    label=state.local_number,
-                )
-                for state, (position_x, position_y) in zip(self._states, coordinates)
-            ]
-        )
+        self.drawing.set_drawing(drawing)
 
+        self._loading = True
         self.table.setRowCount(len(self._states))
         for row, state in enumerate(self._states):
-            self.table.setItem(row, 0, QTableWidgetItem(iso(f"g{state.g_index}")))
-            self.table.setItem(row, 1, QTableWidgetItem(STATE_LABELS[state.state]))
+            self.table.setItem(row, 0, _read_only(iso(f"g{state.g_index}")))
+            self.table.setItem(row, 1, _read_only(STATE_LABELS[state.state]))
             self.table.setItem(row, 2, QTableWidgetItem(state.local_number or ""))
-            self.table.setItem(row, 3, QTableWidgetItem(self._canon_cell(state.g_index)))
+            self.table.setItem(row, 3, _read_only(self._canon_cell(state.g_index)))
+        self._loading = False
 
         complete = is_complete(self._states)
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(complete)
@@ -192,7 +193,7 @@ class MappingDialog(QDialog):
     def _canon_cell(self, g_index: int) -> str:
         """Номинал и допуск позиции — то, **по чему** оператор решает (В-6).
 
-        Привязка — момент, когда он сопоставляет баллон на чертеже с локальным
+        Привязка — момент, когда он сопоставляет индекс на чертеже с локальным
         номером детали; без геометрии канона это выбор вслепую, а отправлять за
         числом в соседний диалог хуже, чем показать его здесь. Дублирование
         показа не грех; грех — дублирование источника, а источник один.
@@ -206,39 +207,35 @@ class MappingDialog(QDialog):
         row = self.table.currentRow()
         if 0 <= row < len(self._states):
             return self._states[row].g_index
-        return self.canvas.selected
+        return None
 
     def _state_of(self, g_index: int):
         return next(state for state in self._states if state.g_index == g_index)
 
-    def _on_row(self, row: int, *_args) -> None:
-        if 0 <= row < len(self._states):
-            self.canvas.select(self._states[row].g_index)
+    def _on_edit(self, item: QTableWidgetItem) -> None:
+        """Номер размера, вписанный в строку, — это и есть действие привязки.
 
-    def _on_balloon(self, g_index: int | None) -> None:
-        """Клик по баллону — ввод локального номера размера (§4)."""
-        if g_index is None:
-            self.status.setText("Select a position first.")
+        Пустая ячейка привязку **не снимает**: у снятия есть своя кнопка, а
+        стереть готовую привязку случайным `Backspace` по выделенной строке —
+        потеря данных, которую оператор заметит не сразу. Строка возвращается к
+        тому, что записано в базе.
+        """
+        if self._loading or item.column() != LOCAL_NUMBER:
             return
-        self._sync_row(g_index)
-        state = self._state_of(g_index)
 
-        number, accepted = QInputDialog.getText(
-            self,
-            f"Position g{g_index}",
-            "Item local number (from the drawing):",
-            text=state.local_number or "",
-        )
-        if not accepted:
+        state = self._states[item.row()]
+        number = strip_iso(item.text()).strip()
+        if not number:
+            self.reload()
             return
+
         try:
             with session_scope(self._engine) as session:
-                item = session.get(Item, self._item_id)
+                session_item = session.get(Item, self._item_id)
                 position = session.get(GPosition, state.g_position_id)
-                bind(session, item, position, number)
+                bind(session, session_item, position, number)
         except Exception as error:
             kit.show_error(self, error, title="Not bound")
-            return
         self.reload()
 
     def mark_absent(self) -> None:
@@ -273,8 +270,13 @@ class MappingDialog(QDialog):
             return
         self.reload()
 
-    def _sync_row(self, g_index: int) -> None:
-        for row, state in enumerate(self._states):
-            if state.g_index == g_index:
-                self.table.setCurrentCell(row, 0)
-                return
+
+def _read_only(text: str) -> QTableWidgetItem:
+    """Ячейка, которую правит не оператор: индекс, состояние, геометрия канона.
+
+    Таблица открыта на правку целиком — иначе номер размера не вписать в
+    строку, — поэтому закрывать приходится **остальные** ячейки поимённо.
+    """
+    cell = QTableWidgetItem(text)
+    cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
+    return cell

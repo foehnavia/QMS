@@ -3,8 +3,14 @@
 Номинал и допуск живут **на g-позиции** и берутся с чертежа; на характеристику
 детали они не копируются (`CharacteristicGroup.md`).
 
-Здесь же чертёж группы и координаты баллонов (наряд 0003): чертёж лежит в базе,
-координаты нормализованы 0..1.
+Здесь же чертёж группы (наряд 0003): он лежит в самой базе, чтобы она осталась
+копируемой одним файлом.
+
+**Координаты позиций код больше не пишет** (наряд 0014, QMS-016). Чертёж приходит
+из конструкторского отдела уже размеченным — метки `G1…GN` стоят на выносках, —
+и расставлять поверх картинки свои баллоны незачем. Колонки `x`/`y` остаются в
+схеме незаполняемыми: сносить их ценой миграции не оправдано, а уже введённые
+значения никто не трогает.
 """
 
 from __future__ import annotations
@@ -32,14 +38,16 @@ IMAGE_SIGNATURES = {
 
 @dataclass(frozen=True)
 class GPositionSpec:
-    """Строка ввода g-позиции: индекс, геометрия с чертежа и место баллона."""
+    """Строка ввода g-позиции: индекс и геометрия с чертежа.
+
+    Номинал и допуски необязательны: позиция бывает допуском формы (соосность
+    к базам), и номинала у неё нет вовсе (`CharacteristicGroup.md`, QMS-016).
+    """
 
     g_index: int
     nominal: float | None = None
     tol_plus: float | None = None
     tol_minus: float | None = None
-    x: float | None = None
-    y: float | None = None
 
 
 def list_groups(session: Session) -> list[CharacteristicGroup]:
@@ -78,23 +86,13 @@ def _by_index(spec: GPositionSpec) -> int:
     return spec.g_index
 
 
-def _check_coordinate(value: float | None, axis: str) -> float | None:
-    """Координаты нормализованы 0..1 — иначе баллон уедет за пределы чертежа."""
-    if value is None:
-        return None
-    if not 0.0 <= value <= 1.0:
-        raise ValidationError(f"Coordinate {axis} must be within 0..1, got {value}.")
-    return float(value)
-
-
 def _position_from_spec(spec: GPositionSpec) -> GPosition:
+    """Новая позиция. `x`/`y` не задаются — они остаются пустыми (QMS-016)."""
     return GPosition(
         g_index=spec.g_index,
         nominal=spec.nominal,
         tol_plus=spec.tol_plus,
         tol_minus=spec.tol_minus,
-        x=_check_coordinate(spec.x, "x"),
-        y=_check_coordinate(spec.y, "y"),
     )
 
 
@@ -133,15 +131,17 @@ def update_position(
     nominal: float | None,
     tol_plus: float | None,
     tol_minus: float | None,
-    x: float | None,
-    y: float | None,
 ) -> GPosition:
-    """Заменить геометрию и место баллона — **целиком**.
+    """Заменить геометрию позиции — **целиком**.
 
     Значений по умолчанию намеренно нет: функция присваивает все поля
     безусловно, поэтому пропущенный аргумент стирал бы старое значение, а
     выглядел бы как «это поле не трогаем». Вызывающий передаёт всё состояние
     позиции — в том числе то, что не менял.
+
+    `x`/`y` в этот перечень больше не входят и здесь **не трогаются вовсе**
+    (QMS-016): новые позиции живут без координат, а координаты, заведённые до
+    решения, переживают правку геометрии нетронутыми.
 
     Индекс позиции здесь не меняется: на него ссылаются привязки всех деталей,
     и тихая перенумерация переклеила бы ярлыки под готовыми привязками.
@@ -149,8 +149,6 @@ def update_position(
     position.nominal = nominal
     position.tol_plus = tol_plus
     position.tol_minus = tol_minus
-    position.x = _check_coordinate(x, "x")
-    position.y = _check_coordinate(y, "y")
     session.flush()
     return position
 
@@ -198,8 +196,9 @@ def set_drawing(
 ) -> CharacteristicGroup:
     """Положить чертёж в группу или снять его (`data=None`).
 
-    Координаты позиций при снятии и замене чертежа **сохраняются** (заметка Б
-    наряда 0003): оператор поправит баллоны перетаскиванием, а не расставит заново.
+    Позиции при снятии и замене чертежа не трогаются — ни их геометрия, ни
+    оставшиеся от прежней механики координаты: чертёж это картинка рядом с
+    таблицей, а не источник её содержимого.
     """
     if data is None:
         group.drawing = None

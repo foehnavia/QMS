@@ -1,4 +1,9 @@
-"""Правка группы и чертёж (критерии 2, 3, 7 наряда 0003)."""
+"""Правка группы и чертёж (критерии 2, 3, 7 наряда 0003; правка наряда 0014).
+
+Координаты `x`/`y` код больше не пишет (QMS-016): чертёж приходит размеченным.
+Проверяется здесь **обратная сторона** этого решения — что новые позиции живут
+без координат, а координаты, заведённые до решения, правкой не стираются.
+"""
 
 from __future__ import annotations
 
@@ -29,24 +34,17 @@ def _group(session: Session, name: str = "CG-A") -> CharacteristicGroup:
     return create_group(session, name, POSITIONS)
 
 
-def _move(session: Session, position: GPosition, x: float, y: float) -> GPosition:
-    """Переставить баллон, сохранив геометрию.
+def _legacy_coordinates(session: Session, position: GPosition, x: float, y: float) -> GPosition:
+    """Проставить координаты **мимо домена** — как их проставила прежняя форма.
 
-    `update_position` заменяет позицию целиком, поэтому «сдвинуть баллон» —
-    это передать и то, что не меняется. Помощник держит правило на виду.
+    Доменного пути к `x`/`y` больше нет, а данные с ними в базе есть: их завела
+    механика баллонов до наряда 0014. Тесты ниже проверяют, что эти значения
+    переживают правку, поэтому и заводить их приходится так же, как они там
+    оказались, — прямо в модель.
     """
-    return update_position(
-        session,
-        position,
-        nominal=position.nominal,
-        tol_plus=position.tol_plus,
-        tol_minus=position.tol_minus,
-        x=x,
-        y=y,
-    )
-
-
-# --- Название и позиции ----------------------------------------------------------
+    position.x, position.y = x, y
+    session.flush()
+    return position
 
 
 def test_group_is_renamed(seeded_session: Session) -> None:
@@ -74,19 +72,42 @@ def test_blank_group_name_is_refused(seeded_session: Session) -> None:
 def test_position_is_added_and_updated(seeded_session: Session) -> None:
     group = _group(seeded_session)
 
-    added = add_position(seeded_session, group, GPositionSpec(3, 0.5, 0.02, -0.02, 0.25, 0.75))
-    update_position(seeded_session, added, nominal=0.6, tol_plus=0.03, tol_minus=-0.03, x=0.4, y=0.4)
+    added = add_position(seeded_session, group, GPositionSpec(3, 0.5, 0.02, -0.02))
+    update_position(seeded_session, added, nominal=0.6, tol_plus=0.03, tol_minus=-0.03)
     seeded_session.commit()
 
     assert (added.g_index, added.nominal, added.tol_plus) == (3, 0.6, 0.03)
-    assert (added.x, added.y) == (0.4, 0.4)
+    # Критерий 6 наряда 0014: у новой позиции координат нет и после правки.
+    assert (added.x, added.y) == (None, None)
+
+
+def test_a_position_may_carry_a_tolerance_without_a_nominal(seeded_session: Session) -> None:
+    """Критерий 4: допуск формы заводится обычной позицией, номинала у неё нет."""
+    group = _group(seeded_session)
+
+    added = add_position(seeded_session, group, GPositionSpec(3, None, 0.02, -0.02))
+    seeded_session.commit()
+
+    assert (added.nominal, added.tol_plus, added.tol_minus) == (None, 0.02, -0.02)
+
+
+def test_editing_geometry_leaves_old_coordinates_alone(seeded_session: Session) -> None:
+    """Заведённое прежней механикой не стирается: миграции наряд не заказывал."""
+    group = _group(seeded_session)
+    position = _legacy_coordinates(seeded_session, group.positions[0], 0.3, 0.7)
+
+    update_position(seeded_session, position, nominal=4.0, tol_plus=0.1, tol_minus=-0.1)
+    seeded_session.commit()
+
+    assert (position.nominal, position.tol_plus) == (4.0, 0.1)
+    assert (position.x, position.y) == (0.3, 0.7)
 
 
 def test_update_position_demands_every_field(seeded_session: Session) -> None:
     """Ревью S3, п. 3: у `update_position` нет значений по умолчанию.
 
-    С ними вызов «поменяй только номинал» молча обнулял бы допуски и координаты
-    баллона — подпись приглашала наступить на это в S4.
+    С ними вызов «поменяй только номинал» молча обнулял бы допуски — подпись
+    приглашала наступить на это в S4.
     """
     group = _group(seeded_session)
 
@@ -94,16 +115,20 @@ def test_update_position_demands_every_field(seeded_session: Session) -> None:
         update_position(seeded_session, group.positions[0], nominal=1.0)
 
 
-def test_moving_a_balloon_keeps_the_geometry(seeded_session: Session) -> None:
-    """Обратная сторона того же: сдвиг баллона не трогает номинал и допуски."""
+def test_update_position_no_longer_takes_coordinates(seeded_session: Session) -> None:
+    """Критерий 6: писать `x`/`y` больше нечем — параметров у домена нет."""
     group = _group(seeded_session)
-    position = group.positions[0]
 
-    _move(seeded_session, position, 0.9, 0.1)
-    seeded_session.commit()
-
-    assert (position.nominal, position.tol_plus, position.tol_minus) == (3.75, 0.05, -0.05)
-    assert (position.x, position.y) == (0.9, 0.1)
+    with pytest.raises(TypeError):
+        update_position(
+            seeded_session,
+            group.positions[0],
+            nominal=1.0,
+            tol_plus=None,
+            tol_minus=None,
+            x=0.5,
+            y=0.5,
+        )
 
 
 def test_duplicate_position_index_is_refused(seeded_session: Session) -> None:
@@ -112,12 +137,16 @@ def test_duplicate_position_index_is_refused(seeded_session: Session) -> None:
         add_position(seeded_session, group, GPositionSpec(1))
 
 
-@pytest.mark.parametrize("x, y", [(1.5, 0.5), (0.5, -0.1)])
-def test_coordinates_outside_zero_one_are_refused(seeded_session: Session, x, y) -> None:
-    """Нормализованные координаты — иначе баллон уедет за чертёж (заметка А)."""
+def test_a_new_position_carries_no_coordinates(seeded_session: Session) -> None:
+    """Критерий 6: `GPositionSpec` координат не принимает, позиция их не несёт."""
     group = _group(seeded_session)
-    with pytest.raises(ValidationError):
-        add_position(seeded_session, group, GPositionSpec(9, x=x, y=y))
+
+    with pytest.raises(TypeError):
+        GPositionSpec(9, x=0.5, y=0.5)
+
+    added = add_position(seeded_session, group, GPositionSpec(9))
+    seeded_session.commit()
+    assert (added.x, added.y) == (None, None)
 
 
 def test_free_position_is_removed(seeded_session: Session) -> None:
@@ -193,10 +222,10 @@ def test_jpeg_is_accepted() -> None:
     assert detect_image_format(b"just text") is None
 
 
-def test_dropping_the_drawing_keeps_balloon_coordinates(seeded_session: Session) -> None:
-    """Заметка Б: снятие чертежа не роняет расстановку баллонов."""
+def test_dropping_the_drawing_keeps_old_coordinates(seeded_session: Session) -> None:
+    """Снятие чертежа не трогает позиции — в том числе прежние координаты."""
     group = _group(seeded_session)
-    _move(seeded_session, group.positions[0], 0.3, 0.7)
+    _legacy_coordinates(seeded_session, group.positions[0], 0.3, 0.7)
     set_drawing(seeded_session, group, make_png(), "cg.png")
 
     set_drawing(seeded_session, group, None, None)
@@ -208,7 +237,7 @@ def test_dropping_the_drawing_keeps_balloon_coordinates(seeded_session: Session)
 
 def test_replacing_the_drawing_keeps_coordinates(seeded_session: Session) -> None:
     group = _group(seeded_session)
-    _move(seeded_session, group.positions[0], 0.2, 0.2)
+    _legacy_coordinates(seeded_session, group.positions[0], 0.2, 0.2)
     set_drawing(seeded_session, group, make_png(10, 10), "first.png")
 
     set_drawing(seeded_session, group, make_png(40, 30), "second.png")
@@ -219,9 +248,9 @@ def test_replacing_the_drawing_keeps_coordinates(seeded_session: Session) -> Non
 
 
 def test_coordinates_survive_a_reopen(migrated_url: str, seeded_session: Session) -> None:
-    """Критерий 3: место баллона переживает перезапуск."""
+    """Заведённое до QMS-016 переживает перезапуск: миграции наряд не заказывал."""
     group = _group(seeded_session)
-    _move(seeded_session, group.positions[0], 0.125, 0.875)
+    _legacy_coordinates(seeded_session, group.positions[0], 0.125, 0.875)
     seeded_session.commit()
     seeded_session.close()
 

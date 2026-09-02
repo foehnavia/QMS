@@ -18,9 +18,7 @@ Offscreen для снимков непригоден: база шрифтов п
 from __future__ import annotations
 
 import os
-import struct
 import sys
-import zlib
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -33,6 +31,8 @@ for _stream in (sys.stdout, sys.stderr):
 
 from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
+from PySide6.QtCore import QBuffer, QIODevice, QPointF, QRectF, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 from db.models import (  # noqa: E402
@@ -71,32 +71,78 @@ CARD_TALL = 1000
 
 TODAY = date.today()
 POSITIONS = (
-    GPositionSpec(1, 3.75, 0.05, -0.05, 0.30, 0.35),
-    GPositionSpec(2, 2.0, 0.02, -0.02, 0.55, 0.45),
-    GPositionSpec(3, 11.5, 0.10, -0.10, 0.72, 0.62),
+    GPositionSpec(1, 3.75, 0.05, -0.05),
+    GPositionSpec(2, 2.0, 0.02, -0.02),
+    # Допуск формы: номинала у позиции нет вовсе — на экране это пустая ячейка,
+    # и снимок обязан её показывать (наряд 0014, критерий 4).
+    GPositionSpec(3, None, 0.10, -0.10),
 )
 
 
-def _png(width: int = 480, height: int = 320) -> bytes:
-    """Заглушка чертежа: настоящий PNG без внешних файлов."""
-    rows = b"".join(
-        bytes([0]) + bytes([40, 44, 52] * width) for _ in range(height)
+def _drawing_png(width: int = 1400, height: int = 620) -> bytes:
+    """Чертёж группы **как он приходит из конструкторского отдела**.
+
+    Не сплошной прямоугольник, как было до наряда 0014: смысл экрана теперь в
+    том, что метки `G1…GN` уже стоят на выносках и оператор переносит числа с
+    них в таблицу. Снимок, на котором выносок нет, этого не показывает.
+
+    Рисуем `QPainter`, поэтому зовётся **после** создания `QApplication`.
+    """
+    pixmap = QPixmap(width, height)
+    pixmap.fill(QColor(kit.tokens.WHITE))
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    body = QRectF(width * 0.18, height * 0.30, width * 0.52, height * 0.34)
+    painter.setPen(QPen(QColor(kit.tokens.N_700), kit.tokens.SELECTION_BAR_WIDTH))
+    painter.setBrush(QColor(kit.tokens.N_50))
+    painter.drawRect(body)
+    painter.drawEllipse(
+        QPointF(body.right(), body.center().y()), height * 0.17, height * 0.17
     )
 
-    def chunk(tag: bytes, payload: bytes) -> bytes:
-        return (
-            struct.pack(">I", len(payload))
-            + tag
-            + payload
-            + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
+    # Ось и штриховка резьбы — чтобы картинка читалась как чертёж, а не как
+    # прямоугольник: снимок показывают людям, знающим, как выглядит бланк.
+    pen = QPen(QColor(kit.tokens.N_400), kit.tokens.BORDER_WIDTH)
+    pen.setStyle(Qt.PenStyle.DashDotLine)
+    painter.setPen(pen)
+    painter.drawLine(
+        QPointF(width * 0.10, body.center().y()),
+        QPointF(width * 0.86, body.center().y()),
+    )
+
+    font = QFont(kit.font_family())
+    font.setPixelSize(int(kit.tokens.SIZE_TITLE))
+    font.setWeight(QFont.Weight.DemiBold)
+    painter.setFont(font)
+
+    # Выноска = линия от места на детали к кружку с меткой. Метка — `G1…GN`,
+    # ровно те индексы, что стоят в таблице позиций.
+    callouts = (
+        (QPointF(body.left() + body.width() * 0.18, body.top()), QPointF(width * 0.22, height * 0.12), "G1"),
+        (QPointF(body.center().x(), body.bottom()), QPointF(width * 0.46, height * 0.86), "G2"),
+        (QPointF(body.right(), body.center().y() - height * 0.14), QPointF(width * 0.84, height * 0.14), "G3"),
+    )
+    radius = height * 0.05
+    for anchor, label_at, label in callouts:
+        painter.setPen(QPen(QColor(kit.tokens.N_600), kit.tokens.BORDER_WIDTH))
+        painter.drawLine(anchor, label_at)
+        painter.setBrush(QColor(kit.tokens.WHITE))
+        painter.drawEllipse(label_at, radius, radius)
+        painter.setPen(QColor(kit.tokens.N_900))
+        painter.drawText(
+            QRectF(label_at.x() - radius, label_at.y() - radius, radius * 2, radius * 2),
+            Qt.AlignmentFlag.AlignCenter,
+            label,
         )
 
-    return (
-        bytes([0x89]) + b"PNG" + bytes([0x0D, 0x0A, 0x1A, 0x0A])
-        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress(rows))
-        + chunk(b"IEND", b"")
-    )
+    painter.end()
+
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    pixmap.save(buffer, "PNG")
+    return bytes(buffer.data())
 
 
 def build_database():
@@ -125,7 +171,16 @@ def build_database():
         add_value(session, RefDeviationType, "thread depth")
 
         group = create_group(session, "Implant_Con_375_C1", POSITIONS)
-        set_drawing(session, group, _png(), "implant.png")
+        set_drawing(session, group, _drawing_png(), "implant.png")
+
+        # Вторая группа — **без чертежа**: она обязана оставаться рабочей, и
+        # снимок пустого состояния показывает, что на месте картинки (наряд
+        # 0014, п. 3.1).
+        bare = create_group(
+            session,
+            "Implant_Con_420_SP",
+            (GPositionSpec(1, 5.0, 0.05, -0.05), GPositionSpec(2)),
+        )
 
         item = create_item(
             session,
@@ -210,6 +265,7 @@ def build_database():
             item_id=item.item_id,
             other_id=other.item_id,
             cg_id=group.cg_id,
+            bare_cg_id=bare.cg_id,
             current_id=current.deviation_id,
             past_id=past.deviation_id,
             finding_id=finding.finding_id,
@@ -228,11 +284,13 @@ def shoot(widget: QWidget, name: str) -> None:
 
 
 def main() -> int:
-    engine, url, ids = build_database()
+    # Приложение поднимаем **до** базы: демонстрационный чертёж рисует
+    # `QPainter`, а он без `QApplication` не живёт.
     app = QApplication.instance() or QApplication([])
     # Одевание — то же, что в боевом запуске: снимок без темы показывал бы не
     # приложение, а виджеты Windows (наряд 0011).
     kit.apply_theme(app)
+    engine, url, ids = build_database()
 
     from ui.card_dialog import CardDialog
     from ui.cg_dialog import CgDialog
@@ -279,6 +337,7 @@ def main() -> int:
     shoot(ItemDialog(engine), "02-dialog-item")
     shoot(CgDialog(engine), "03-dialog-cg-new")
     shoot(CgEditor(engine, ids["cg_id"]), "04-dialog-cg-editor")
+    shoot(CgEditor(engine, ids["bare_cg_id"]), "04b-dialog-cg-editor-no-drawing")
     shoot(MappingDialog(engine, ids["other_id"], ids["cg_id"]), "05-dialog-mapping")
     shoot(DeviationDialog(engine, ids["current_id"]), "06-dialog-deviation-edit")
     shoot(DeviationDialog(engine), "07-dialog-deviation-new")

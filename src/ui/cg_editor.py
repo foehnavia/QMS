@@ -1,8 +1,15 @@
-"""Визуальный редактор группы характеристик: баллоны поверх чертежа.
+"""Редактор группы характеристик: чертёж во всю ширину, позиции — таблицей.
 
 Правки копятся в форме и уходят в базу одной транзакцией по «Сохранить»
 (наряд 0003). Исключение — удаление позиции: занятость проверяется сразу при
 нажатии, чтобы оператор узнал о блокировке на месте, а не после сохранения.
+
+**Баллонов здесь больше нет** (наряд 0014, находки №7 и №8 прогона QMS-016).
+Чертёж приходит из конструкторского отдела уже размеченным — метки `G1…GN`
+стоят на выносках, — поэтому расставлять их заново поверх картинки значило бы
+делать работу дважды и в самом уязвимом месте: на этой привязке держится весь
+перекрёстный поиск. Чертёж показывается как есть и крупно, канонические позиции
+ведутся таблицей, координаты `x`/`y` не пишутся вовсе.
 """
 
 from __future__ import annotations
@@ -16,10 +23,9 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QSplitter,
     QTableWidgetItem,
-    QVBoxLayout,
     QWidget,
 )
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine
 
 from db.models import CharacteristicGroup, GPosition
 from db.session import session_scope
@@ -35,9 +41,9 @@ from domain.groups import (
 )
 
 from . import kit
-from .balloon_canvas import MODE_EDIT, Balloon, BalloonCanvas
 from .cg_dialog import parse_optional_number
 from .common import iso
+from .drawing_view import BROKEN_IMAGE, DrawingPane
 from .kit import tokens
 
 COLUMNS = ("g-position", "Nominal", "Tolerance +", "Tolerance −")
@@ -45,6 +51,12 @@ COLUMNS = ("g-position", "Nominal", "Tolerance +", "Tolerance −")
 #: Индекс позиции — идентификатор, влево; вправо только величины.
 NUMERIC_COLUMNS = (0,)
 MAGNITUDE_COLUMNS = (1, 2, 3)
+
+HINT = (
+    "Positions — nominal and tolerance come from the drawing; both may stay "
+    "empty (a form tolerance has no nominal). The index of an existing "
+    "position never changes, and a new one is issued as max + 1."
+)
 
 
 @dataclass
@@ -55,8 +67,6 @@ class _Row:
     nominal: float | None = None
     tol_plus: float | None = None
     tol_minus: float | None = None
-    x: float | None = None
-    y: float | None = None
     position_id: int | None = None
 
 
@@ -72,11 +82,15 @@ class CgEditor(QDialog):
         self._drawing_name: str | None = None
         self._drawing_changed = False
         self.setWindowTitle("Characteristic group editor")
-        self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_MEDIUM)
+        # Выше прежнего: чертёж стал главным элементом экрана и получил свою
+        # вертикаль, а таблица позиций под ним осталась при своей.
+        self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_TALL)
 
         self.name_edit = QLineEdit()
-        self.canvas = BalloonCanvas(MODE_EDIT)
-        self.canvas.balloonMoved.connect(self._on_moved)
+
+        self.drawing = DrawingPane(editable=True)
+        self.drawing.loadRequested.connect(self.load_drawing)
+        self.drawing.removeRequested.connect(self.drop_drawing)
 
         self.table = kit.data_table(
             COLUMNS,
@@ -84,16 +98,9 @@ class CgEditor(QDialog):
             magnitude_columns=MAGNITUDE_COLUMNS,
             read_only=False,
         )
-        self.table.currentCellChanged.connect(
-            lambda row, *_: self.canvas.select(self._rows[row].g_index if 0 <= row < len(self._rows) else None)
-        )
 
-        load_drawing = kit.secondary("Load drawing…")
-        drop_drawing = kit.secondary("Remove drawing")
         add_row = kit.secondary("Add position")
         drop_row = kit.secondary("Remove position")
-        load_drawing.clicked.connect(self.load_drawing)
-        drop_drawing.clicked.connect(self.drop_drawing)
         add_row.clicked.connect(self.add_position)
         drop_row.clicked.connect(self.remove_position)
 
@@ -103,38 +110,27 @@ class CgEditor(QDialog):
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
-        drawing_buttons = kit.button_row(load_drawing, drop_drawing)
-        row_buttons = kit.button_row(add_row, drop_row)
-
         form = kit.stretching_form()
         form.addRow("Group name:", self.name_edit)
 
-        side = QWidget()
-        side_layout = QVBoxLayout(side)
-        side_layout.setContentsMargins(0, 0, 0, 0)
-        side_layout.addLayout(form)
-        side_layout.addLayout(drawing_buttons)
-        side_layout.addWidget(
-            kit.hint(
-                "Positions — nominal and tolerance come from the drawing. "
-                "The index of an existing position never changes, and a new one "
-                "is issued as max + 1."
-            )
+        positions = kit.boxed(
+            kit.column(kit.hint(HINT), self.table, kit.button_row(add_row, drop_row))
         )
-        side_layout.addWidget(self.table, 1)
-        side_layout.addLayout(row_buttons)
-        side_layout.addWidget(self.status)
 
-        splitter = QSplitter()
-        splitter.addWidget(self.canvas)
-        splitter.addWidget(side)
+        # Разделитель вертикальный, а не горизонтальный: чертёж занимает ширину
+        # окна целиком (решение 2026-09-02), а делить с ним ширину значило бы
+        # вернуть ту самую картинку в углу, из-за которой выноску приходилось
+        # разглядывать.
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(self.drawing)
+        splitter.addWidget(positions)
         splitter.setStretchFactor(0, 1)
-        # Панель геометрии не уже своей таблицы: при делении пополам подписи
-        # колонок обрезались до «-positio», и оператор читал не их, а догадку.
-        splitter.setSizes([tokens.DIALOG_MEDIUM, tokens.DIALOG_NARROW])
+        splitter.setSizes([tokens.DIALOG_HEIGHT_MEDIUM, tokens.DIALOG_HEIGHT_SHORT])
 
         layout = kit.dialog_layout(self)
+        layout.addLayout(form)
         layout.addWidget(splitter, 1)
+        layout.addWidget(self.status)
         layout.addWidget(self.buttons)
 
         self.reload()
@@ -153,8 +149,6 @@ class CgEditor(QDialog):
                     nominal=position.nominal,
                     tol_plus=position.tol_plus,
                     tol_minus=position.tol_minus,
-                    x=position.x,
-                    y=position.y,
                     position_id=position.g_position_id,
                 )
                 for position in sorted(group.positions, key=lambda p: p.g_index)
@@ -163,12 +157,7 @@ class CgEditor(QDialog):
         self._refresh()
 
     def _refresh(self) -> None:
-        if not self.canvas.set_drawing(self._drawing):
-            self.status.setText("The drawing could not be displayed — is the file damaged?")
-
-        self.canvas.set_balloons(
-            [Balloon(g_index=row.g_index, x=row.x, y=row.y) for row in self._rows]
-        )
+        readable = self.drawing.set_drawing(self._drawing)
 
         self.table.blockSignals(True)
         self.table.setRowCount(len(self._rows))
@@ -179,17 +168,9 @@ class CgEditor(QDialog):
             self.table.setItem(index, 3, QTableWidgetItem(_text(row.tol_minus)))
         self.table.blockSignals(False)
 
-        placed = sum(1 for row in self._rows if row.x is not None)
         self.status.setText(
-            f"Positions: {len(self._rows)} · placed on the drawing: {placed}. "
-            "Drag the balloons with the mouse; coordinates are stored on Save."
+            BROKEN_IMAGE if not readable else f"Positions: {len(self._rows)}"
         )
-
-    def _on_moved(self, g_index: int, x: float, y: float) -> None:
-        for row in self._rows:
-            if row.g_index == g_index:
-                row.x, row.y = x, y
-                break
 
     # --- действия --------------------------------------------------------------
 
@@ -207,7 +188,6 @@ class CgEditor(QDialog):
 
         self._drawing, self._drawing_name = data, path.rsplit("/", 1)[-1]
         self._drawing_changed = True
-        # Координаты баллонов не сбрасываем (заметка Б): оператор поправит их сам.
         self._refresh()
 
     def drop_drawing(self) -> None:
@@ -217,7 +197,7 @@ class CgEditor(QDialog):
 
     def add_position(self) -> None:
         next_index = max((row.g_index for row in self._rows), default=0) + 1
-        self._rows.append(_Row(g_index=next_index, x=0.5, y=0.5))
+        self._rows.append(_Row(g_index=next_index))
         self._refresh()
 
     def remove_position(self) -> None:
@@ -251,7 +231,6 @@ class CgEditor(QDialog):
         """
         rows: list[_Row] = []
         for index, row in enumerate(self._rows):
-            g_index = row.g_index
 
             def cell(column: int) -> str:
                 item = self.table.item(index, column)
@@ -259,12 +238,10 @@ class CgEditor(QDialog):
 
             rows.append(
                 _Row(
-                    g_index=g_index,
+                    g_index=row.g_index,
                     nominal=parse_optional_number(cell(1), f"Row {index + 1}, nominal"),
                     tol_plus=parse_optional_number(cell(2), f"Row {index + 1}, tolerance +"),
                     tol_minus=parse_optional_number(cell(3), f"Row {index + 1}, tolerance −"),
-                    x=row.x,
-                    y=row.y,
                     position_id=row.position_id,
                 )
             )
@@ -293,7 +270,7 @@ class CgEditor(QDialog):
                         add_position(
                             session,
                             group,
-                            GPositionSpec(row.g_index, row.nominal, row.tol_plus, row.tol_minus, row.x, row.y),
+                            GPositionSpec(row.g_index, row.nominal, row.tol_plus, row.tol_minus),
                         )
                     else:
                         position = session.get(GPosition, row.position_id)
@@ -303,8 +280,6 @@ class CgEditor(QDialog):
                             nominal=row.nominal,
                             tol_plus=row.tol_plus,
                             tol_minus=row.tol_minus,
-                            x=row.x,
-                            y=row.y,
                         )
         except Exception as error:
             kit.show_error(self, error, title="Group not saved")
