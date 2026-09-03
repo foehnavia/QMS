@@ -91,10 +91,16 @@ def test_item_dialog_preselects_general(seeded_engine) -> None:
     assert dialog.size.currentText() == "General"
     assert dialog.item_type.currentText() == NO_TYPE
     assert dialog.group.currentText() == NO_GROUP
-    assert dialog.positions.rowCount() == 0
 
 
-def test_item_dialog_shows_group_positions_without_prefilled_numbers(seeded_engine) -> None:
+def test_the_item_form_does_not_ask_for_local_numbers(seeded_engine) -> None:
+    """Критерий §3.1 наряда 0018: таблицы позиций в форме больше нет.
+
+    Она спрашивала локальный номер на каждую g-позицию, не показывая чертежа:
+    у оператора оставались индекс `gN`, который без чертежа ни на что не
+    отображается, и номинал, который размер **не идентифицирует** — на чертеже
+    он повторяется (находка №13). Ввод переехал в привязку, где чертёж есть.
+    """
     from domain.groups import GPositionSpec, create_group
     from db.session import session_scope
 
@@ -108,58 +114,52 @@ def test_item_dialog_shows_group_positions_without_prefilled_numbers(seeded_engi
     dialog = ItemDialog(seeded_engine)
     dialog.group.setCurrentText("CG-A")
 
-    assert dialog.positions.rowCount() == 2
-    # номер размера не подставляется — он с чертежа детали (решение Cowork, заметка Б)
-    assert dialog.local_numbers() == {1: "", 2: ""}
-    assert dialog.positions.item(0, 2).text() == "3.75"  # номинал показан, не скопирован
-    assert dialog.positions.item(0, 0).text() == "g1"
+    assert not hasattr(dialog, "positions")
+    assert not hasattr(dialog, "local_numbers")
 
 
-def test_item_dialog_saves_item_and_seeds_the_group(seeded_engine) -> None:
-    from domain.groups import GPositionSpec, create_group
-    from domain.items import groups_of, list_items
-    from db.session import session_scope
+def test_the_item_form_saves_without_any_numbers_and_names_the_group(
+    seeded_engine,
+) -> None:
+    """Критерий §3.5.2: с выбранной группой форма проходит дальше без номеров.
 
-    with session_scope(seeded_engine) as session:
-        create_group(session, "CG-A", (GPositionSpec(1, 3.75), GPositionSpec(2, 2.0)))
-
-    dialog = ItemDialog(seeded_engine)
-    dialog.number_edit.setText("C1-08375A")
-    dialog.group.setCurrentText("CG-A")
-    dialog.positions.item(0, 1).setText("12")
-    dialog.positions.item(1, 1).setText("19")
-    dialog.save()
-
-    assert dialog.created_number == "C1-08375A"
-    with session_scope(create_db_engine(str(seeded_engine.url))) as session:
-        item = list_items(session)[0]
-        assert sorted(c.local_number for c in item.characteristics) == ["12", "19"]
-        assert [g.name for g in groups_of(item)] == ["CG-A"]
-
-
-def test_item_dialog_refuses_to_save_without_local_numbers(seeded_engine, monkeypatch) -> None:
-    """Незаполненный номер размера — отказ с сообщением, деталь не создаётся."""
-    import ui.item_dialog as item_dialog
+    Она же отдаёт наружу то, что нужно следующему шагу: какую деталь к какой
+    группе привязывать.
+    """
     from domain.groups import GPositionSpec, create_group
     from domain.items import list_items
     from db.session import session_scope
 
     with session_scope(seeded_engine) as session:
-        create_group(session, "CG-A", (GPositionSpec(1, 3.75), GPositionSpec(2, 2.0)))
+        group = create_group(session, "CG-A", (GPositionSpec(1, 3.75), GPositionSpec(2, 2.0)))
+        cg_id = group.cg_id
 
-    shown: list[Exception] = []
-    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
-
-    dialog = item_dialog.ItemDialog(seeded_engine)
+    dialog = ItemDialog(seeded_engine)
     dialog.number_edit.setText("C1-08375A")
     dialog.group.setCurrentText("CG-A")
-    dialog.positions.item(0, 1).setText("12")  # вторую позицию оставляем пустой
     dialog.save()
 
-    assert dialog.created_number is None
-    assert shown and "g2" in str(shown[0])
-    with session_scope(seeded_engine) as session:
-        assert list_items(session) == []
+    assert dialog.created_number == "C1-08375A"
+    assert dialog.created_group_id == cg_id
+    with session_scope(create_db_engine(str(seeded_engine.url))) as session:
+        item = list_items(session)[0]
+        assert dialog.created_item_id == item.item_id
+        # Размеров ещё нет: их заведёт привязка, а не форма.
+        assert item.characteristics == []
+
+
+def test_without_a_group_the_form_creates_the_item_alone(seeded_engine) -> None:
+    """Критерий §3.5.6: привязывать нечего — деталь заводится как раньше."""
+    from domain.items import list_items
+    from db.session import session_scope
+
+    dialog = ItemDialog(seeded_engine)
+    dialog.number_edit.setText("NO-CG-ITEM")
+    dialog.save()
+
+    assert dialog.created_group_id is None
+    with session_scope(create_db_engine(str(seeded_engine.url))) as session:
+        assert [item.item_number for item in list_items(session)] == ["NO-CG-ITEM"]
 
 
 def test_item_view_reloads(seeded_engine) -> None:

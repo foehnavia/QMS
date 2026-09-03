@@ -156,3 +156,49 @@ def count_queries(engine: Engine) -> Iterator[list[str]]:
         yield statements
     finally:
         event.remove(engine, "before_cursor_execute", record)
+
+
+# --- поток «заведение детали → привязка» (наряд 0018) ------------------------------
+#
+# Живут здесь, а не в одном из файлов тестов: этот поток проверяется с двух
+# входов — экран деталей и форма отклонения, — и две копии подмены разъехались
+# бы на первой же правке.
+
+
+def fill_item_form_and_accept(number: str = "C1-08375A", group: str | None = "CG-A"):
+    """Подмена `exec` формы детали: оператор заполнил поля и нажал «Create item».
+
+    Форма сама сохраняет деталь и отдаёт наружу `created_item_id` /
+    `created_group_id` — то, с чем дальше открывается привязка.
+    """
+    from PySide6.QtWidgets import QDialog
+
+    def fake_exec(self):
+        self.number_edit.setText(number)
+        if group is not None:
+            self.group.setCurrentText(group)
+        self.save()
+        return QDialog.DialogCode.Accepted.value
+
+    return fake_exec
+
+
+def stub_mapping_dialog(monkeypatch, action=None) -> list[tuple[int, int]]:
+    """Подмена диалога привязки: записывает, с чем открыли, и делает `action`.
+
+    `action(engine, item_id, cg_id, attempt)` — то, что оператор успел сделать в
+    окне: диалог пишет по действию (ратификация S3), поэтому и заглушка пишет.
+    Возвращаемое значение считается так же, как настоящий «Done»: по полноте.
+    """
+    import ui.item_dialog as module
+
+    calls: list[tuple[int, int]] = []
+
+    def fake_run(engine, item_id, cg_id, parent=None):
+        calls.append((item_id, cg_id))
+        if action is not None:
+            action(engine, item_id, cg_id, len(calls))
+        return not module.mapping_gap(engine, item_id, cg_id)
+
+    monkeypatch.setattr(module.MappingDialog, "run", staticmethod(fake_run))
+    return calls

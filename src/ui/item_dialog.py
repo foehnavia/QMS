@@ -1,20 +1,29 @@
-"""Форма «Добавить деталь»: классификаторы + привязка к CG с сидом размеров.
+"""Форма «Добавить деталь»: классификаторы и группа, к которой деталь относится.
 
 `connection_type` и `size` предвыбраны как `General` — деталь заводится и когда
-специфика ещё не важна (`Item.md`). При выборе группы её g-позиции показываются
-таблицей: номер размера оператор проставляет сам на каждую позицию — он берётся
-с чертежа детали и с индексом g-позиции совпадает редко (решение Cowork по
-заметке Б наряда 0002), поэтому автоподстановки нет.
+специфика ещё не важна (`Item.md`).
+
+**Номера размеров эта форма не спрашивает** (наряд 0018, находка №13 прогона).
+Она разворачивала таблицу g-позиций и ждала локальный номер на каждую, но
+чертежа группы не показывала: у оператора оставались индекс `gN`, который без
+чертежа ни на что не отображается, и номинал, который размер **не
+идентифицирует** — на чертеже он повторяется. Привязка по номиналу закрепляла
+неверную пару «локальный номер ↔ g-позиция», а на ней держится весь
+перекрёстный поиск.
+
+Поэтому привязка делается там, где для неё есть чертёж, — в `MappingDialog`, и
+делается **сразу**: `complete_new_item` открывает её следом за формой. Деталь с
+назначенной группой не существует в базе с неполной привязкой (§1a наряда):
+отказ от привязки отменяет заведение.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLineEdit,
-    QTableWidgetItem,
+    QMessageBox,
     QWidget,
 )
 from sqlalchemy import Engine, select
@@ -29,24 +38,37 @@ from db.models import (
 )
 from db.session import session_scope
 from domain.groups import list_groups
-from domain.items import create_item, seed_cg_characteristics, update_item
+from domain.items import create_item, discard_item, update_item
+from domain.mappings import binding_state, is_complete
 from domain.reference import list_values
 
 from . import kit
 from .cg_dialog import CgDialog
-from .common import bind_direction, optional_id, tolerance_label
+from .common import bind_direction, iso, joined, optional_id
 from .kit import tokens
+from .mapping_dialog import MappingDialog
 
 NO_GROUP = "— no group —"
 NO_TYPE = "— not set —"
-#: Та же составная ячейка, что в позициях детали, — и та же подпись ISO 286
-#: (решение 2026-09-02): одно и то же значение не может называться на двух
-#: экранах по-разному.
-COLUMNS = ("g-position", "Local number", "Nominal", "Limit deviations")
 
-#: Индекс позиции и номер размера — идентификаторы, влево; вправо величины.
-NUMERIC_COLUMNS = (0, 1)
-MAGNITUDE_COLUMNS = (2, 3)
+GROUP_HINT = (
+    "The group answers which canon the item belongs to. Its positions are "
+    "mapped right after this form, against the group drawing — the local "
+    "numbers are not asked for here."
+)
+
+#: Вопрос при отказе от привязки на заведении (§3.3 наряда 0018).
+DISCARD_TITLE = "Mapping is not complete"
+DISCARD_QUESTION = (
+    "Mapping is not complete — the item will not be created. Close anyway?"
+)
+
+#: Предупреждение у **ранее заведённой** детали (§3.3a): откат здесь невозможен,
+#: и запрет производил бы ложные данные — оператор выходил бы из окна, вписав
+#: номер наугад. Конечное решение — Q-15.
+INCOMPLETE_TITLE = "Mapping stays incomplete"
+BACK_TO_MAPPING = "Back to mapping"
+CLOSE_ANYWAY = "Close anyway"
 
 
 class ItemDialog(QDialog):
@@ -56,11 +78,14 @@ class ItemDialog(QDialog):
     В-2): форма умела только создавать, и опечатка в реальном каталожном номере
     лечилась перезаливкой базы — то есть останавливала прогон на шаге 5.
 
-    В правке засев размеров не показывается. Он относится к заведению детали:
-    размеры уже есть, их локальные номера правятся привязкой к канону, а второй
-    засев по той же группе домен и не позволит (номер размера уникален внутри
-    детали). Показывать таблицу, которая при сохранении ничего не делает, —
-    обещать несуществующее.
+    В правке строка группы не показывается: группа детали выводится из привязок
+    её размеров, а перепривязка существующей детали — своя работа со своими
+    гарантиями (снимок состояния, реестр конфликтов), и она вынесена в Q-15.
+
+    После accept() наружу отдаются `created_item_id` и `created_group_id` — то,
+    что нужно следующему шагу: открыть привязку именно этой детали к именно
+    этой группе. `created_number` остаётся: на него завязан второй вход
+    (`deviation_dialog.create_item`).
     """
 
     def __init__(
@@ -74,8 +99,13 @@ class ItemDialog(QDialog):
         self._engine = engine
         self._item_id = optional_id(item_id, "item_id")
         self.created_number: str | None = None
+        #: Заведённая деталь и выбранная группа — вход в обязательную привязку.
+        self.created_item_id: int | None = None
+        self.created_group_id: int | None = None
         self.setWindowTitle("New item" if self._item_id is None else "Edit item")
-        self.resize(tokens.DIALOG_MEDIUM, tokens.DIALOG_HEIGHT_MEDIUM)
+        # Форма стала короткой: пять полей и подсказка. Прежняя высота держала
+        # таблицу позиций, которой больше нет.
+        self.resize(tokens.DIALOG_MEDIUM, tokens.DIALOG_HEIGHT_SHORT)
 
         self.number_edit = QLineEdit()
         self.number_edit.setPlaceholderText('e.g. C1-08375A (מק"ט)')
@@ -85,7 +115,6 @@ class ItemDialog(QDialog):
         self.connection_type = _combo()
         self.size = _combo()
         self.group = _combo()
-        self.group.currentIndexChanged.connect(self.reload_positions)
 
         new_group = kit.secondary("Create group…")
         new_group.clicked.connect(self.create_group)
@@ -95,24 +124,13 @@ class ItemDialog(QDialog):
         group_row.addWidget(self.group, 1)
         group_row.addWidget(new_group)
 
-        self.positions = kit.data_table(
-            COLUMNS,
-            numeric_columns=NUMERIC_COLUMNS,
-            magnitude_columns=MAGNITUDE_COLUMNS,
-            read_only=False,
-        )
-
         self.buttons = kit.dialog_buttons(
             accept="Create item" if item_id is None else "Save item"
         )
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
-        self.seed_hint = kit.hint(
-            "Group positions — set the local number from the item drawing for "
-            "each. The number is not prefilled: it comes from the drawing and "
-            "rarely equals the g-position index."
-        )
+        self.group_hint = kit.hint(GROUP_HINT)
         self.group_row = kit.boxed(group_row)
 
         form = kit.stretching_form()
@@ -125,16 +143,8 @@ class ItemDialog(QDialog):
 
         layout = kit.dialog_layout(self)
         layout.addLayout(form)
-        layout.addWidget(self.seed_hint)
-        layout.addWidget(self.positions, 1)
-        layout.addWidget(
-            kit.hint(
-                "Dimensions of an existing item are not seeded twice: their local "
-                "numbers are edited in Mapping, the geometry — in the group editor."
-            )
-            if item_id is not None
-            else kit.hint("")
-        )
+        layout.addWidget(self.group_hint)
+        layout.addStretch(1)
         layout.addWidget(self.buttons)
 
         self.reload_reference()
@@ -145,7 +155,14 @@ class ItemDialog(QDialog):
     def run(
         cls, engine: Engine, item_id: int | None = None, parent: QWidget | None = None
     ) -> bool:
-        """Открыть форму; `True` — деталь заведена или правка сохранена."""
+        """Открыть форму; `True` — деталь заведена или правка сохранена.
+
+        **Привязку эта точка не доводит.** Её зовёт правка детали
+        (`item_view.edit_item`), где привязывать нечего. Заведение идёт двумя
+        входами, и оба продолжают форму `complete_new_item`: деталь с
+        назначенной группой не существует с неполной привязкой (наряд 0018 §1a).
+        Заводить деталь отсюда — значит обойти это правило молча.
+        """
         return cls(engine, item_id, parent=parent).exec() == QDialog.DialogCode.Accepted
 
     # --- наполнение ------------------------------------------------------------
@@ -160,8 +177,7 @@ class ItemDialog(QDialog):
             _select_text(self.size, item.size.name)
 
         self.group_row.setVisible(False)
-        self.seed_hint.setVisible(False)
-        self.positions.setVisible(False)
+        self.group_hint.setVisible(False)
         form = self.layout().itemAt(0).layout()
         for row in range(form.rowCount()):
             label = form.itemAt(row, form.ItemRole.LabelRole)
@@ -181,44 +197,6 @@ class ItemDialog(QDialog):
         _fill(self.connection_type, connections, GENERAL)
         _fill(self.size, sizes, GENERAL)
         _fill(self.group, [NO_GROUP, *groups], keep_group or NO_GROUP)
-        self.reload_positions()
-
-    def reload_positions(self) -> None:
-        """Показать g-позиции выбранной группы с предзаполненными номерами."""
-        self.positions.setRowCount(0)
-        name = self.group.currentText()
-        if name == NO_GROUP:
-            return
-
-        with session_scope(self._engine) as session:
-            group = session.scalar(
-                select(CharacteristicGroup).where(CharacteristicGroup.name == name)
-            )
-            rows = [
-                (
-                    position.g_index,
-                    _format_number(position.nominal),
-                    tolerance_label(position.tol_plus, position.tol_minus),
-                )
-                for position in sorted(group.positions, key=lambda p: p.g_index)
-            ]
-
-        self.positions.setRowCount(len(rows))
-        for row, (g_index, nominal, tolerance) in enumerate(rows):
-            self.positions.setItem(row, 0, _readonly(f"g{g_index}", g_index))
-            # номер размера не подставляется: он с чертежа детали и с g_index
-            # совпадает редко (решение Cowork по заметке Б наряда 0002)
-            self.positions.setItem(row, 1, QTableWidgetItem(""))
-            self.positions.setItem(row, 2, _readonly(nominal))
-            self.positions.setItem(row, 3, _readonly(tolerance))
-
-    def local_numbers(self) -> dict[int, str]:
-        numbers: dict[int, str] = {}
-        for row in range(self.positions.rowCount()):
-            g_index = self.positions.item(row, 0).data(Qt.ItemDataRole.UserRole)
-            cell = self.positions.item(row, 1)
-            numbers[g_index] = cell.text() if cell else ""
-        return numbers
 
     # --- действия --------------------------------------------------------------
 
@@ -247,13 +225,16 @@ class ItemDialog(QDialog):
                 )
                 if self._item_id is None:
                     item = create_item(session, **fields)
+                    # Размеры здесь не заводятся: их создаст привязка
+                    # (`mappings.bind`), и она же скажет, какой номер чей.
+                    self.created_item_id = item.item_id
                     if group_name != NO_GROUP:
                         group = session.scalar(
                             select(CharacteristicGroup).where(
                                 CharacteristicGroup.name == group_name
                             )
                         )
-                        seed_cg_characteristics(session, item, group, self.local_numbers())
+                        self.created_group_id = group.cg_id
                 else:
                     item = update_item(session, session.get(Item, self._item_id), **fields)
                 self.created_number = item.item_number
@@ -261,6 +242,121 @@ class ItemDialog(QDialog):
             kit.show_error(self, error)
             return
         self.accept()
+
+
+# --- привязка как часть заведения (наряд 0018 §3.2, §3.3) --------------------------
+
+
+def mapping_gap(engine: Engine, item_id: int, cg_id: int) -> list[str]:
+    """Позиции группы, оставшиеся без состояния у этой детали.
+
+    Пустой список — привязка полна. Спрашиваем **домен**, а не диалог: диалог
+    мог быть закрыт любой кнопкой, а вопрос стоит один — есть ли у каждой
+    g-позиции либо номер размера, либо код 99 (`mappings.is_complete`).
+    """
+    with session_scope(engine) as session:
+        item = session.get(Item, item_id)
+        group = session.get(CharacteristicGroup, cg_id)
+        states = binding_state(session, item, group)
+        if is_complete(states):
+            return []
+        return [f"g{state.g_index}" for state in states if not state.is_decided]
+
+
+def complete_new_item(
+    engine: Engine, parent: QWidget | None, item_id: int | None, cg_id: int | None
+) -> bool:
+    """Довести заведение детали привязкой к канону. `False` — деталь откачена.
+
+    Правило §1a наряда 0018: **деталь с назначенной группой не существует в базе
+    с неполной привязкой**. Привязка — часть заведения, а не следующий за ним
+    шаг: в форме находки известен только локальный номер размера, и если
+    привязка неполна, размер молча заведётся как не-CG, отклонение ляжет мимо
+    канона, а обнаружится это позже — когда секция L1b не найдёт того, что
+    обязана была найти.
+
+    Записать всё одной транзакцией нельзя: диалог привязки пишет по действию
+    (ратификация S3, наряд её менять не разрешает). Поэтому правило держится с
+    другой стороны — **отказ от привязки отменяет заведение** (`discard_item`).
+
+    Живёт одной функцией на оба входа — «New item» на экране деталей и
+    «Create item…» в форме отклонения: два места с одинаковым поведением
+    разошлись бы на первой же правке.
+    """
+    if item_id is None or cg_id is None:
+        # Группа не выбрана — привязывать нечего, деталь заведена как обычно.
+        return True
+
+    while True:
+        MappingDialog.run(engine, item_id, cg_id, parent=parent)
+        if not mapping_gap(engine, item_id, cg_id):
+            return True
+
+        # Спрашиваем **до** отката: закрытое окно бывает и промахом мыши.
+        answer = QMessageBox.question(
+            parent,
+            DISCARD_TITLE,
+            DISCARD_QUESTION,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            continue  # «нет» возвращает в привязку
+
+        try:
+            with session_scope(engine) as session:
+                discard_item(session, session.get(Item, item_id))
+        except Exception as error:
+            kit.show_error(parent, error, title="Item not discarded")
+        return False
+
+
+def incomplete_mapping_text(gap: list[str], item_number: str) -> str:
+    """Текст предупреждения §3.3a — отдельной функцией, чтобы его можно было сверить.
+
+    Перечень позиций собирается `joined`: каждый ярлык в своём изоляте, порядок
+    достаётся базовому направлению строки (`CLAUDE.md` §9). Номер детали —
+    отдельный токен и тоже в изоляте: он бывает любым.
+    """
+    verb = "have" if len(gap) > 1 else "has"
+    return (
+        f"{joined(*gap, sep=', ')} {verb} no state. "
+        f"The mapping of item {iso(item_number)} stays incomplete."
+    )
+
+
+def warn_incomplete_mapping(
+    engine: Engine, parent: QWidget | None, item_id: int, cg_id: int
+) -> bool:
+    """Предупредить о неполной привязке **ранее заведённой** детали (§3.3a).
+
+    Здесь откат невозможен: записи уже лежат, прежнее состояние нигде не
+    сохранено, а сеанс привязки по построению не транзакционен. Запрет был бы
+    вреден — оператор, открывший привязку посмотреть, выходил бы из окна, вписав
+    номер наугад или поставив 99 там, где позиция у детали есть, то есть гейт
+    производил бы ложные данные.
+
+    Поэтому предупреждение без запрета, с перечнем нерешённых позиций.
+    Возвращает `True`, если оператор захотел вернуться в привязку.
+
+    **Это временная мера.** Снимок состояния до правки, предупреждение о
+    ссылках на размер и реестр конфликтов — требование пользователя от
+    2026-09-03, разбирается в Q-15; данный наряд этой машинерии не строит.
+    """
+    gap = mapping_gap(engine, item_id, cg_id)
+    if not gap:
+        return False
+
+    with session_scope(engine) as session:
+        number = session.get(Item, item_id).item_number
+
+    box = QMessageBox(parent)
+    box.setWindowTitle(INCOMPLETE_TITLE)
+    box.setText(incomplete_mapping_text(gap, number))
+    back = box.addButton(BACK_TO_MAPPING, QMessageBox.ButtonRole.RejectRole)
+    box.addButton(CLOSE_ANYWAY, QMessageBox.ButtonRole.AcceptRole)
+    box.exec()
+    return box.clickedButton() is back
 
 
 # --- мелкие помощники ------------------------------------------------------------

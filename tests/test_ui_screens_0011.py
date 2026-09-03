@@ -16,7 +16,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QPushButton
 
 import ui.kit
-from conftest import make_item
+from conftest import (
+    fill_item_form_and_accept,
+    make_item,
+    stub_mapping_dialog,
+)
 from db.models import Direction
 from db.session import session_scope
 from domain.characteristics import get_or_create_characteristic
@@ -29,7 +33,6 @@ from domain.reference import list_values
 from ui import kit
 from ui.common import DECISION_INSP_LABELS, strip_iso
 from ui.deviation_view import COLUMNS, DeviationView
-from ui.item_dialog import COLUMNS as ItemDialogColumns
 from ui.item_positions_dialog import COLUMNS as ItemPositionsColumns
 from ui.item_positions_dialog import ItemPositionsDialog
 from ui.item_view import ItemView
@@ -249,9 +252,9 @@ def test_item_positions_name_the_pair_by_iso_286(engine) -> None:
         "Limit deviations",
         "State",
     )
-    # Та же составная ячейка в форме новой детали названа так же: одно значение
-    # не может называться на двух экранах по-разному.
-    assert ItemDialogColumns[-1] == "Limit deviations"
+    # Прежде та же подпись сверялась и с формой новой детали. Таблицы позиций
+    # там больше нет (наряд 0018): номера размеров форма не спрашивает, и
+    # составная ячейка осталась в одном месте.
 
 
 def test_item_positions_are_read_only(engine) -> None:
@@ -417,6 +420,249 @@ def _decided_deviation(engine) -> int:
         return deviation.deviation_id
 
 
+# --- наряд 0018: привязка как часть заведения детали ---------------------------------
+
+
+@pytest.fixture
+def group_engine(engine):
+    """Движок с группой из трёх позиций — то, к чему привязывается новая деталь."""
+    from domain.groups import GPositionSpec, create_group
+
+    with session_scope(engine) as session:
+        create_group(
+            session,
+            "CG-A",
+            (GPositionSpec(1, 3.75, 0.05, -0.05), GPositionSpec(2, 2.0), GPositionSpec(3, 0.5)),
+        )
+    return engine
+
+
+def test_new_item_with_a_group_opens_the_mapping_at_once(group_engine, monkeypatch) -> None:
+    """Критерий §3.5.1: привязка открывается сама — с той деталью и той группой.
+
+    Заведение заканчивается не формой, а завершённой привязкой: в форме находки
+    известен только локальный номер размера, и при неполной привязке отклонение
+    ляжет мимо канона (§1a наряда 0018).
+    """
+    import ui.item_view as view_module
+    from db.models import CharacteristicGroup, Item
+    from domain.mappings import mark_absent
+
+    def operator_closes_every_position(engine, item_id, cg_id, attempt):
+        # Привязку доводим до конца: тест смотрит, **с чем** открылось окно, и
+        # не должен упереться в вопрос об откате — под offscreen модальное окно
+        # ждёт ответа вечно (`CLAUDE.md` §9).
+        with session_scope(engine) as session:
+            item = session.get(Item, item_id)
+            for position in session.get(CharacteristicGroup, cg_id).positions:
+                mark_absent(session, item, position)
+
+    monkeypatch.setattr(view_module.ItemDialog, "exec", fill_item_form_and_accept())
+    calls = stub_mapping_dialog(monkeypatch, operator_closes_every_position)
+
+    view = ItemView(group_engine)
+    view.add_button.click()
+
+    with session_scope(group_engine) as session:
+        item_id = session.query(Item).one().item_id
+        cg_id = session.query(CharacteristicGroup).one().cg_id
+    assert calls == [(item_id, cg_id)]
+
+
+def test_a_completed_mapping_creates_the_item_with_its_dimensions(
+    group_engine, monkeypatch
+) -> None:
+    """Критерий §3.5.3: после «Done» деталь на месте вместе с размерами и группой."""
+    import ui.item_view as view_module
+    from db.models import Item
+    from domain.mappings import bind, mark_absent
+
+    from db.models import CharacteristicGroup
+    from domain.items import groups_of
+
+    def operator_maps(engine, item_id, cg_id, attempt):
+        # Две позиции получили номер, третьей у детали нет — код 99.
+        with session_scope(engine) as session:
+            item = session.get(Item, item_id)
+            positions = sorted(
+                session.get(CharacteristicGroup, cg_id).positions, key=lambda p: p.g_index
+            )
+            bind(session, item, positions[0], "12")
+            bind(session, item, positions[1], "19")
+            mark_absent(session, item, positions[2])
+
+    monkeypatch.setattr(view_module.ItemDialog, "exec", fill_item_form_and_accept())
+    stub_mapping_dialog(monkeypatch, operator_maps)
+
+    view = ItemView(group_engine)
+    view.add_button.click()
+
+    with session_scope(group_engine) as session:
+        item = session.query(Item).one()
+        assert sorted(c.local_number for c in item.characteristics) == ["12", "19"]
+        assert [g.name for g in groups_of(item)] == ["CG-A"]
+    # И группа видна в колонке `Groups` — экран перечитан.
+    from ui.item_view import COLUMNS as ItemViewColumns
+
+    groups_column = ItemViewColumns.index("Groups")
+    assert strip_iso(view.table.item(0, groups_column).text()) == "CG-A"
+
+
+def test_refusing_the_mapping_leaves_no_trace(group_engine, monkeypatch) -> None:
+    """Критерий §3.5.4: «Close» с незакрытыми позициями отменяет заведение.
+
+    Проверяется после сеанса, в котором **часть** позиций уже была привязана:
+    удалиться обязана не только деталь, но и всё, что за ней записалось.
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    import ui.item_dialog as dialog_module
+    import ui.item_view as view_module
+    from db.models import Characteristic, CharacteristicGroup, ItemPositionAbsent, Item, Mapping
+    from domain.mappings import bind, mark_absent
+
+    def operator_gives_up(engine, item_id, cg_id, attempt):
+        with session_scope(engine) as session:
+            item = session.get(Item, item_id)
+            positions = sorted(
+                session.get(CharacteristicGroup, cg_id).positions, key=lambda p: p.g_index
+            )
+            bind(session, item, positions[0], "12")
+            mark_absent(session, item, positions[1])
+            # Третья позиция остаётся нерешённой — привязка неполна.
+
+    monkeypatch.setattr(view_module.ItemDialog, "exec", fill_item_form_and_accept())
+    stub_mapping_dialog(monkeypatch, operator_gives_up)
+    asked: list[str] = []
+
+    def confirm(parent, title, text, *args, **kwargs):
+        asked.append(text)
+        return QMessageBox.StandardButton.Yes
+
+    monkeypatch.setattr(dialog_module.QMessageBox, "question", staticmethod(confirm))
+
+    view = ItemView(group_engine)
+    view.add_button.click()
+
+    # Вопрос задан **до** отката, и он говорит, что деталь не будет заведена.
+    assert asked and "will not be created" in asked[0]
+    with session_scope(group_engine) as session:
+        assert session.query(Item).count() == 0
+        assert session.query(Characteristic).count() == 0
+        assert session.query(Mapping).count() == 0
+        assert session.query(ItemPositionAbsent).count() == 0
+        # Канон цел: откат трогает деталь, а не группу.
+        assert len(session.query(CharacteristicGroup).one().positions) == 3
+    assert view.table.rowCount() == 0
+
+
+def test_answering_no_returns_to_the_mapping(group_engine, monkeypatch) -> None:
+    """Критерий §3.5.4, вторая половина: «нет» возвращает в привязку.
+
+    Закрытое окно бывает и промахом мыши, поэтому откат — только по явному «да».
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    import ui.item_dialog as dialog_module
+    import ui.item_view as view_module
+    from db.models import CharacteristicGroup, Item
+    from domain.mappings import bind, mark_absent
+
+    def operator_finishes_on_the_second_go(engine, item_id, cg_id, attempt):
+        if attempt == 1:
+            return  # первый раз закрыл, ничего не решив
+        with session_scope(engine) as session:
+            item = session.get(Item, item_id)
+            positions = sorted(
+                session.get(CharacteristicGroup, cg_id).positions, key=lambda p: p.g_index
+            )
+            bind(session, item, positions[0], "12")
+            mark_absent(session, item, positions[1])
+            mark_absent(session, item, positions[2])
+
+    monkeypatch.setattr(view_module.ItemDialog, "exec", fill_item_form_and_accept())
+    calls = stub_mapping_dialog(monkeypatch, operator_finishes_on_the_second_go)
+    monkeypatch.setattr(
+        dialog_module.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
+    )
+
+    view = ItemView(group_engine)
+    view.add_button.click()
+
+    assert len(calls) == 2, "после «нет» привязка обязана открыться снова"
+    with session_scope(group_engine) as session:
+        assert session.query(Item).count() == 1
+
+
+def test_without_a_group_no_mapping_is_opened(engine, monkeypatch) -> None:
+    """Критерий §3.5.6: группа не выбрана — привязывать нечего."""
+    import ui.item_view as view_module
+    from db.models import Item
+
+    monkeypatch.setattr(view_module.ItemDialog, "exec", fill_item_form_and_accept(group=None))
+    calls = stub_mapping_dialog(monkeypatch)
+
+    view = ItemView(engine)
+    view.add_button.click()
+
+    assert calls == []
+    with session_scope(engine) as session:
+        assert session.query(Item).count() == 1
+
+
+# --- §3.3a: ранее заведённая деталь — предупреждение без отката ----------------------
+
+
+def test_an_existing_item_is_warned_but_never_rolled_back(engine, monkeypatch) -> None:
+    """Критерий §3.5.7: у заведённой детали привязка закрывается предупреждением.
+
+    Откат здесь невозможен — записи уже лежат, прежнее состояние нигде не
+    сохранено, — а запрет производил бы ложные данные: оператор выходил бы из
+    окна, вписав номер наугад. Конечное решение — Q-15.
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    import ui.item_dialog as dialog_module
+    import ui.item_view as view_module
+    from db.models import CharacteristicGroup, Item
+
+    item_id = _bound_item(engine)  # деталь с одной привязанной позицией из двух
+    with session_scope(engine) as session:
+        cg_id = session.query(CharacteristicGroup).one().cg_id
+
+    monkeypatch.setattr(view_module, "choose_cg_for_item", lambda *a, **k: cg_id)
+    calls = stub_mapping_dialog(monkeypatch)
+    # Окно предупреждения закрывается «Close anyway»: `clickedButton()` не
+    # совпадает с кнопкой возврата, и цикл заканчивается.
+    monkeypatch.setattr(dialog_module.QMessageBox, "exec", lambda self: 0)
+
+    view = ItemView(engine)
+    view.table.setCurrentCell(0, 0)
+    view.map_button.click()
+
+    assert len(calls) == 1
+    with session_scope(engine) as session:
+        item = session.get(Item, item_id)
+        assert item is not None, "существующую деталь откатывать нельзя"
+        assert [c.local_number for c in item.characteristics] == ["12"]
+
+
+def test_the_warning_names_the_unfinished_positions(engine) -> None:
+    """Текст предупреждения проверяем сам — его читает оператор (§3.3a)."""
+    from ui.common import strip_iso
+    from ui.item_dialog import incomplete_mapping_text
+
+    one = strip_iso(incomplete_mapping_text(["g4"], "C1-08375A"))
+    many = strip_iso(incomplete_mapping_text(["g4", "g7"], "C1-08375A"))
+
+    assert one == "g4 has no state. The mapping of item C1-08375A stays incomplete."
+    assert many == (
+        "g4, g7 have no state. The mapping of item C1-08375A stays incomplete."
+    )
+
+
 # --- наряд 0017: точка входа в форму детали ------------------------------------------
 
 
@@ -464,8 +710,9 @@ def test_edit_item_from_the_section_opens_the_selected_item(engine, monkeypatch)
     assert opened, "форма детали не открылась"
     assert opened[0]._item_id == item_id
     assert opened[0].windowTitle() == "Edit item"
-    # Засев относится к заведению: у существующей детали размеры уже есть.
-    assert not opened[0].positions.isVisibleTo(opened[0])
+    # Строка группы в правке скрыта: перепривязка существующей детали — своя
+    # работа со своими гарантиями, она вынесена в Q-15 (наряд 0018 §3.3a).
+    assert not opened[0].group_row.isVisibleTo(opened[0])
 
 
 # --- доводка 0012: правка детали, радиокнопки, уплотнение хрома ----------------------
@@ -481,8 +728,8 @@ def test_the_item_form_edits_an_existing_item(engine, no_modals) -> None:
     dialog = ItemDialog(engine, item_id)
     assert dialog.windowTitle() == "Edit item"
     assert dialog.number_edit.text() == "C1-08375A"
-    # Засев относится к заведению: у существующей детали размеры уже есть.
-    assert not dialog.positions.isVisibleTo(dialog)
+    # Группа в правке не показывается — см. выше.
+    assert not dialog.group_row.isVisibleTo(dialog)
 
     dialog.number_edit.setText("C1-08375B")
     dialog.save()

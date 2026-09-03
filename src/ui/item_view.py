@@ -21,7 +21,7 @@ from domain.items import groups_of, list_items
 
 from . import kit
 from .common import iso, joined, strip_iso
-from .item_dialog import ItemDialog
+from .item_dialog import ItemDialog, complete_new_item, warn_incomplete_mapping
 from .item_positions_dialog import ItemPositionsDialog
 from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
@@ -163,11 +163,23 @@ class ItemView(QWidget):
         return self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
 
     def add_item(self) -> None:
+        """Завести деталь — и, если названа группа, тут же её привязать.
+
+        Заведение заканчивается не формой, а **завершённой привязкой** (наряд
+        0018 §3.2): деталь с назначенной группой не существует в базе с неполной
+        привязкой. Отказ от привязки отменяет заведение, поэтому список
+        перечитывается в любом случае.
+        """
         # `parent=` именем, а не позицией: вторым параметром у формы стоит
         # `item_id`, и `ItemDialog(engine, self)` открывал её «на правку вида».
         dialog = ItemDialog(self._engine, parent=self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.reload()
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        complete_new_item(
+            self._engine, self, dialog.created_item_id, dialog.created_group_id
+        )
+        self.reload()
 
     def open_positions(self) -> None:
         """Раскрыть число в колонке `Characteristics` (решение В-7)."""
@@ -198,5 +210,11 @@ class ItemView(QWidget):
         if cg_id is None:
             return
 
-        MappingDialog.run(self._engine, item_id, cg_id, self)
+        # У **ранее заведённой** детали откат невозможен: записи уже лежат, а
+        # прежнее состояние нигде не сохранено (§3.3a). Поэтому предупреждение
+        # без запрета — с возможностью вернуться и дозакрыть позиции.
+        while True:
+            MappingDialog.run(self._engine, item_id, cg_id, parent=self)
+            if not warn_incomplete_mapping(self._engine, self, item_id, cg_id):
+                break
         self.reload()

@@ -810,3 +810,73 @@ def test_create_item_from_the_deviation_form_opens_a_create_form(
     assert opened[0]._item_id is None
     assert opened[0].windowTitle() == "New item"
     assert opened[0].parent() is dialog
+
+
+def test_create_item_from_the_deviation_form_maps_it_too(
+    engine_with_item, monkeypatch
+) -> None:
+    """Критерий §3.5.5: второй вход ведёт себя так же — привязка обязательна.
+
+    Здесь она особенно к месту: R2 требует привязать канон **до** регистрации
+    отклонения, а мы как раз внутри неё. Заведённая деталь подставляется в
+    список — но только если привязка доведена.
+    """
+    from conftest import fill_item_form_and_accept, stub_mapping_dialog
+    from db.models import CharacteristicGroup, Item
+    from domain.mappings import bind, mark_absent
+
+    def operator_maps(engine, item_id, cg_id, attempt):
+        with session_scope(engine) as session:
+            item = session.get(Item, item_id)
+            positions = sorted(
+                session.get(CharacteristicGroup, cg_id).positions, key=lambda p: p.g_index
+            )
+            bind(session, item, positions[0], "31")
+            mark_absent(session, item, positions[1])
+
+    import ui.deviation_dialog as module
+
+    monkeypatch.setattr(
+        module.ItemDialog, "exec", fill_item_form_and_accept("C1-08420B", "CG-A")
+    )
+    calls = stub_mapping_dialog(monkeypatch, operator_maps)
+
+    dialog = DeviationDialog(engine_with_item)
+    dialog.create_item()
+
+    assert len(calls) == 1
+    with session_scope(engine_with_item) as session:
+        created = session.query(Item).filter_by(item_number="C1-08420B").one()
+        assert [c.local_number for c in created.characteristics] == ["31"]
+    # Заведённая деталь выбрана в форме: регистрировать отклонение можно сразу.
+    assert dialog.item.currentText() == "C1-08420B"
+
+
+def test_refusing_the_mapping_from_the_deviation_form_creates_nothing(
+    engine_with_item, monkeypatch
+) -> None:
+    """Тот же отказ и здесь: детали нет, и подставлять в список нечего."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from conftest import fill_item_form_and_accept, stub_mapping_dialog
+    from db.models import Item
+
+    import ui.deviation_dialog as module
+    import ui.item_dialog as dialog_module
+
+    monkeypatch.setattr(
+        module.ItemDialog, "exec", fill_item_form_and_accept("C1-08420B", "CG-A")
+    )
+    stub_mapping_dialog(monkeypatch)  # оператор ничего не решил и закрыл окно
+    monkeypatch.setattr(
+        dialog_module.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+    )
+
+    dialog = DeviationDialog(engine_with_item)
+    dialog.create_item()
+
+    with session_scope(engine_with_item) as session:
+        assert session.query(Item).filter_by(item_number="C1-08420B").count() == 0
+    assert dialog.item.currentText() != "C1-08420B"

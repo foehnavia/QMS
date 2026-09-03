@@ -66,7 +66,7 @@ from .common import (
 )
 from .finding_dialog import FindingDialog, FindingRow
 from .inspection_dialog import InspectionDialog
-from .item_dialog import ItemDialog
+from .item_dialog import ItemDialog, complete_new_item
 from .kit import tokens
 from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
@@ -435,13 +435,24 @@ class DeviationDialog(QDialog):
     # --- действия шапки ----------------------------------------------------------
 
     def create_item(self) -> None:
-        """Деталь заводится по ходу — штатный путь, а не исключение (§6)."""
+        """Деталь заводится по ходу — штатный путь, а не исключение (§6).
+
+        Привязка к канону идёт тем же продолжением, что и на экране деталей
+        (наряд 0018 §3.2): здесь она особенно к месту — R2 требует, чтобы канон
+        был привязан **до** регистрации отклонения, а мы как раз внутри неё.
+        Откат привязки отменяет заведение, и тогда подставлять в список нечего.
+        """
         # `parent=` именем, а не позицией: вторым параметром у формы стоит
         # `item_id`, и `ItemDialog(engine, self)` открывал её «на правку вида».
         dialog = ItemDialog(self._engine, parent=self)
-        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.created_number:
-            self.reload_items(preselect=dialog.created_number)
-            self._refresh()
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.created_number:
+            return
+
+        created = complete_new_item(
+            self._engine, self, dialog.created_item_id, dialog.created_group_id
+        )
+        self.reload_items(preselect=dialog.created_number if created else None)
+        self._refresh()
 
     def pick_attachment(self) -> None:
         """Путь вставляем строкой: файлы в базу не копируются (`architecture.md` §4)."""

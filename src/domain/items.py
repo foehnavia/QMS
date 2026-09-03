@@ -1,8 +1,10 @@
-"""Заведение детали и сид CG-размеров (`Item.md`, `_overview.md` §6).
+"""Заведение детали (`Item.md`, `_overview.md` §6).
 
-При заведении детали сеются **только CG-размеры**; остальные создаются
-автоматически при первом отклонении, которое на них ссылается
-(`characteristics.get_or_create_characteristic`).
+Размеры детали при заведении **не сеются**: CG-размеры создаёт привязка к
+канону (`mappings.bind` → `get_or_create_characteristic`), остальные — первое
+отклонение, которое на них ссылается. Прежний `seed_cg_characteristics` был
+вторым способом создать те же строки и требовал вводить номера **вслепую**, без
+чертежа группы; он удалён нарядом 0018 (находка №13 прогона QMS-016).
 
 Принадлежность детали к CG выводится через `characteristic → mapping →
 g_position → cg` — отдельной Item↔CG таблицы нет (`decisions.md`, ревью S1).
@@ -10,14 +12,12 @@ g_position → cg` — отдельной Item↔CG таблицы нет (`deci
 
 from __future__ import annotations
 
-from typing import Mapping as MappingType
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from db.models import Characteristic, CharacteristicGroup, Item, Mapping
+from db.models import Item
 
-from .errors import DuplicateValue, ValidationError
+from .errors import DuplicateValue, ValidationError, ValueInUse
 
 
 def list_items(session: Session) -> list[Item]:
@@ -99,50 +99,40 @@ def update_item(
     return item
 
 
-def seed_cg_characteristics(
-    session: Session,
-    item: Item,
-    group: CharacteristicGroup,
-    local_numbers: MappingType[int, str],
-) -> list[Characteristic]:
-    """Засеять деталь размерами группы и смаппить их на её g-позиции.
+def discard_item(session: Session, item: Item) -> None:
+    """Снять только что заведённую деталь вместе со всем, что за ней записано.
 
-    Номер размера задаётся **явно на каждую g-позицию** — он берётся с чертежа
-    детали и с `g_index` совпадает редко, поэтому автоподстановка закрепляла бы
-    в базе неверный номер (решение Cowork по заметке Б наряда 0002).
+    Нужна одному сценарию — отказу от привязки на заведении (наряд 0018 §3.3).
+    Деталь с назначенной группой не существует в базе с неполной привязкой, а
+    диалог привязки пишет каждое действие сразу (ратификация S3, менять её
+    наряд не разрешает). Поэтому «не заводить деталь» достигается не отложенной
+    записью, а удалением записанного за этот сеанс.
 
-    Маппинг создаётся сразу — ранняя привязка к канону (R2). Геометрия остаётся
-    на `g_position` и на характеристику не копируется.
+    Каскады модели снимают всё связанное: размеры детали, их маппинги и отметки
+    «нет у детали» (`Item.characteristics` и `Item.absent_positions` —
+    `delete-orphan`, `Characteristic.mapping` — тоже).
+
+    **Гард на чужие записи.** Функция откатывает только что созданное и не
+    смеет тронуть деталь, на которую уже сослалась работа цеха: отклонение или
+    находка. Это же условие держит дорогу открытой для Q-15 (перепривязка
+    существующей детали со снимком состояния): её механика будет своя, а эта
+    остаётся узкой.
     """
-    numbers = dict(local_numbers or {})
-
-    cleaned: dict[int, str] = {}
-    for position in group.positions:
-        local = (numbers.get(position.g_index) or "").strip()
-        if not local:
-            raise ValidationError(
-                f"No local number given for position g{position.g_index}."
-            )
-        cleaned[position.g_index] = local
-
-    if len(set(cleaned.values())) != len(cleaned):
-        raise DuplicateValue("Local numbers inside one item must not repeat.")
-
-    existing = {char.local_number for char in item.characteristics}
-    clash = existing & set(cleaned.values())
-    if clash:
-        raise DuplicateValue(
-            f"The item already has characteristics numbered: {', '.join(sorted(clash))}."
+    if item.deviations:
+        raise ValueInUse(
+            f"Item “{item.item_number}” has {len(item.deviations)} deviation(s) — "
+            "it is not a freshly created item and will not be discarded."
         )
+    for characteristic in item.characteristics:
+        if characteristic.findings:
+            raise ValueInUse(
+                f"Characteristic no. {characteristic.local_number} of item "
+                f"“{item.item_number}” is referenced by findings — "
+                "the item will not be discarded."
+            )
 
-    created: list[Characteristic] = []
-    for position in sorted(group.positions, key=lambda p: p.g_index):
-        characteristic = Characteristic(item=item, local_number=cleaned[position.g_index])
-        session.add(characteristic)
-        session.add(Mapping(characteristic=characteristic, g_position=position))
-        created.append(characteristic)
+    session.delete(item)
     session.flush()
-    return created
 
 
 def groups_of(item: Item) -> list[CharacteristicGroup]:

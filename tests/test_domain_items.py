@@ -1,4 +1,10 @@
-"""Критерии приёмки 2–4 — заведение детали, сид CG-размеров, CG на лету."""
+"""Заведение детали, привязка к канону, CG на лету, откат заведения.
+
+Засева `seed_cg_characteristics` больше нет (наряд 0018): CG-размеры создаёт
+привязка, а форма их не спрашивает. Поэтому там, где тесты сеяли размеры одной
+доменной функцией, они теперь **привязывают** — тем же путём, которым идёт
+оператор.
+"""
 
 from __future__ import annotations
 
@@ -7,9 +13,10 @@ from sqlalchemy.orm import Session
 
 from conftest import reopen
 from db.models import GENERAL, Item, RefConnectionType, RefItemType, RefSize
-from domain.errors import DuplicateValue, ValidationError
+from domain.errors import DuplicateValue, ValidationError, ValueInUse
 from domain.groups import GPositionSpec, create_group, list_groups
-from domain.items import create_item, groups_of, seed_cg_characteristics, update_item
+from domain.items import create_item, discard_item, groups_of, update_item
+from domain.mappings import bind, mark_absent
 from seed.reference import ref
 
 POSITIONS = (
@@ -17,6 +24,20 @@ POSITIONS = (
     GPositionSpec(g_index=2, nominal=2.00, tol_plus=0.00, tol_minus=-0.05),
     GPositionSpec(g_index=3, nominal=0.50, tol_plus=0.02, tol_minus=-0.02),
 )
+
+
+def _bind_all(session: Session, item: Item, group, numbers: dict[int, str]) -> list:
+    """Привязать деталь к позициям группы — так же, как это делает оператор.
+
+    Прежде тесты звали `seed_cg_characteristics`; функции больше нет, и размеры
+    создаёт сама привязка (`bind` → `get_or_create_characteristic`). Помощник
+    держит на виду, что это один и тот же результат, полученный законным путём.
+    """
+    created = []
+    for position in sorted(group.positions, key=lambda p: p.g_index):
+        mapping = bind(session, item, position, numbers[position.g_index])
+        created.append(mapping.characteristic)
+    return created
 
 
 def _new_item(session: Session, number: str = "C1-08375A") -> Item:
@@ -76,43 +97,27 @@ def test_blank_item_number_is_rejected(seeded_session: Session) -> None:
 # --- Сид CG-размеров (критерий 3, заметка Б) ------------------------------------
 
 
-def test_cg_seed_creates_characteristics_and_mappings(seeded_session: Session) -> None:
+def test_binding_creates_the_characteristics_and_keeps_geometry_on_the_canon(
+    seeded_session: Session,
+) -> None:
+    """Размеры CG заводит привязка; геометрия остаётся на g-позиции.
+
+    Прежде это делал засев формы. Проверка та же и по-прежнему нужна: копия
+    номинала на характеристике развела бы канон и деталь на первой же правке
+    группы.
+    """
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "Implant_Con_375_C1", POSITIONS)
 
-    created = seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
+    created = _bind_all(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
     seeded_session.commit()
 
     assert [char.local_number for char in created] == ["12", "19", "32"]
     for char in created:
-        assert char.mapping is not None
-        assert char.mapping.g_position is not None
-    # геометрия осталась на g-позиции и на характеристику не скопирована
+        assert char.mapping is not None and char.mapping.g_position is not None
     assert created[0].mapping.g_position.nominal == 3.75
     assert not hasattr(created[0], "nominal")
-
-
-def test_local_numbers_are_required_for_every_position(seeded_session: Session) -> None:
-    """Номер размера — с чертежа детали; автоподстановки по `g_index` нет."""
-    item = _new_item(seeded_session)
-    group = create_group(seeded_session, "CG-A", POSITIONS)
-
-    with pytest.raises(ValidationError) as excinfo:
-        seed_cg_characteristics(seeded_session, item, group, {})
-    assert "g1" in str(excinfo.value)
-
-    with pytest.raises(ValidationError):
-        seed_cg_characteristics(seeded_session, item, group, {1: "12", 3: "32"})
-
-
-def test_local_number_is_bound_to_the_right_position(seeded_session: Session) -> None:
-    item = _new_item(seeded_session)
-    group = create_group(seeded_session, "CG-A", POSITIONS)
-
-    created = seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
-    seeded_session.commit()
-
-    assert created[1].local_number == "19"
+    # Номер лёг на свою позицию, а не на соседнюю.
     assert created[1].mapping.g_position.g_index == 2
 
 
@@ -120,7 +125,7 @@ def test_cg_membership_is_derived_not_stored(seeded_session: Session) -> None:
     """Item↔CG — через characteristic→mapping→g_position→cg, отдельной таблицы нет."""
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-A", POSITIONS)
-    seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
+    _bind_all(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
     seeded_session.commit()
 
     assert [g.name for g in groups_of(item)] == ["CG-A"]
@@ -132,32 +137,71 @@ def test_cg_membership_is_derived_not_stored(seeded_session: Session) -> None:
     )) == []
 
 
-def test_duplicate_local_numbers_in_the_seed_are_rejected(seeded_session: Session) -> None:
+# --- откат заведения: наряд 0018 §3.3 ---------------------------------------------
+
+
+def test_discarding_a_new_item_leaves_no_trace(seeded_session: Session) -> None:
+    """Отказ от привязки снимает **всё**, что записалось за сеанс заведения.
+
+    Деталь с назначенной группой не существует в базе с неполной привязкой
+    (§1a). Записать сеанс одной транзакцией нельзя — диалог привязки пишет по
+    действию (ратификация S3), — поэтому правило держится удалением.
+    """
+    from db.models import Characteristic, ItemPositionAbsent, Mapping
+
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-A", POSITIONS)
+    bind(seeded_session, item, group.positions[0], "12")
+    mark_absent(seeded_session, item, group.positions[1])
+    seeded_session.commit()
 
-    with pytest.raises(DuplicateValue):
-        seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "12", 3: "32"})
+    discard_item(seeded_session, item)
+    seeded_session.commit()
+
+    assert seeded_session.query(Item).count() == 0
+    assert seeded_session.query(Characteristic).count() == 0
+    assert seeded_session.query(Mapping).count() == 0
+    assert seeded_session.query(ItemPositionAbsent).count() == 0
+    # Канон при этом цел: откат трогает деталь, а не группу.
+    assert len(list_groups(seeded_session)[0].positions) == 3
 
 
-def test_seed_clashing_with_existing_characteristics_is_rejected(seeded_session: Session) -> None:
-    from domain.characteristics import get_or_create_characteristic
+def test_discarding_does_not_touch_a_neighbour(seeded_session: Session) -> None:
+    """Откат узкий: чужие привязки к тем же позициям остаются на месте."""
+    group = create_group(seeded_session, "CG-A", POSITIONS)
+    doomed = _new_item(seeded_session, "C1-08375A")
+    neighbour = _new_item(seeded_session, "C1-08420B")
+    bind(seeded_session, doomed, group.positions[0], "12")
+    bind(seeded_session, neighbour, group.positions[0], "77")
+    seeded_session.commit()
+
+    discard_item(seeded_session, doomed)
+    seeded_session.commit()
+
+    assert [item.item_number for item in seeded_session.query(Item)] == ["C1-08420B"]
+    assert [char.local_number for char in neighbour.characteristics] == ["77"]
+
+
+def test_an_item_with_deviations_is_not_discarded(seeded_session: Session) -> None:
+    """Гард на чужие записи: это уже не «только что заведённая» деталь.
+
+    Здесь же проходит граница с Q-15: перепривязка существующей детали — своя
+    работа со своими гарантиями, и этот узкий откат ей дорогу не занимает.
+    """
+    from datetime import date
+
+    from domain.deviations import register
 
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-A", POSITIONS)
-    get_or_create_characteristic(seeded_session, item, "19")
+    bind(seeded_session, item, group.positions[0], "12")
+    register(seeded_session, item=item, wo="W26007336", quantity=3, date=date.today())
+    seeded_session.commit()
 
-    with pytest.raises(DuplicateValue) as excinfo:
-        seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
-    assert "19" in str(excinfo.value)
-
-
-def test_blank_local_number_is_rejected(seeded_session: Session) -> None:
-    item = _new_item(seeded_session)
-    group = create_group(seeded_session, "CG-A", POSITIONS)
-
-    with pytest.raises(ValidationError):
-        seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "  ", 3: "32"})
+    with pytest.raises(ValueInUse) as excinfo:
+        discard_item(seeded_session, item)
+    assert "deviation" in str(excinfo.value)
+    assert seeded_session.query(Item).count() == 1
 
 
 # --- CG на лету, R3 (критерий 4) -------------------------------------------------
@@ -177,7 +221,7 @@ def test_group_created_on_the_fly_is_immediately_bindable(seeded_session: Sessio
     """R3: недостающая группа заводится прямо в потоке заведения детали."""
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-new", (GPositionSpec(g_index=1, nominal=1.0),))
-    seed_cg_characteristics(seeded_session, item, group, {1: "7"})
+    _bind_all(seeded_session, item, group, {1: "7"})
     seeded_session.commit()
 
     assert [g.name for g in groups_of(item)] == ["CG-new"]
@@ -207,7 +251,7 @@ def test_duplicate_group_name_and_index_are_rejected(seeded_session: Session) ->
 def test_seeded_item_survives_a_reopen(migrated_url: str, seeded_session: Session) -> None:
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-A", POSITIONS)
-    seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
+    _bind_all(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
     seeded_session.commit()
     seeded_session.close()
 
@@ -245,7 +289,7 @@ def test_renaming_keeps_the_dimensions(seeded_session: Session) -> None:
     """Номер детали — её имя, а не идентичность: размеры ссылаются на `item_id`."""
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-A", POSITIONS)
-    seed_cg_characteristics(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
+    _bind_all(seeded_session, item, group, {1: "12", 2: "19", 3: "32"})
 
     update_item(
         seeded_session,

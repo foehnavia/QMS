@@ -46,7 +46,7 @@ from .inspections import (
     remove_inspection,
     update_inspection,
 )
-from .items import create_item, groups_of, list_items, seed_cg_characteristics
+from .items import create_item, discard_item, groups_of, list_items
 from .mappings import (
     PositionState,
     binding_state,
@@ -91,6 +91,7 @@ __all__ = [
     "create_group",
     "create_inspection",
     "create_item",
+    "discard_item",
     "delete_deviation",
     "delete_value",
     "ensure_finding_target",
@@ -115,7 +116,6 @@ __all__ = [
     "remove_inspection",
     "remove_position",
     "rename_value",
-    "seed_cg_characteristics",
     "set_decision",
     "set_drawing",
     "update_finding",
