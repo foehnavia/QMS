@@ -299,7 +299,7 @@ Positions g4, g7 have no state. The mapping of item <номер> stays incomplet
 | 4 | После «Close» детали нет — вместе с размерами, маппингами и отметками 99; вопрос задан; «нет» возвращает | ✅ `test_refusing_the_mapping_leaves_no_trace` (проверяется после сеанса, где часть позиций **уже** привязана: пусты все четыре таблицы, канон цел) и `test_answering_no_returns_to_the_mapping` (привязка открылась второй раз). На копии базы прогона — то же самое живьём |
 | 5 | «Create item…» из формы отклонения ведёт себя так же | ✅ `test_create_item_from_the_deviation_form_maps_it_too` и `test_refusing_the_mapping_from_the_deviation_form_creates_nothing`; во втором в список не подставляется ничего |
 | 6 | У ранее заведённой детали — предупреждение, ничего не откатывается | ✅ `test_an_existing_item_is_warned_but_never_rolled_back` (деталь и её размер на месте) и `test_the_warning_names_the_unfinished_positions` (текст перечисляет `g4`, `g7` и называет деталь) |
-| 7 | `seed_cg_characteristics` в коде отсутствует | ✅ `grep -rn seed_cg_characteristics src/ tools/` — пусто; в тестах остались только упоминания в докстрингах, объясняющие, чем его заменили |
+| 7 | `seed_cg_characteristics` в коде отсутствует | ✅ вызовов и определения нет ни в `src/`, ни в `tools/`, ни в тестах. Имя осталось **одной строкой докстринга** `domain/items.py` — там сказано, почему засев удалён и что размеры теперь заводит привязка; это объяснение, а не код |
 | 8 | Тесты зелёные, число названо явно | ✅ **446 тестов, все зелёные** (было 439) |
 
 ### Число тестов
