@@ -369,6 +369,7 @@ def shoot_on_run_database() -> int:
         card.tabs.setCurrentIndex(1)
         shoot(card, f"run-card-{number}-descriptive")
         card.tabs.setCurrentIndex(0)
+        measure_columns(card.findings, f"card {number} · findings")
         print(
             f"    {number}: exact rows "
             f"{card.same_dimension.rowCount()} + {card.same_position.rowCount()}"
