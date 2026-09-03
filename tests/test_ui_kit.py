@@ -137,6 +137,141 @@ def test_tokens_carry_the_ratified_font_stack() -> None:
     assert "system-ui" not in tokens.FONT_FAMILY
 
 
+# --- наряд 0019: поле выбора с отбором по набранному --------------------------------
+
+
+ITEMS = [
+    (1, "C1-08375A"),
+    (2, "MF5-10375A-N"),
+    (3, "C1-08420B"),
+    (4, 'אזור הברגה'),
+]
+
+
+def _field():
+    field = kit.FilterCombo("type to narrow the list")
+    field.set_rows(ITEMS)
+    return field
+
+
+def test_the_filter_narrows_by_substring_not_by_prefix() -> None:
+    """§3.5.1: отбор по вхождению — номер помнят серединой чаще, чем началом.
+
+    Обычный `QComboBox` искал по первой букве и список не сужал вовсе: это и
+    была находка №17.
+    """
+    field = _field()
+
+    field.filter_to("375")
+
+    # `C1-08375A` — совпадение в середине, `MF5-10375A-N` — тоже в середине.
+    assert field.visible_labels() == ["C1-08375A", "MF5-10375A-N"]
+    assert field.filter_to("mf5") == [(2, "MF5-10375A-N")], "отбор регистрозависим"
+
+
+def test_deleting_a_character_widens_the_list_back() -> None:
+    """§3.5.2: каждое изменение набранного пересобирает список заново.
+
+    У прежнего поля вторая буква начинала поиск с нуля, а стереть набранное
+    было нечем — строки ввода у элемента не было.
+    """
+    field = _field()
+
+    field.filter_to("C1-084")
+    assert field.visible_labels() == ["C1-08420B"]
+
+    field.filter_to("C1-0")
+    assert field.visible_labels() == ["C1-08375A", "C1-08420B"]
+
+    field.filter_to("")
+    assert field.visible_labels() == [label for _key, label in ITEMS]
+
+
+def test_nothing_matches_is_explained_not_left_blank() -> None:
+    """§3.5.3: пустой список без объяснения читается как «таких деталей нет»."""
+    field = _field()
+
+    assert field.filter_to("zzz") == []
+    assert field.is_explaining() is True
+    shown = field.visible_labels()
+    assert len(shown) == 1
+    assert "Nothing matches" in shown[0] and str(len(ITEMS)) in shown[0]
+    # Объяснение не выбирается: значением поля оно стать не может.
+    assert field.model().item(0).isEnabled() is False
+
+
+def test_closing_the_list_drops_the_filter() -> None:
+    """§3.5.4: открыл заново — список полон, набранного нет.
+
+    Половина жалобы оператора была именно про это: отметка оставалась там, где
+    он её оставил, и сбросить её было нечем.
+    """
+    field = _field()
+    field.setCurrentText("C1-08420B")
+
+    field.filter_to("375")
+    assert len(field.visible_labels()) == 2
+
+    field.hidePopup()
+
+    assert field.visible_labels() == [label for _key, label in ITEMS]
+    assert field.currentData() == 3, "выбор пережил снятие отбора"
+
+
+def test_free_text_never_becomes_the_value() -> None:
+    """§3.5.5: набранное, не совпавшее ни с чем, откатывается к прежнему выбору."""
+    field = _field()
+    field.setCurrentText("C1-08375A")
+
+    field.lineEdit().setText("MF5-999")  # оператор набрал несуществующее
+    field.settle()
+
+    assert field.currentData() == 1
+    assert field.currentText() == "C1-08375A"
+
+
+def test_an_emptied_field_means_nothing_is_selected() -> None:
+    """Обратная сторона отката: стёртая строка — законное «не выбрано».
+
+    Иначе снять выбор было бы нечем, а у обоих мест применения это состояние
+    допустимо (деталь ещё не названа, деталь без группы).
+    """
+    field = _field()
+    field.setCurrentText("C1-08375A")
+
+    field._on_typed("")
+
+    assert field.currentData() is None
+
+
+def test_the_field_yields_the_key_not_the_label() -> None:
+    """§3.5.6: наружу идёт идентификатор, и он не зависит от состояния отбора.
+
+    Обычный `currentData()` вернул бы данные текущей строки **суженного**
+    списка — то есть значение, которого оператор не выбирал.
+    """
+    field = _field()
+    field.setCurrentText("MF5-10375A-N")
+
+    field.filter_to("C1")  # список сужен на совсем другие записи
+
+    assert field.currentData() == 2
+    assert field.current_key() == 2
+
+
+def test_a_hebrew_value_keeps_its_own_direction() -> None:
+    """Канон §6: направление поля следует за набранным, а не за окном."""
+    from PySide6.QtCore import Qt
+
+    field = _field()
+    field.filter_to("הברגה")
+
+    assert field.visible_labels() == ["אזור הברגה"]
+    field.lineEdit().setText("אזור")
+    kit.bind_direction(field.lineEdit())
+    assert field.lineEdit().layoutDirection() == Qt.LayoutDirection.RightToLeft
+
+
 def test_the_stylesheet_is_built_from_tokens() -> None:
     """Стиль — производная канона: значения приходят из `tokens`, не из головы."""
     sheet = kit.stylesheet()
@@ -282,6 +417,130 @@ def test_the_choice_shows_which_option_is_taken() -> None:
     assert painted > 0, "отмеченный вариант не нарисован"
 
 
+
+def _indicator_box(image, row_top: int, row_bottom: int, zone: int = 26):
+    """Прямоугольник нарисованного индикатора внутри строки радиокнопки.
+
+    Ищем всё, что не фон, в левой зоне строки: индикатор стоит слева от подписи.
+    Возвращает `(left, top, right, bottom)` или `None`, если не нарисовано ничего.
+    """
+    from PySide6.QtGui import QColor
+
+    background = QColor(image.pixel(image.width() - 2, row_top + 1)).rgb() & 0xFFFFFF
+    painted = [
+        (x, y)
+        for y in range(row_top, row_bottom)
+        for x in range(0, zone)
+        if image.pixel(x, y) & 0xFFFFFF != background
+    ]
+    if not painted:
+        return None
+    xs = [point[0] for point in painted]
+    ys = [point[1] for point in painted]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def test_the_radio_indicator_is_the_same_circle_in_both_states(qt_app) -> None:
+    """№18: два состояния одного элемента — одна фигура, один размер, один край.
+
+    Прежний тест этого класса считал только «есть ли синие пиксели» — и был
+    зелёным, когда отмеченный индикатор рисовался **квадратом**, крупнее
+    невыбранного и левее него. Причина в QSS: `width`/`height` задают content-box,
+    поэтому более толстая рамка у `:checked` растила весь индикатор, а радиус в
+    7 px на рамке в 4 px давал скруглённый квадрат.
+
+    Поэтому тест меряет **нарисованное**: рамку индикатора в каждом состоянии,
+    её размер, левый край и долю закрашенного (у круга ≈ π/4, у квадрата ≈ 1).
+    """
+    from PySide6.QtWidgets import QRadioButton, QVBoxLayout, QWidget
+
+    # Тему применяем **сами**: без листа стиля индикатор рисует родной стиль
+    # Windows, и тест мерил бы не то, что чинил наряд. Прежде лист приходил
+    # сюда побочно — его ставил соседний тест, и порядок запуска решал, что
+    # именно измерено (наблюдение наряда 0019).
+    kit.apply_theme(qt_app)
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    checked = QRadioButton("checked")
+    unchecked = QRadioButton("unchecked")
+    layout.addWidget(checked)
+    layout.addWidget(unchecked)
+    host.resize(220, 80)
+    host.layout().activate()
+    checked.setChecked(True)
+
+    image = host.grab().toImage()
+    marked = _indicator_box(image, checked.y(), checked.y() + checked.height())
+    plain = _indicator_box(image, unchecked.y(), unchecked.y() + unchecked.height())
+
+    assert marked is not None, "отмеченный индикатор не нарисован"
+    assert plain is not None, "невыбранный индикатор не нарисован"
+
+    def size(box):
+        return box[2] - box[0] + 1, box[3] - box[1] + 1
+
+    assert size(marked) == size(plain), (
+        f"размеры разошлись: отмеченный {size(marked)}, невыбранный {size(plain)}"
+    )
+    assert marked[0] == plain[0], (
+        f"левые края разошлись: {marked[0]} против {plain[0]}"
+    )
+
+    # Форма меряется **углами**, а не долей закраски: доля обманывает — у
+    # прежнего отмеченного индикатора она была 0.45 (белая середина в толстой
+    # рамке), у нынешнего 0.80 (диск), и порога между ними нет.
+    #
+    # Угол берётся квадратом два на два от вершины рамки: замерено **0 из 16**
+    # у круга против **15 из 16** у скруглённого квадрата. Квадрат три на три
+    # такого запаса не даёт — в него заходит край самого диска.
+    from PySide6.QtGui import QColor
+
+    background = QColor(image.pixel(image.width() - 2, checked.y() + 1)).rgb() & 0xFFFFFF
+
+    def corner(x0: int, y0: int, dx: int, dy: int, side: int = 2) -> int:
+        return sum(
+            1
+            for step_y in range(side)
+            for step_x in range(side)
+            if image.pixel(x0 + step_x * dx, y0 + step_y * dy) & 0xFFFFFF != background
+        )
+
+    corners = (
+        corner(marked[0], marked[1], 1, 1)
+        + corner(marked[2], marked[1], -1, 1)
+        + corner(marked[0], marked[3], 1, -1)
+        + corner(marked[2], marked[3], -1, -1)
+    )
+    assert corners <= 4, (
+        f"углы индикатора закрашены — это квадрат, а не круг: {corners} из 16"
+    )
+
+
+def test_the_checked_indicator_is_visible_at_all(qt_app) -> None:
+    """Обратная сторона: одинаковость не должна достигаться исчезновением отметки."""
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QRadioButton, QVBoxLayout, QWidget
+
+    kit.apply_theme(qt_app)
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    checked = QRadioButton("checked")
+    layout.addWidget(checked)
+    host.resize(220, 44)
+    host.layout().activate()
+    checked.setChecked(True)
+
+    image = host.grab().toImage()
+    accent = QColor(tokens.BLUE_600).rgb() & 0xFFFFFF
+    painted = sum(
+        1
+        for y in range(image.height())
+        for x in range(image.width())
+        if image.pixel(x, y) & 0xFFFFFF == accent
+    )
+    assert painted > 0, "отмеченный вариант не нарисован вовсе"
+
 def test_the_editors_still_draw_their_arrows() -> None:
     """§9: у стилизованного виджета индикатор рисует тот, кого спросили последним.
 
@@ -363,3 +622,4 @@ def test_the_empty_state_says_what_why_and_a_way_out() -> None:
     assert any("No precedents" in text for text in labels)
     assert any("decided" in text for text in labels)
     assert action.parent() is not None
+

@@ -14,10 +14,12 @@
 * `widgets` — таблица, форма, кнопки, подсказка, пустое состояние, диалог;
 * `pills` — бейдж состояния решения;
 * `ribbon` — лента навигации;
-* `picker` — модальный выбор со строкой отбора.
+* `picker` — модальный выбор со строкой отбора;
+* `combo` — поле выбора из длинного списка, сужаемое набранным.
 """
 
 from . import tokens
+from .combo import FilterCombo
 from .focus import FocusHalo, FocusHaloController
 from .direction import (
     LTR,
@@ -79,6 +81,7 @@ __all__ = [
     "Choice",
     "DECISION_ROLE",
     "DirectionalDelegate",
+    "FilterCombo",
     "DecisionPillDelegate",
     "LTR",
     "NavigationRibbon",

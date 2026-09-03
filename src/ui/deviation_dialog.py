@@ -103,6 +103,8 @@ FINDING_MAGNITUDE_COLUMNS = (2,)
 #: читалось как второе решение по той же записи.
 INSPECTION_COLUMNS = ("Number", "Characteristic", "Type", "Result", "Protocol")
 
+#: Подсказка пустого поля детали. Прежде это была строка списка со значением
+#: `None`; у поля с отбором пустое состояние показывает сама строка ввода.
 NO_ITEM = "— pick an item —"
 
 
@@ -126,10 +128,13 @@ class DeviationDialog(QDialog):
         self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_TALL)
 
         # --- шапка ---
-        self.item = QComboBox()
+        # Поле с отбором, а не обычный список: на производственном наборе
+        # деталей выбирать `MF5-10375A-N` прокруткой нечем — первая буква
+        # переставляла отметку, вторая начинала поиск заново (находка №17).
+        self.item = kit.FilterCombo(NO_ITEM)
         self.new_item = kit.secondary("Create item…")
         self.new_item.clicked.connect(self.create_item)
-        self.item.currentIndexChanged.connect(self._refresh_actions)
+        self.item.keyChanged.connect(self._refresh_actions)
 
         item_row = QHBoxLayout()
         item_row.setSpacing(tokens.GAP_CONTROL)
@@ -267,25 +272,27 @@ class DeviationDialog(QDialog):
     # --- загрузка ---------------------------------------------------------------
 
     def reload_items(self, preselect: str | None = None) -> None:
+        """Перечитать список деталей, сохранив выбор.
+
+        Выбор держится **ключом**, а не подписью: номер детали правится формой
+        (`update_item`), и искать по нему прежний выбор значило бы терять его
+        ровно тогда, когда номер поправили.
+        """
         with session_scope(self._engine) as session:
             rows = [(item.item_id, item.item_number) for item in list_items(session)]
 
-        current = preselect or self.item.currentText()
-        self.item.blockSignals(True)
-        self.item.clear()
-        self.item.addItem(NO_ITEM, None)
-        for item_id, number in rows:
-            self.item.addItem(number, item_id)
-        index = self.item.findText(current)
-        self.item.setCurrentIndex(index if index >= 0 else 0)
-        self.item.blockSignals(False)
+        keep = self.item.current_key()
+        self.item.set_rows(rows)
+        if preselect is not None:
+            self.item.setCurrentText(preselect)
+        elif keep is not None:
+            self.item.select_key(keep)
 
     def reload(self) -> None:
         """Прочитать существующее отклонение в форму."""
         with session_scope(self._engine) as session:
             deviation = session.get(Deviation, self._deviation_id)
-            index = self.item.findData(deviation.item_id)
-            self.item.setCurrentIndex(index if index >= 0 else 0)
+            self.item.select_key(deviation.item_id)
             # Деталь после регистрации неизменна: размеры находок принадлежат
             # ей, перенос осиротил бы их (`Characteristic.md`).
             self.item.setEnabled(False)

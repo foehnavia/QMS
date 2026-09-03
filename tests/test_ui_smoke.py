@@ -90,7 +90,11 @@ def test_item_dialog_preselects_general(seeded_engine) -> None:
     assert dialog.connection_type.currentText() == "General"
     assert dialog.size.currentText() == "General"
     assert dialog.item_type.currentText() == NO_TYPE
-    assert dialog.group.currentText() == NO_GROUP
+    # Пустое поле группы — «группа не выбрана». Прежде это была строка списка,
+    # теперь подсказка строки ввода: у поля с отбором пустое состояние своё
+    # (наряд 0019 §3.1).
+    assert dialog.group.currentData() is None
+    assert dialog.group.lineEdit().placeholderText() == NO_GROUP
 
 
 def test_the_item_form_does_not_ask_for_local_numbers(seeded_engine) -> None:
@@ -585,3 +589,38 @@ def test_the_cyrillic_guard_actually_detects_a_literal(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert _cyrillic_literals(probe) == [3]
+
+
+def test_the_group_field_narrows_the_same_way(seeded_engine) -> None:
+    """Критерий 5 наряда 0019: поле группы ведёт себя так же, как поле детали.
+
+    Тот же класс отказа, тот же компонент: групп на производственном наборе
+    десятки, и прокручивать их незачем.
+    """
+    from db.session import session_scope
+    from domain.groups import GPositionSpec, create_group
+
+    with session_scope(seeded_engine) as session:
+        for name in ("Implant_Con_375_C1", "Implant_Con_420_SP", "Abutment_C1"):
+            create_group(session, name, (GPositionSpec(1, 3.75),))
+
+    dialog = ItemDialog(seeded_engine)
+
+    assert len(dialog.group.visible_labels()) == 3
+    dialog.group.filter_to("con_")
+    assert dialog.group.visible_labels() == ["Implant_Con_375_C1", "Implant_Con_420_SP"]
+
+    dialog.group.filter_to("нет такой")
+    assert dialog.group.is_explaining() is True
+
+    # Наружу форма отдаёт ключ группы, а не её имя.
+    dialog.group.settle()
+    dialog.group.setCurrentText("Abutment_C1")
+    dialog.number_edit.setText("C1-08375A")
+    dialog.save()
+
+    with session_scope(seeded_engine) as session:
+        from db.models import CharacteristicGroup
+
+        expected = session.query(CharacteristicGroup).filter_by(name="Abutment_C1").one()
+        assert dialog.created_group_id == expected.cg_id

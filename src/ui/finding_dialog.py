@@ -116,16 +116,15 @@ class FindingDialog(QDialog):
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
 
-        directions = QVBoxLayout()
-        directions.addWidget(self.plus)
-        directions.addWidget(self.minus)
-        direction_box = QWidget()
-        direction_box.setLayout(directions)
+        # Через `kit.column`, а не голым `QVBoxLayout`: у голого свои отступы
+        # по умолчанию (9 со всех сторон, замерено), и они уводили радиокнопки
+        # вправо от левого края остальных полей формы (находка №19).
+        self.direction_box = kit.boxed(kit.column(self.plus, self.minus))
 
         form = kit.stretching_form()
         form.addRow("Local number:", self.number_edit)
         form.addRow("Canon mapping:", self.canon_label)
-        form.addRow("Direction:", direction_box)
+        form.addRow("Direction:", self.direction_box)
         form.addRow("Value:", self.value_edit)
         form.addRow("Measurement point:", self.point_edit)
         form.addRow("Zone:", self.zone)
@@ -134,6 +133,12 @@ class FindingDialog(QDialog):
 
         layout = kit.dialog_layout(self)
         layout.addLayout(form)
+        # Свободная вертикаль уходит **вниз**, а не в строки формы. Без этого
+        # растягивались ровно те две строки, чьи виджеты умеют расти —
+        # переносимая подпись канона и контейнер направления, — и содержимое
+        # центрировалось в выросшей строке: подпись сверху, значение сильно
+        # ниже (находка №19, замерено: 138 px против 28 у соседних полей).
+        layout.addStretch(1)
         layout.addWidget(self.buttons)
 
         self._load_reference()

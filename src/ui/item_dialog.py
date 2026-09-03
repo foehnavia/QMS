@@ -114,7 +114,9 @@ class ItemDialog(QDialog):
         self.item_type = _combo()
         self.connection_type = _combo()
         self.size = _combo()
-        self.group = _combo()
+        # Тот же класс, что и поле детали: групп на производственном наборе
+        # десятки, и прокручивать их незачем (наряд 0019 §3.2).
+        self.group = kit.FilterCombo(NO_GROUP)
 
         new_group = kit.secondary("Create group…")
         new_group.clicked.connect(self.create_group)
@@ -191,12 +193,16 @@ class ItemDialog(QDialog):
             item_types = [value.name for value in list_values(session, RefItemType)]
             connections = [value.name for value in list_values(session, RefConnectionType)]
             sizes = [value.name for value in list_values(session, RefSize)]
-            groups = [group.name for group in list_groups(session)]
+            # Группа теперь отдаётся **ключом**: имя из формы больше не ищется
+            # запросом по названию при сохранении.
+            groups = [(group.cg_id, group.name) for group in list_groups(session)]
 
         _fill(self.item_type, [NO_TYPE, *item_types], NO_TYPE)
         _fill(self.connection_type, connections, GENERAL)
         _fill(self.size, sizes, GENERAL)
-        _fill(self.group, [NO_GROUP, *groups], keep_group or NO_GROUP)
+        self.group.set_rows(groups)
+        if keep_group:
+            self.group.setCurrentText(keep_group)
 
     # --- действия --------------------------------------------------------------
 
@@ -208,7 +214,7 @@ class ItemDialog(QDialog):
 
     def save(self) -> None:
         item_type_name = self.item_type.currentText()
-        group_name = self.group.currentText()
+        group_id = self.group.currentData()
         try:
             with session_scope(self._engine) as session:
                 fields = dict(
@@ -228,13 +234,7 @@ class ItemDialog(QDialog):
                     # Размеры здесь не заводятся: их создаст привязка
                     # (`mappings.bind`), и она же скажет, какой номер чей.
                     self.created_item_id = item.item_id
-                    if group_name != NO_GROUP:
-                        group = session.scalar(
-                            select(CharacteristicGroup).where(
-                                CharacteristicGroup.name == group_name
-                            )
-                        )
-                        self.created_group_id = group.cg_id
+                    self.created_group_id = group_id
                 else:
                     item = update_item(session, session.get(Item, self._item_id), **fields)
                 self.created_number = item.item_number

@@ -880,3 +880,101 @@ def test_refusing_the_mapping_from_the_deviation_form_creates_nothing(
     with session_scope(engine_with_item) as session:
         assert session.query(Item).filter_by(item_number="C1-08420B").count() == 0
     assert dialog.item.currentText() != "C1-08420B"
+
+
+# --- наряд 0019: выбор детали отбором ------------------------------------------------
+
+
+def _two_items(engine) -> tuple[int, int]:
+    """Вторая деталь с похожим номером: отбор обязан их различать."""
+    from conftest import make_item
+
+    with session_scope(engine) as session:
+        first = session.query(Item).one().item_id
+        second = make_item(session, "MF5-10375A-N").item_id
+    return first, second
+
+
+def test_the_item_field_narrows_as_you_type(engine_with_item) -> None:
+    """Критерий 1: набор сужает список по вхождению, стирание расширяет.
+
+    Прежде это был обычный `QComboBox`: первая буква переставляла отметку, но
+    список оставался полным (находка №17, прогон встал на шаге 8).
+    """
+    _two_items(engine_with_item)
+    dialog = DeviationDialog(engine_with_item)
+    dialog.reload_items()
+
+    assert dialog.item.visible_labels() == ["C1-08375A", "MF5-10375A-N"]
+
+    dialog.item.filter_to("10375")
+    assert dialog.item.visible_labels() == ["MF5-10375A-N"]
+
+    dialog.item.filter_to("")
+    assert dialog.item.visible_labels() == ["C1-08375A", "MF5-10375A-N"]
+
+    dialog.item.filter_to("нет такой")
+    assert dialog.item.visible_labels() != []
+    assert dialog.item.is_explaining() is True
+
+
+def test_the_item_field_forgets_the_filter_when_it_closes(engine_with_item) -> None:
+    """Критерий 2: открыл заново — список полон, отбор пуст."""
+    _two_items(engine_with_item)
+    dialog = DeviationDialog(engine_with_item)
+    dialog.reload_items()
+    dialog.item.setCurrentText("MF5-10375A-N")
+
+    dialog.item.filter_to("C1")
+    dialog.item.hidePopup()
+
+    assert dialog.item.visible_labels() == ["C1-08375A", "MF5-10375A-N"]
+    assert dialog.item.currentText() == "MF5-10375A-N"
+
+
+def test_typed_nonsense_cannot_reach_the_database(engine_with_item) -> None:
+    """Критерий 3: несовпавший текст откатывается и в базу не попадает."""
+    first, _second = _two_items(engine_with_item)
+    dialog = DeviationDialog(engine_with_item)
+    dialog.reload_items()
+    dialog.item.select_key(first)
+
+    dialog.item.lineEdit().setText("C1-99999X")  # такой детали нет
+    dialog.item.settle()
+
+    assert dialog.item.currentData() == first
+    assert dialog.item.currentText() == "C1-08375A"
+
+
+def test_the_deviation_lands_on_the_item_chosen_through_the_filter(
+    engine_with_item, monkeypatch
+) -> None:
+    """Критерий 4: отклонение ложится на **выбранную** деталь — сверка по `item_id`.
+
+    Проверяется ключом, а не подписью: подпись у двух деталей похожа настолько,
+    что именно на ней и ошибся бы отбор.
+    """
+    from db.models import Deviation
+
+    # Тест утверждает, что сохранение **проходит**, поэтому модальное окно
+    # обязано быть поймано: под offscreen оно вешает прогон (`CLAUDE.md` §9).
+    shown: list[Exception] = []
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
+
+    _first, second = _two_items(engine_with_item)
+    dialog = DeviationDialog(engine_with_item)
+    dialog.reload_items()
+
+    # Оператор набирает середину номера и берёт единственное совпадение.
+    matched = dialog.item.filter_to("10375")
+    assert len(matched) == 1
+    dialog.item.select_key(matched[0][0])
+
+    dialog.wo.setText("W26007336")
+    dialog.quantity.setValue(3)
+    dialog.save()
+
+    assert shown == []
+    with session_scope(engine_with_item) as session:
+        deviation = session.query(Deviation).one()
+        assert deviation.item_id == second

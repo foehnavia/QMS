@@ -185,7 +185,15 @@ QComboBox QAbstractItemView {{
 /* --- radio: a styled widget must style its indicator too ------------------
    Qt draws the native indicator only while the widget is unstyled; the moment
    any rule matches it, a blank circle is what the operator gets. Measured on
-   the decision dialog: four outcomes and no visible marks at all. */
+   the decision dialog: four outcomes and no visible marks at all.
+
+   The two states differ by **fill only**. `width`/`height` in QSS size the
+   content box, so a thicker border on `:checked` grew the whole indicator and
+   pushed it left of the unchecked ones — and a 4 px border with a 7 px radius
+   is drawn as a rounded square, not a circle. Both states therefore keep the
+   same border width and the same radius; only the fill changes (finding no. 18
+   of the QMS-016 run, the sixth case of "whoever was asked last does the
+   drawing"). Verified by counting pixels, not by the presence of a rule. */
 QRadioButton {{
     background: transparent;
     spacing: {t.GAP_PILL_ICON}px;
@@ -200,8 +208,9 @@ QRadioButton::indicator {{
 }}
 QRadioButton::indicator:hover {{ border-color: {t.N_400}; }}
 QRadioButton::indicator:checked {{
-    border: {t.SELECTION_BAR_WIDTH * 2}px solid {t.BLUE_600};
-    background: {t.WHITE};
+    border: {t.BORDER_WIDTH}px solid {t.BLUE_600};
+    border-radius: {t.INDICATOR_SIZE // 2}px;
+    background: {t.BLUE_600};
 }}
 QRadioButton:disabled {{ color: {t.N_450}; }}
 QRadioButton::indicator:disabled {{ background: {t.N_50}; border-color: {t.N_250}; }}

@@ -368,6 +368,22 @@ def main() -> int:
         "15-dialog-error",
     )
 
+    # --- 17. стенд индикатора: два состояния одного элемента рядом ---
+    # Своим снимком, потому что на экранах умолчаний нет: по канону В-9
+    # радиокнопка стартует невыбранной, и отмеченного состояния снимок экрана
+    # не показывает вовсе. А проверять §3.6 нужно именно его.
+    from PySide6.QtWidgets import QRadioButton, QVBoxLayout  # noqa: PLC0415
+
+    stand = QWidget()
+    stand_layout = QVBoxLayout(stand)
+    checked = QRadioButton("checked — filled circle")
+    unchecked = QRadioButton("unchecked — empty circle")
+    stand_layout.addWidget(checked)
+    stand_layout.addWidget(unchecked)
+    stand.resize(kit.tokens.DIALOG_NARROW, kit.tokens.RIBBON_HEIGHT * 2)
+    checked.setChecked(True)
+    shoot(stand, "17-radio-indicator")
+
     # --- 16. пикер: тот же диалог в обоих состояниях строки отбора ---
     short = [(index, f"C1-0837{index}A") for index in range(4)]
     long = [(index, f"MF5-1037{index:02d}A-N") for index in range(30)]
