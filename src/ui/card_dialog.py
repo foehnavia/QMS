@@ -9,8 +9,11 @@
 разное, а инженер работает с конкретным размером.
 
 Вкладки — уровни поиска (`Search.md`): «Точные (L1)» по паре «деталь + размер» и
-по канонической позиции, «Похожие (L2)» по зоне и типу. Если L1 пуст, карточка
-открывается на L2 — так видно, что описательный поиск вообще есть.
+по канонической позиции. Вкладка описательного уровня **списка не показывает**
+(наряд 0022, ревизия ратификации S5): описательный прецедент — результат поиска,
+который инженер собирает под конкретный случай из нескольких параметров, а не
+строка, которую система выводит сама по одному признаку. Вкладка остаётся с
+объяснением — пустая вкладка без слов читалась бы как «прецедентов нет».
 
 Своего диалога решения здесь нет: `DecisionDialog` переехал из списка **как
 есть** — S4 сделал его самостоятельным ровно для этого.
@@ -41,7 +44,6 @@ from domain.precedents import (
     CANON_UNBOUND,
     PrecedentRow,
     canon_labels,
-    precedents_descriptive,
     precedents_same_dimension,
     precedents_same_position,
 )
@@ -88,8 +90,6 @@ PRECEDENT_COLUMNS = (
 #: `kit.FIT_LABEL` — счётчик (§8.3, класс 2): ширина равна заголовку,
 #: запаса нет — не растёт ни содержимое, ни подпись.
 PRECEDENT_WIDTHS = (19, 16, 15, 15, 30, 14, kit.pill(14), 40, kit.FIT_LABEL)
-#: С колонкой совпадения — она добавляется описательной вкладкой.
-PRECEDENT_MATCH_WIDTH = 13
 
 PRECEDENT_NUMERIC_COLUMNS = (1, 5, 8)
 
@@ -99,23 +99,20 @@ PRECEDENT_MAGNITUDE_COLUMNS = (5,)
 #: Колонка исхода — рисуется пилюлей (канон §1).
 PRECEDENT_DECISION_COLUMN = 6
 
-#: Подписи для колонки «совпало по» вкладки L2.
-MATCH_LABELS = {
-    "zone+type": "zone and type",
-    "zone": "zone",
-    "type": "deviation type",
-}
-
 UNBOUND_TITLE = "Search by canonical position is unavailable"
 UNBOUND_HINT = (
     "This characteristic is not bound to the canon. Binding is exactly what "
     "finds the same design node on other items."
 )
 
-NO_LABELS_TITLE = "Descriptive search has nothing to rest on"
-NO_LABELS_HINT = (
-    "The finding carries neither a zone nor a deviation type — descriptive search "
-    "rests on exactly these two fields. Fill them in and this tab comes alive."
+#: Заглушка вкладки описательного уровня — по образцу ленты, где поиск объявлен
+#: словами «Search — not built yet». Место под будущую группу фильтров остаётся
+#: видимым, а обещание несуществующего исчезает.
+NOT_BUILT_TITLE = "Descriptive search — not built yet"
+NOT_BUILT_HINT = (
+    "Descriptive precedents are found by a search the engineer sets up: several "
+    "parameters at once, for one case, not saved. A single parameter would return "
+    "half the database."
 )
 
 NO_SELECTION_TITLE = "No finding selected"
@@ -130,6 +127,7 @@ NO_SELECTION_SHORT = "pick a finding above; precedents are searched by its chara
 #: как оператор туда заглянул (макет S14), — иначе пустую вкладку он открывает,
 #: чтобы это выяснить.
 EXACT_TAB = "Exact precedents (L1)"
+#: Счётчика у второй вкладки нет: считать нечего, пока запрос не собран человеком.
 DESCRIPTIVE_TAB = "Descriptive precedents (L2)"
 
 NO_PRECEDENTS_TITLE = "No precedents yet"
@@ -141,10 +139,9 @@ NO_PRECEDENTS_HINT = "only deviations that already carry a decision are listed"
 class PrecedentTable(kit.DataTable):
     """Таблица прецедентов. Единица строки — **отклонение целиком** (`Search.md`)."""
 
-    def __init__(self, *, with_match: bool = False, parent: QWidget | None = None) -> None:
-        columns = PRECEDENT_COLUMNS + (("Matched on",) if with_match else ())
+    def __init__(self, *, parent: QWidget | None = None) -> None:
+        columns = PRECEDENT_COLUMNS
         super().__init__(0, len(columns), parent)
-        self._with_match = with_match
         self.setHorizontalHeaderLabels(columns)
         # Одевается тем же кодом, что и всякая таблица данных: разошедшиеся
         # настройки двух таблиц — та самая болезнь, ради которой заведён `kit`.
@@ -152,7 +149,7 @@ class PrecedentTable(kit.DataTable):
             self,
             numeric_columns=PRECEDENT_NUMERIC_COLUMNS,
             magnitude_columns=PRECEDENT_MAGNITUDE_COLUMNS,
-            widths=PRECEDENT_WIDTHS + ((PRECEDENT_MATCH_WIDTH,) if with_match else ()),
+            widths=PRECEDENT_WIDTHS,
         )
         self.setItemDelegateForColumn(
             PRECEDENT_DECISION_COLUMN, DecisionPillDelegate(self)
@@ -179,8 +176,6 @@ class PrecedentTable(kit.DataTable):
                 _one_line(row.explanation),
                 str(row.inspection_count),
             ]
-            if self._with_match:
-                values.append(MATCH_LABELS.get(row.match, row.match))
 
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(value)
@@ -219,9 +214,6 @@ class CardDialog(QDialog):
         self._engine = engine
         self._deviation_id = deviation_id
         self._finding_ids: list[int] = []
-        # Автопереход на L2 — только при открытии карточки: иначе смена
-        # находки выкидывала бы оператора с вкладки, выбранной руками.
-        self._first_render = True
         # Карточка — **окно**, а не диалог фиксированного размера: она держит
         # шапку, находки и две секции прецедентов сразу, и вертикали ей может не
         # хватить на любом наперёд заданном размере. Минимум — чтобы окно не
@@ -313,10 +305,9 @@ class CardDialog(QDialog):
         # --- прецеденты ---
         self.same_dimension = PrecedentTable()
         self.same_position = PrecedentTable()
-        self.descriptive = PrecedentTable(with_match=True)
         self._active_table: PrecedentTable | None = None
         self._syncing_selection = False
-        for table in (self.same_dimension, self.same_position, self.descriptive):
+        for table in (self.same_dimension, self.same_position):
             # Таблицу передаём явно: двойной клик во второй секции обязан открыть
             # строку второй секции, а не «первой, где что-то выбрано».
             table.doubleClicked.connect(
@@ -362,14 +353,14 @@ class CardDialog(QDialog):
         exact_layout.addWidget(self.same_position, 1)
         exact_layout.addWidget(self.position_empty)
 
+        # Вкладка описательного уровня: списка нет, есть объяснение почему.
         # Вкладка целиком — одна поверхность, значит полное пустое состояние.
-        self.descriptive_hint = kit.empty_state(NO_LABELS_TITLE, NO_LABELS_HINT)
-        self.descriptive.setMinimumHeight(tokens.INLINE_TABLE_HEIGHT)
+        self.descriptive_hint = kit.empty_state(NOT_BUILT_TITLE, NOT_BUILT_HINT)
         similar = QWidget()
         similar_layout = QVBoxLayout(similar)
         similar_layout.setContentsMargins(0, 0, 0, 0)
         similar_layout.addWidget(self.descriptive_hint)
-        similar_layout.addWidget(self.descriptive, 1)
+        similar_layout.addStretch(1)
 
         self.tabs = kit.slice_tabs()
         self.tabs.addTab(_scrolling(exact), EXACT_TAB)
@@ -472,7 +463,7 @@ class CardDialog(QDialog):
         self._refresh_buttons(finding_id)
 
         if finding_id is None:
-            for table in (self.same_dimension, self.same_position, self.descriptive):
+            for table in (self.same_dimension, self.same_position):
                 table.setRowCount(0)
                 table.setVisible(False)
             self.same_dimension_title.setText(NO_SELECTION_TITLE)
@@ -484,12 +475,10 @@ class CardDialog(QDialog):
             kit.set_empty_reason(
                 self.dimension_empty, NO_SELECTION_TITLE, NO_SELECTION_SHORT
             )
-            kit.set_empty_reason(
-                self.descriptive_hint, NO_SELECTION_TITLE, NO_SELECTION_HINT
-            )
             self.dimension_empty.setVisible(True)
             self.position_empty.setVisible(False)
-            self.descriptive_hint.setVisible(True)
+            # Заглушка описательной вкладки от выбора находки не зависит вовсе:
+            # там нечего искать ни при какой выбранной строке.
             self.status.setText(NO_SELECTION_HINT)
             return
 
@@ -508,14 +497,6 @@ class CardDialog(QDialog):
             same_position = precedents_same_position(
                 session, characteristic, exclude_deviation=deviation
             )
-            descriptive = precedents_descriptive(
-                session,
-                zone=finding.zone,
-                deviation_type=finding.deviation_type,
-                exclude_deviation=deviation,
-                exclude_characteristic=characteristic,
-            )
-            has_labels = finding.zone is not None or finding.deviation_type is not None
             local_number = characteristic.local_number
 
         self.same_dimension.fill(same_dimension)
@@ -538,24 +519,15 @@ class CardDialog(QDialog):
             else "Other items, same position"
         )
 
-        self.descriptive.fill(descriptive)
-        self.descriptive.setVisible(has_labels)
-        kit.set_empty_reason(self.descriptive_hint, NO_LABELS_TITLE, NO_LABELS_HINT)
-        self.descriptive_hint.setVisible(not has_labels)
-
-        # Если точных совпадений нет — сразу показываем описательные: иначе
-        # оператор видит две пустые таблицы и не догадывается про вторую вкладку.
-        # Только при открытии: дальше вкладку выбирает оператор.
         self.tabs.setTabText(0, f"{EXACT_TAB}  {len(same_dimension) + len(same_position)}")
-        self.tabs.setTabText(1, f"{DESCRIPTIVE_TAB}  {len(descriptive)}")
 
+        # Автоперехода на вторую вкладку больше нет: там нет выдачи, и уводить
+        # туда оператора при пустом L1 значит показывать ему объяснение вместо
+        # ответа на вопрос «случалось ли такое».
         exact_total = len(same_dimension) + len(same_position)
-        if exact_total == 0 and self._first_render:
-            self.tabs.setCurrentIndex(1)
-        self._first_render = False
 
         self.status.setText(
-            f"Exact matches: {exact_total} · descriptive: {len(descriptive)}. "
+            f"Exact matches: {exact_total}. "
             "Only deviations that already carry a decision are listed."
         )
 
@@ -625,7 +597,7 @@ class CardDialog(QDialog):
         self._syncing_selection = True
         try:
             self._active_table = table
-            for other in (self.same_dimension, self.same_position, self.descriptive):
+            for other in (self.same_dimension, self.same_position):
                 if other is not table:
                     other.clearSelection()
                     other.setCurrentCell(-1, -1)
@@ -650,12 +622,11 @@ class CardDialog(QDialog):
 
     def _current_table(self) -> PrecedentTable | None:
         """Таблица для кнопки: последняя, где меняли выбор, в пределах вкладки."""
-        on_descriptive = self.tabs.currentIndex() == 1
-        allowed = (
-            (self.descriptive,)
-            if on_descriptive
-            else (self.same_dimension, self.same_position)
-        )
+        # На второй вкладке выдачи нет вовсе — открывать нечего, и брать строку
+        # с невидимой вкладки кнопка не должна.
+        if self.tabs.currentIndex() != 0:
+            return None
+        allowed = (self.same_dimension, self.same_position)
         if self._active_table in allowed and self._active_table.currentRow() >= 0:
             return self._active_table
         for table in allowed:

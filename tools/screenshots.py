@@ -340,6 +340,41 @@ def shoot_on_run_database() -> int:
     for row, name in enumerate(sections):
         window.select_section(row)
         shoot(window, f"run-{row + 1}-{name}")
+    # Карточки отклонений базы прогона — на них и проверяются уровни поиска
+    # (наряд 0022 §5): что даёт точный уровень и что стоит на месте снятого
+    # описательного. Идентичность записей у оператора своя, поэтому берём все,
+    # какие есть, а не заранее известные номера.
+    from db.models import Deviation  # noqa: PLC0415
+    from db.session import session_scope  # noqa: PLC0415
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from ui.card_dialog import CardDialog  # noqa: PLC0415
+
+    with session_scope(engine) as session:
+        cards = [
+            (row.deviation_id, row.dev_number)
+            for row in session.execute(
+                select(Deviation.deviation_id, Deviation.dev_number).order_by(
+                    Deviation.dev_number
+                )
+            )
+        ]
+    print("Cards:")
+    for deviation_id, number in cards:
+        card = CardDialog(engine, deviation_id)
+        card.resize(kit.tokens.DIALOG_FULL, CARD_TALL)
+        shoot(card, f"run-card-{number}")
+        # Вторая вкладка — то место, где раньше стояла автоматическая выдача.
+        # Снимаем её отдельно: на снимке первой вкладки видно только подпись.
+        card.tabs.setCurrentIndex(1)
+        shoot(card, f"run-card-{number}-descriptive")
+        card.tabs.setCurrentIndex(0)
+        print(
+            f"    {number}: exact rows "
+            f"{card.same_dimension.rowCount()} + {card.same_position.rowCount()}"
+            f" · {card.status.text()}"
+        )
+
     print("Column widths:")
     for row, name in enumerate(sections):
         window.select_section(row)

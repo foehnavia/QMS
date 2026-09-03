@@ -7,8 +7,11 @@
 * **L1 — точный.** По паре «деталь + размер» (`precedents_same_dimension`) и, если
   размер привязан к канону, по g-позиции — она же ловит **другие детали** в том же
   конструктивном месте (`precedents_same_position`).
-* **L2 — описательный.** По зоне и типу отклонения (`precedents_descriptive`),
-  когда точных совпадений нет.
+* **L2 — описательный.** Автоматической выдачи **больше нет** (наряд 0022, ревизия
+  ратификации S5). Описательный прецедент — не строка, которую система показывает
+  сама, а **результат поиска**, который инженер собирает под конкретный случай из
+  нескольких параметров сразу: по одному признаку в выдачу попадает половина базы.
+  Машинерия этого поиска строится отдельной задачей (Q-14); здесь её нет вовсе.
 
 Три правила, общие для всех выдач:
 
@@ -32,7 +35,7 @@ from datetime import date as date_type
 from datetime import datetime
 from typing import Iterable, Literal, Sequence
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from db.models import (
@@ -48,8 +51,10 @@ from db.models import (
     RefZone,
 )
 
-#: Чем совпал прецедент — читается в UI как заголовок секции или колонка.
-Match = Literal["dimension", "position", "zone+type", "zone", "type"]
+#: Чем совпал прецедент — читается в UI как заголовок секции.
+#: Значения описательного уровня (`zone`, `type`, `zone+type`) сняты вместе с
+#: автоматической выдачей: ранжировать нечего, пока запрос не собран человеком.
+Match = Literal["dimension", "position"]
 
 #: Состояния размера в каноне. Достижимых ровно три, и «нет у детали (99)» среди
 #: них нет по построению: код 99 отмечает g-позицию, которой у детали **нет**, а
@@ -240,73 +245,14 @@ def precedents_same_position(
     return [_row(record, "position") for record in session.execute(_fresh_first(query))]
 
 
-# --- L2 — описательный поиск ------------------------------------------------------
-
-
-def precedents_descriptive(
-    session: Session,
-    *,
-    zone=None,
-    deviation_type=None,
-    exclude_deviation: Deviation | None = None,
-    exclude_characteristic: Characteristic | None = None,
-) -> list[PrecedentRow]:
-    """L2 — похожие случаи по зоне **или** типу отклонения.
-
-    Условие намеренно `OR`, а не `AND`: L2 работает там, где точных совпадений
-    нет, и сужать его до полного совпадения обеих меток значит выключить.
-    Совпавшие по обоим стоят выше — сила совпадения видна порядком.
-
-    `exclude_characteristic` убирает из выдачи тот размер, что уже показан в L1:
-    вкладки не должны повторять друг друга.
-    """
-    if zone is None and deviation_type is None:
-        # Ни одной метки — искать не по чему. Пусто, а не «всё подряд».
-        return []
-
-    conditions = []
-    if zone is not None:
-        conditions.append(Finding.zone_id == zone.zone_id)
-    if deviation_type is not None:
-        conditions.append(Finding.deviation_type_id == deviation_type.deviation_type_id)
-
-    query, _ = _base_query()
-    query = query.where(or_(*conditions))
-    query = _exclude(
-        query,
-        exclude_deviation=exclude_deviation,
-        exclude_characteristic=exclude_characteristic,
-    )
-
-    if zone is not None and deviation_type is not None:
-        rank = case((and_(*conditions), 0), else_=1)
-    else:
-        rank = case((conditions[0], 0), else_=1)
-    query = query.order_by(rank, Deviation.date.desc(), Deviation.dev_number.desc())
-
-    zone_id = zone.zone_id if zone is not None else None
-    type_id = deviation_type.deviation_type_id if deviation_type is not None else None
-
-    # Единица выдачи — **отклонение целиком**, даже когда совпал один размер
-    # (`Search.md`). Запрос идёт по находкам, поэтому отклонение с двумя
-    # размерами в одной зоне вернулось бы двумя строками с одним номером, а
-    # счётчик «похожих» считал бы находки вместо случаев. Сворачиваем по
-    # отклонению, оставляя **сильнейшее** совпадение: строки уже упорядочены
-    # рангом, значит первая встреченная и есть сильнейшая.
-    #
-    # В L1a и L1b свёртка не нужна по построению: там на отклонение приходится
-    # ровно одна подходящая находка — один размер даёт одну находку, а на
-    # g-позицию у детали идёт ровно один размер (правило «1 баллон = 1 размер»).
-    seen: dict[int, PrecedentRow] = {}
-    for record in session.execute(query):
-        hit_zone = zone_id is not None and record.zone_id == zone_id
-        hit_type = type_id is not None and record.deviation_type_id == type_id
-        match: Match = (
-            "zone+type" if hit_zone and hit_type else "zone" if hit_zone else "type"
-        )
-        if record.deviation_id not in seen:
-            seen[record.deviation_id] = _row(record, match)
-    return list(seen.values())
+# --- L2 — описательный поиск: снят (наряд 0022) ----------------------------------
+#
+# `precedents_descriptive` удалён вместе с автоматической выдачей. Всё, на чём он
+# стоял, осталось на месте и обслуживает L1: `_base_query` (строка выдачи одним
+# запросом), `_row`, `_fresh_first`, `_exclude`. `_exclude` сохраняет и параметр
+# `exclude_characteristic`, которым пользовался только описательный уровень, —
+# «не показывать размер, уже показанный соседней секцией» понадобится любому
+# поиску с несколькими выдачами, а восстанавливать его дороже, чем сохранить.
 
 
 # --- Пакетное состояние канона (снятие N+1 из S4) ---------------------------------

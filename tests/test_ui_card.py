@@ -26,7 +26,12 @@ from domain.groups import GPositionSpec, create_group
 from domain.mappings import bind
 from domain.precedents import CANON_UNBOUND
 from domain.reference import ensure_value, list_values
-from ui.card_dialog import NO_LABELS_HINT, NO_SELECTION_HINT, CardDialog
+from ui.card_dialog import (
+    NOT_BUILT_HINT,
+    NO_SELECTION_HINT,
+    UNBOUND_HINT,
+    CardDialog,
+)
 from ui.deviation_view import DeviationView
 
 pytestmark = pytest.mark.usefixtures("qt_app")
@@ -34,6 +39,7 @@ pytestmark = pytest.mark.usefixtures("qt_app")
 TODAY = date.today()
 POSITIONS = (GPositionSpec(1, 3.75, 0.05, -0.05), GPositionSpec(2, 2.0))
 
+#: Вкладок по-прежнему две; на второй — объяснение, а не выдача (наряд 0022).
 L1_TAB, L2_TAB = 0, 1
 
 
@@ -254,64 +260,60 @@ def test_undecided_precedents_are_not_shown(engine) -> None:
     assert "already carry a decision" in card.status.text()
 
 
-# --- Критерии 6-7: вкладка L2 и вкладка по умолчанию -------------------------------
+# --- Наряд 0022: описательный уровень снят -----------------------------------------
 
 
-def test_descriptive_tab_shows_the_match_column(engine) -> None:
+def test_the_card_never_shows_descriptive_precedents(engine) -> None:
+    """Пункт 1 наряда 0022: списка нет **ни при каких данных**.
+
+    Данные подобраны так, что прежний уровень L2 выдачу дал бы: у прошлого
+    отклонения та же зона и тот же тип, решение стоит. Проверяется тем, что
+    описательной таблицы на экране нет вовсе, а не тем, что она пуста, — пустая
+    таблица это другой экран и другое обещание.
+    """
     with session_scope(engine) as session:
         item = make_item(session, "C1-08375A")
         zone, kind = _zone(session), _kind(session)
         _case(session, item, "10", wo="W-BOTH", zone=zone, deviation_type=kind)
-        _case(session, item, "11", wo="W-ZONE", zone=zone)
         deviation_id, _ = _case(
             session, item, "12", wo="W-NOW", decision=None, zone=zone, deviation_type=kind
         )
 
     card = CardDialog(engine, deviation_id)
 
-    assert card.descriptive.rowCount() == 2
-    assert _text(card.descriptive.item(0, 3)) == "W-BOTH"
-    assert card.descriptive.item(0, 9).text() == "zone and type"
-    assert card.descriptive.item(1, 9).text() == "zone"
+    assert not hasattr(card, "descriptive")
+    assert card.same_dimension.rowCount() == 0
+    assert card.same_position.rowCount() == 0
+    # Вкладка на месте и объясняет, почему списка нет (пункт 2 наряда).
+    assert card.tabs.count() == 2
+    assert NOT_BUILT_HINT in card.descriptive_hint.body_label.text()
+    # Открытие остаётся на точной вкладке: уводить оператора к объяснению вместо
+    # ответа «случалось ли такое» — не помощь.
+    assert card.tabs.currentIndex() == L1_TAB
 
 
-def test_card_opens_on_l2_when_l1_is_empty(engine) -> None:
-    """Критерий 7 — проверяется состоянием экрана, а не на глаз."""
+def test_an_item_without_a_group_explains_both_levels(engine) -> None:
+    """Пункт 4: деталь без группы не показывает ничего — и это сказано словами.
+
+    Случай базы прогона `DEV-260903-0003`: деталь к канону не привязана, значит
+    точный уровень пуст по построению, а описательного больше нет.
+    """
     with session_scope(engine) as session:
-        item = make_item(session, "C1-08375A")
+        item = make_item(session, "CS-C3057A")
         zone = _zone(session)
-        _case(session, item, "10", wo="W-SIMILAR", zone=zone)
-        deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None, zone=zone)
+        _case(session, item, "10", wo="W-ELSEWHERE", zone=zone)
+        deviation_id, _ = _case(session, item, "77", wo="W-NOW", decision=None, zone=zone)
 
     card = CardDialog(engine, deviation_id)
 
     assert card.same_dimension.rowCount() == 0
-    assert card.descriptive.rowCount() == 1
-    assert card.tabs.currentIndex() == L2_TAB
-
-
-def test_card_stays_on_l1_when_exact_matches_exist(engine) -> None:
-    with session_scope(engine) as session:
-        item = make_item(session, "C1-08375A")
-        zone = _zone(session)
-        _case(session, item, "12", wo="W-PAST", zone=zone)
-        deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None, zone=zone)
-
-    card = CardDialog(engine, deviation_id)
-
-    assert card.same_dimension.rowCount() == 1
-    assert card.tabs.currentIndex() == L1_TAB
-
-
-def test_descriptive_without_labels_explains_itself(engine) -> None:
-    with session_scope(engine) as session:
-        item = make_item(session, "C1-08375A")
-        deviation_id, _ = _case(session, item, "12", decision=None)
-
-    card = CardDialog(engine, deviation_id)
-
-    assert card.descriptive.isHidden() is True
-    assert NO_LABELS_HINT in card.descriptive_hint.body_label.text()
+    assert card.same_position.isHidden() is True
+    # Точный уровень объясняет обе свои пустоты: «нет прецедентов» и «размер не
+    # привязан к канону — привязка это и есть то, что находит то же место».
+    assert card.dimension_empty.isHidden() is False
+    assert UNBOUND_HINT in card.position_hint_box.body_label.text()
+    assert NOT_BUILT_HINT in card.descriptive_hint.body_label.text()
+    assert "Exact matches: 0" in card.status.text()
 
 
 # --- Критерий 9: решение из карточки ------------------------------------------------
@@ -654,45 +656,6 @@ def test_switching_the_finding_drops_a_stale_selection(engine, monkeypatch) -> N
     )
     card.open_precedent()
     assert opened == [] and "Select a precedent" in card.status.text()
-
-
-def test_status_counts_deviations_not_findings(engine) -> None:
-    """Счётчик «похожих» считает случаи — после свёртки L2 по отклонению."""
-    with session_scope(engine) as session:
-        item = make_item(session, "C1-08375A")
-        zone = _zone(session)
-        similar = register(session, item=item, wo="W-TWO-DIMS", quantity=1, date=TODAY)
-        for number in ("30", "31"):
-            characteristic, _ = get_or_create_characteristic(session, item, number)
-            make_finding(session, similar, characteristic, direction=Direction.PLUS, zone=zone)
-        set_decision(session, similar, decision="approved", explanation="ок")
-        current_id, _ = _case(session, item, "12", wo="W-NOW", decision=None, zone=zone)
-
-    card = CardDialog(engine, current_id)
-
-    assert card.descriptive.rowCount() == 1
-    assert "descriptive: 1" in card.status.text()
-
-
-def test_tab_stays_where_the_operator_put_it(engine) -> None:
-    """Автопереход на L2 — только при открытии, дальше вкладку выбирает оператор."""
-    with session_scope(engine) as session:
-        item = make_item(session, "C1-08375A")
-        _case(session, item, "12", wo="W-PAST")
-        deviation = register(session, item=item, wo="W-NOW", quantity=1, date=TODAY)
-        for number in ("12", "19"):
-            characteristic, _ = get_or_create_characteristic(session, item, number)
-            make_finding(session, deviation, characteristic, direction=Direction.PLUS)
-        current_id = deviation.deviation_id
-
-    card = CardDialog(engine, current_id)
-    card.findings.setCurrentCell(0, 0)
-    assert card.tabs.currentIndex() == L1_TAB
-
-    card.tabs.setCurrentIndex(L2_TAB)      # оператор ушёл на «Похожие» руками
-    card.findings.setCurrentCell(1, 0)     # у размера 19 точных совпадений нет
-
-    assert card.tabs.currentIndex() == L2_TAB
 
 
 def test_findings_are_ordered_numerically(engine) -> None:

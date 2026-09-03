@@ -62,7 +62,6 @@ from .precedents import (
     PrecedentRow,
     canon_labels,
     canon_labels_for_item,
-    precedents_descriptive,
     precedents_same_dimension,
     precedents_same_position,
 )
@@ -109,7 +108,6 @@ __all__ = [
     "make_finding",
     "mark_absent",
     "position_usage",
-    "precedents_descriptive",
     "precedents_same_dimension",
     "precedents_same_position",
     "register",

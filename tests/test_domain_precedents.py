@@ -19,7 +19,6 @@ from domain.precedents import (
     CANON_UNBOUND,
     canon_labels,
     canon_labels_for_item,
-    precedents_descriptive,
     precedents_same_dimension,
     precedents_same_position,
 )
@@ -204,90 +203,12 @@ def test_undecided_deviations_never_appear(seeded_session: Session) -> None:
     assert [row.wo for row in rows] == ["W-DECIDED"]
 
 
-def test_undecided_is_hidden_in_descriptive_search_too(seeded_session: Session) -> None:
-    item = make_item(seeded_session, "C1-08375A")
-    zone = _zone(seeded_session)
-    _case(seeded_session, item, "12", wo="W-OPEN", decision=None, zone=zone)
-    seeded_session.commit()
-
-    assert precedents_descriptive(seeded_session, zone=zone) == []
-
-
-# --- Критерий 6: L2 — описательный -------------------------------------------------
-
-
-def test_descriptive_matches_zone_and_type_separately_and_together(
-    seeded_session: Session,
-) -> None:
-    item = make_item(seeded_session, "C1-08375A")
-    zone, kind = _zone(seeded_session), _kind(seeded_session)
-    _case(seeded_session, item, "10", wo="W-ZONE", zone=zone)
-    _case(seeded_session, item, "11", wo="W-TYPE", deviation_type=kind)
-    _case(seeded_session, item, "12", wo="W-BOTH", zone=zone, deviation_type=kind)
-    seeded_session.commit()
-
-    rows = precedents_descriptive(seeded_session, zone=zone, deviation_type=kind)
-
-    # Совпавшие по обоим — выше: сила совпадения читается порядком.
-    assert rows[0].wo == "W-BOTH" and rows[0].match == "zone+type"
-    assert {row.wo: row.match for row in rows[1:]} == {"W-ZONE": "zone", "W-TYPE": "type"}
-
-
-def test_descriptive_by_zone_alone(seeded_session: Session) -> None:
-    item = make_item(seeded_session, "C1-08375A")
-    zone, kind = _zone(seeded_session), _kind(seeded_session)
-    _case(seeded_session, item, "10", wo="W-ZONE", zone=zone)
-    _case(seeded_session, item, "11", wo="W-TYPE", deviation_type=kind)
-    seeded_session.commit()
-
-    rows = precedents_descriptive(seeded_session, zone=zone)
-
-    assert [row.wo for row in rows] == ["W-ZONE"]
-    assert rows[0].match == "zone"
-
-
-def test_descriptive_without_labels_returns_nothing(seeded_session: Session) -> None:
-    """Ни зоны, ни типа — искать не по чему; пусто, а не «всё подряд»."""
-    item = make_item(seeded_session, "C1-08375A")
-    _case(seeded_session, item, "12", zone=_zone(seeded_session))
-    seeded_session.commit()
-
-    assert precedents_descriptive(seeded_session) == []
-
-
-def test_descriptive_excludes_rows_already_shown_in_l1(seeded_session: Session) -> None:
-    """Вкладки не повторяют друг друга: тот же размер из L1 в L2 не приходит."""
-    item = make_item(seeded_session, "C1-08375A")
-    zone = _zone(seeded_session)
-    _case(seeded_session, item, "12", wo="W-SAME-DIM", zone=zone)
-    _case(seeded_session, item, "19", wo="W-OTHER-DIM", zone=zone)
-    current, _f, characteristic = _case(seeded_session, item, "12", wo="W-NOW", zone=zone)
-    seeded_session.commit()
-
-    rows = precedents_descriptive(
-        seeded_session,
-        zone=zone,
-        exclude_deviation=current,
-        exclude_characteristic=characteristic,
-    )
-
-    assert [row.wo for row in rows] == ["W-OTHER-DIM"]
-
-
-def test_descriptive_crosses_items(seeded_session: Session) -> None:
-    """L2 работает и для непривязанных размеров разных деталей — в этом его смысл."""
-    first = make_item(seeded_session, "IT-001")
-    second = make_item(seeded_session, "IT-002")
-    kind = _kind(seeded_session)
-    _case(seeded_session, second, "77", wo="W-OTHER-ITEM", deviation_type=kind)
-    current, _f, _c = _case(seeded_session, first, "12", wo="W-NOW", deviation_type=kind)
-    seeded_session.commit()
-
-    rows = precedents_descriptive(
-        seeded_session, deviation_type=kind, exclude_deviation=current
-    )
-
-    assert [row.item_number for row in rows] == ["IT-002"]
+# --- L2 — описательный уровень снят (наряд 0022) ----------------------------------
+#
+# Тесты описательной выдачи удалены вместе с самой выдачей, а не переписаны в
+# «проверяем, что ничего нет»: проверять отсутствие функции нечем и незачем.
+# Единственная проверка пункта 1 наряда живёт на экране — там, где оператор и
+# увидел бы список: `tests/test_ui_card.py`.
 
 
 # --- Строка выдачи -----------------------------------------------------------------
@@ -402,25 +323,6 @@ def test_precedent_list_does_not_grow_queries_with_rows(seeded_session: Session)
     assert len(few) == len(many) == 1, f"запросов: {len(few)} против {len(many)}"
 
 
-def test_descriptive_list_does_not_grow_queries_with_rows(seeded_session: Session) -> None:
-    """То же для L2 — вкладка «Похожие» строится одним запросом."""
-    from conftest import count_queries
-
-    item = make_item(seeded_session, "C1-08375A")
-    zone = _zone(seeded_session)
-    for index in range(20):
-        _case(seeded_session, item, f"{index:03d}", wo=f"W{index:03d}", zone=zone)
-    seeded_session.commit()
-    zone.zone_id  # прогрев аргумента
-    engine = seeded_session.get_bind()
-
-    with count_queries(engine) as statements:
-        rows = precedents_descriptive(seeded_session, zone=zone)
-
-    assert len(rows) == 20
-    assert len(statements) == 1, f"ожидался один запрос, ушло {len(statements)}"
-
-
 def test_canon_labels_does_not_grow_queries_with_the_set(seeded_session: Session) -> None:
     """Пакетный запрос состояния канона — один на набор, а не на строку."""
     from conftest import count_queries
@@ -465,72 +367,3 @@ def test_canon_labels_for_item_is_two_queries_regardless_of_size(
     assert len(labels) == 20
     assert len(few) == len(many) == 2, f"запросов: {len(few)} против {len(many)}"
 
-
-# --- Ревью S5, дефект 2: единица выдачи L2 — отклонение, а не находка -------------
-
-
-def test_descriptive_returns_one_row_per_deviation(seeded_session: Session) -> None:
-    """`Search.md`: единица выдачи — отклонение целиком, даже при совпадении размера.
-
-    Запрос идёт по находкам, поэтому отклонение с двумя размерами в одной зоне
-    возвращалось дважды с одним номером, а счётчик «похожих» считал находки, а
-    не случаи.
-    """
-    item = make_item(seeded_session, "C1-08375A")
-    zone = _zone(seeded_session)
-
-    deviation = register(seeded_session, item=item, wo="W-TWO-DIMS", quantity=5, date=TODAY)
-    for number in ("12", "19"):
-        characteristic, _ = get_or_create_characteristic(seeded_session, item, number)
-        make_finding(
-            seeded_session, deviation, characteristic, direction=Direction.PLUS, zone=zone
-        )
-    set_decision(seeded_session, deviation, decision="approved", explanation="ок")
-    seeded_session.commit()
-
-    rows = precedents_descriptive(seeded_session, zone=zone)
-
-    assert len(rows) == 1
-    assert rows[0].wo == "W-TWO-DIMS"
-
-
-def test_descriptive_keeps_the_strongest_match_when_collapsing(
-    seeded_session: Session,
-) -> None:
-    """Схлопывая находки одного отклонения, оставляем сильнейшее совпадение."""
-    item = make_item(seeded_session, "C1-08375A")
-    zone, kind = _zone(seeded_session), _kind(seeded_session)
-
-    deviation = register(seeded_session, item=item, wo="W-MIXED", quantity=5, date=TODAY)
-    weak, _ = get_or_create_characteristic(seeded_session, item, "12")
-    strong, _ = get_or_create_characteristic(seeded_session, item, "19")
-    make_finding(seeded_session, deviation, weak, direction=Direction.PLUS, zone=zone)
-    make_finding(
-        seeded_session,
-        deviation,
-        strong,
-        direction=Direction.MINUS,
-        zone=zone,
-        deviation_type=kind,
-    )
-    set_decision(seeded_session, deviation, decision="approved", explanation="ок")
-    seeded_session.commit()
-
-    rows = precedents_descriptive(seeded_session, zone=zone, deviation_type=kind)
-
-    assert len(rows) == 1
-    assert rows[0].match == "zone+type"
-    assert rows[0].local_number == "19"  # строка сильнейшей находки
-
-
-def test_collapsing_keeps_distinct_deviations_apart(seeded_session: Session) -> None:
-    """Свёртка не должна склеивать разные отклонения."""
-    item = make_item(seeded_session, "C1-08375A")
-    zone = _zone(seeded_session)
-    _case(seeded_session, item, "12", wo="W-ONE", zone=zone)
-    _case(seeded_session, item, "19", wo="W-TWO", zone=zone)
-    seeded_session.commit()
-
-    rows = precedents_descriptive(seeded_session, zone=zone)
-
-    assert {row.wo for row in rows} == {"W-ONE", "W-TWO"}
