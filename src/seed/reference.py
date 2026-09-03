@@ -48,12 +48,13 @@ def seed_reference(session: Session) -> dict[str, int]:
     """Досеять недостающие значения справочников. Возвращает {таблица: вставлено}."""
     inserted: dict[str, int] = {}
     for model, names in REFERENCE_SEED.items():
-        existing = set(session.scalars(select(model.name)).all())
-        # Через ту же функцию, что и ручной ввод: сид и оператор обязаны
-        # приводить значение к одному виду, иначе список расходится в регистре
-        # с первого же дня (находка №6).
+        # Сверка **без учёта регистра** — это и была причина близнецов (наряд
+        # 0021): сид сравнивал имена точно, поэтому при каждом запуске
+        # дописывал `Thread burr` рядом с уже лежащим `thread burr`. Регистр
+        # различием не считается ни для оператора, ни для поиска.
+        existing = {name.casefold() for name in session.scalars(select(model.name))}
         names = [capitalised(name) for name in names]
-        missing = [name for name in names if name not in existing]
+        missing = [name for name in names if name.casefold() not in existing]
         session.add_all([model(name=name) for name in missing])
         inserted[model.__tablename__] = len(missing)
     session.flush()

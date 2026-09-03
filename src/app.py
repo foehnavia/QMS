@@ -28,6 +28,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from sqlalchemy import Engine  # noqa: E402
 
 from db.session import create_db_engine, default_db_url, session_scope  # noqa: E402
+from domain.reference import normalise_all  # noqa: E402
 from seed.reference import seed_reference  # noqa: E402
 from ui.kit import apply_theme  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402
@@ -61,8 +62,14 @@ def prepare_database(engine: Engine) -> None:
 
     with session_scope(engine) as session:
         inserted = sum(seed_reference(session).values())
+        # Приведение регистра уже заведённых значений — на старте, один раз за
+        # запуск. Написано нарядом 0020, но **не звалось ниоткуда**, и близнецы
+        # дожили до прогона (наряд 0021, находка №22).
+        merged = sum(len(rows) for rows in normalise_all(session).values())
     if inserted:
         print(f"Reference data: values inserted - {inserted}")
+    if merged:
+        print(f"Reference data: case normalised - {merged}")
 
 
 def main(argv: list[str] | None = None) -> int:

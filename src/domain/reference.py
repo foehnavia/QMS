@@ -15,11 +15,12 @@
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from db.models import (
     GENERAL,
+    REFERENCE_MODELS,
     Finding,
     Inspection,
     Item,
@@ -91,7 +92,7 @@ def usage_count(session: Session, model: type, value) -> int:
     return total
 
 
-def _existing(session: Session, model: type, name: str):
+def find_value(session: Session, model: type, name: str):
     """Значение с таким именем **без учёта регистра**.
 
     Регистронезависимо потому, что регистр перестал быть различием (находка
@@ -124,25 +125,109 @@ def capitalised(name: str) -> str:
     return name[0].upper() + name[1:]
 
 
-def normalise_case(session: Session, model: type) -> int:
-    """Привести регистр уже заведённых значений. Возвращает число правок."""
-    changed = 0
-    for value in session.scalars(select(model)):
+def _identity(value) -> int:
+    """Первичный ключ значения справочника — у каждого списка он свой по имени."""
+    from sqlalchemy import inspect as sa_inspect
+
+    column = sa_inspect(type(value)).primary_key[0].name
+    return getattr(value, column)
+
+
+def merge_values(session: Session, model: type, keep, drop) -> int:
+    """Свести два значения одного справочника в одно. Возвращает число перевешенных.
+
+    Зачем доменной операцией, а не разовым скриптом (§4.1 наряда 0021): то же
+    самое понадобится при импорте `.xlsx` на S6, где регистр придёт из чужой
+    таблицы, и «свести близнецов» станет штатной работой, а не уборкой.
+
+    Что делает: все записи, ссылающиеся на `drop`, перевешиваются на `keep`,
+    после чего `drop` удаляется — уже без ссылок, поэтому штатный гард
+    «занятое значение не удаляется» не мешает.
+
+    **Почему это не порча данных.** Ссылка на справочник — это ссылка на
+    *значение*, а не на строку: `Thread burr` и `thread burr` для оператора
+    одно и то же, и именно их раздельность ломала поиск прецедентов (тип
+    отклонения — один из двух ключей L2).
+    """
+    if keep is drop or keep.name == drop.name:
+        raise ValidationError("Merging a value into itself makes no sense.")
+    if not isinstance(keep, model) or not isinstance(drop, model):
+        raise ValidationError("Both values must belong to the same reference list.")
+
+    # Карта зависимостей держит **колонки ключей**, а не связи, поэтому
+    # перевешиваем идентификатором: так же, как их и хранит база.
+    keep_id, drop_id = _identity(keep), _identity(drop)
+
+    moved = 0
+    for owner, attribute in REFERENCE_DEPENDENTS[model]:
+        # Обновлением, а не присваиванием полю: у владельца есть **связь** на
+        # то же значение, и она авторитетнее ключа — сессия возвращала ссылку
+        # обратно на близнеца при сохранении. После массового обновления
+        # объекты в памяти устарели, поэтому их сбрасываем.
+        result = session.execute(
+            update(owner).where(attribute == drop_id).values({attribute.key: keep_id})
+        )
+        moved += result.rowcount or 0
+    session.expire_all()
+
+    session.delete(drop)
+    session.flush()
+    return moved
+
+
+def normalise_case(session: Session, model: type) -> list[tuple[str, str, int]]:
+    """Привести регистр списка к правилу «первая буква заглавная».
+
+    Возвращает список `(выжившее, снятое, перевешено)` — то, что уходит в отчёт
+    оператору: это его данные, и он должен видеть, что с ними сделали.
+
+    Две ветки, и различать их обязательно (§3 наряда 0021):
+
+    * близнец существует — значения **сводятся** `merge_values`, выживает форма
+      с заглавной;
+    * близнеца нет — значение **переименовывается**. Не добавляется: добавление
+      и породило бы ровно тех близнецов, которых мы убираем.
+    """
+    report: list[tuple[str, str, int]] = []
+    for value in list(session.scalars(select(model))):
         fixed = capitalised(value.name)
-        if fixed != value.name and not session.scalar(
-            select(model).where(model.name == fixed)
-        ):
+        if fixed == value.name:
+            continue
+        # Близнеца ищем **среди других**: `find_value` вернула бы саму
+        # нормализуемую строку — её имя отличается от искомого лишь регистром,
+        # и ветка ушла бы в переименование при живом близнеце.
+        lowered = fixed.casefold()
+        twin = next(
+            (
+                other
+                for other in session.scalars(select(model))
+                if other is not value and other.name.casefold() == lowered
+            ),
+            None,
+        )
+        if twin is not None:
+            keep, drop = (twin, value) if twin.name == fixed else (value, twin)
+            moved = merge_values(session, model, keep, drop)
+            report.append((keep.name, drop.name, moved))
+        else:
             value.name = fixed
-            changed += 1
-    if changed:
-        session.flush()
-    return changed
+            report.append((fixed, value.name, 0))
+    session.flush()
+    return report
+
+
+def normalise_all(session: Session) -> dict[str, list[tuple[str, str, int]]]:
+    """Привести регистр во **всех** шести списках. Отчёт по каждому."""
+    return {
+        model.__tablename__: normalise_case(session, model)
+        for model in REFERENCE_MODELS
+    }
 
 
 def add_value(session: Session, model: type, name: str):
     """Добавить значение. Дубль — понятной ошибкой, не `IntegrityError`."""
     name = capitalised(_clean_name(name))
-    if _existing(session, model, name) is not None:
+    if find_value(session, model, name) is not None:
         raise DuplicateValue(f"“{name}” already exists in this reference list.")
     value = model(name=name)
     session.add(value)
@@ -158,7 +243,7 @@ def ensure_value(session: Session, model: type, name: str):
     №6) такой поиск перестал находить засеянное, а `add_value` следом честно
     отбивал дубль. Одна функция вместо четырёх копий закрывает и это.
     """
-    found = _existing(session, model, capitalised(_clean_name(name)))
+    found = find_value(session, model, capitalised(_clean_name(name)))
     return found if found is not None else add_value(session, model, name)
 
 
@@ -171,7 +256,7 @@ def rename_value(session: Session, model: type, value, new_name: str):
         )
     if new_name == value.name:
         return value
-    clash = _existing(session, model, new_name)
+    clash = find_value(session, model, new_name)
     if clash is not None and clash is not value:
         raise DuplicateValue(f"“{new_name}” already exists in this reference list.")
     value.name = new_name

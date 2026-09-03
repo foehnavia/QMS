@@ -21,6 +21,7 @@ from db.models import (
 )
 from domain.errors import DuplicateValue, ProtectedValue, ValidationError, ValueInUse
 from domain.reference import (
+    find_value,
     REFERENCE_DEPENDENTS,
     add_value,
     delete_value,
@@ -127,3 +128,113 @@ def test_free_value_is_deletable(seeded_session: Session) -> None:
     seeded_session.commit()
 
     assert "angle" not in {row.name for row in list_values(seeded_session, RefDeviationType)}
+
+
+# --- наряд 0021: близнецы по регистру ------------------------------------------------
+
+
+def _twin(session, model, name):
+    """Завести значение **мимо** нормализации — так они и появились в базе."""
+    value = model(name=name)
+    session.add(value)
+    session.flush()
+    return value
+
+
+def test_merging_moves_every_reference_and_drops_the_twin(seeded_session: Session) -> None:
+    """§4.1: ссылки перевешиваются, близнец уходит, ни одна запись не теряется."""
+    from conftest import make_item
+    from db.models import Item, RefItemType
+    from domain.reference import merge_values
+
+    # Сид уже кладёт `Drill`; близнеца заводим строчным — так он и появился.
+    keep = find_value(seeded_session, RefItemType, "Drill")
+    drop = _twin(seeded_session, RefItemType, "drill")
+    item = make_item(seeded_session, "MT-SD1037A")
+    item.item_type = drop
+    seeded_session.flush()
+
+    moved = merge_values(seeded_session, RefItemType, keep, drop)
+    seeded_session.commit()
+
+    assert moved == 1
+    # Сверяем по имени: после `commit` объекты перечитаны, и тождество ссылок
+    # ничего не значит — значение же то самое.
+    assert seeded_session.get(Item, item.item_id).item_type.name == "Drill"
+    assert {value.name for value in list_values(seeded_session, RefItemType)} >= {"Drill"}
+    assert "drill" not in {v.name for v in list_values(seeded_session, RefItemType)}
+
+
+def test_merging_a_value_into_itself_is_refused(seeded_session: Session) -> None:
+    from db.models import RefItemType
+    from domain.reference import merge_values
+
+    value = find_value(seeded_session, RefItemType, "Implant")
+    with pytest.raises(ValidationError):
+        merge_values(seeded_session, RefItemType, value, value)
+
+
+def test_normalising_merges_twins_and_renames_the_rest(seeded_session: Session) -> None:
+    """§4.2: приведение регистра **переименовывает**, а где есть близнец — сводит.
+
+    Добавление вместо переименования и породило бы ровно тех близнецов, ради
+    которых наряд написан.
+    """
+    from db.models import RefDeviationType
+    from domain.reference import normalise_case
+
+    _twin(seeded_session, RefDeviationType, "thread burr")  # близнец к засеянному
+    _twin(seeded_session, RefDeviationType, "lonely lowercase")  # без близнеца
+
+    report = normalise_case(seeded_session, RefDeviationType)
+    seeded_session.commit()
+
+    names = {value.name for value in list_values(seeded_session, RefDeviationType)}
+    assert "thread burr" not in names
+    assert "Thread burr" in names
+    assert "Lonely lowercase" in names
+    assert report, "нормализация обязана отчитаться о том, что сделала"
+
+
+def test_no_list_keeps_two_values_differing_only_in_case(seeded_session: Session) -> None:
+    """Критерий 1: проверяется запросом, а не глазами."""
+    from db.models import REFERENCE_MODELS
+    from domain.reference import normalise_all
+
+    from db.models import RefItemType, RefZone
+
+    _twin(seeded_session, RefItemType, "implant")
+    _twin(seeded_session, RefZone, "thread")
+
+    normalise_all(seeded_session)
+    seeded_session.commit()
+
+    for model in REFERENCE_MODELS:
+        names = [value.name.casefold() for value in list_values(seeded_session, model)]
+        assert len(names) == len(set(names)), f"{model.__tablename__}: остались близнецы"
+
+
+def test_the_seed_does_not_add_a_twin_of_a_differently_cased_value(
+    seeded_session: Session,
+) -> None:
+    """Критерий 4, сид: он и был причиной — сверял имена точно."""
+    from db.models import RefDeviationType
+    from seed.reference import seed_reference
+
+    _twin(seeded_session, RefDeviationType, "thread burr")
+    before = len(list_values(seeded_session, RefDeviationType))
+
+    seed_reference(seeded_session)
+    seeded_session.commit()
+
+    after = list_values(seeded_session, RefDeviationType)
+    assert len(after) == before, "сид дописал близнеца"
+
+
+def test_renaming_into_a_differently_cased_twin_is_refused(seeded_session: Session) -> None:
+    """Критерий 4, правка: близнец не заводится и переименованием."""
+    from db.models import RefZone
+
+    zone = _twin(seeded_session, RefZone, "neck")
+    with pytest.raises(DuplicateValue):
+        rename_value(seeded_session, RefZone, zone, "THREAD")
