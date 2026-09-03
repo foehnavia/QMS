@@ -94,7 +94,9 @@ FINDING_COLUMNS = (
 #: направление им считается по содержимому, как любой текстовой ячейке.
 #: Ширины поимённо (§7.3 наряда 0020): max(заголовок, самое длинное реальное
 #: значение) × 1.25; знакоместо — по самому широкому знаку шрифта канона.
-FINDING_WIDTHS = (10, 8, 14, 24, 23, 19, 13)
+#: `kit.FIT_LABEL` — счётчик (§8.3, класс 2): ширина равна заголовку,
+#: запаса нет — не растёт ни содержимое, ни подпись.
+FINDING_WIDTHS = (10, 8, 14, 24, 23, 19, kit.FIT_LABEL)
 
 FINDING_NUMERIC_COLUMNS = (2, 5, 6)
 
@@ -106,6 +108,14 @@ FINDING_MAGNITUDE_COLUMNS = (2,)
 #: принять», а не «что решили», и слово «вердикт» рядом с исходом отклонения
 #: читалось как второе решение по той же записи.
 INSPECTION_COLUMNS = ("Number", "Characteristic", "Type", "Result", "Protocol")
+
+#: Ширины по правилу §8.3; чисел на эту таблицу §7.3 не давал — считаны здесь по
+#: той же формуле max(заголовок, рекорд) × 1.25 на значениях базы прогона.
+#: Повод объявить их сейчас: со сменой единицы (§8) `Implantation torque test`
+#: стал резаться до «Implantation tor…», а угаданный по подписи класс этого не
+#: покрывает. `Characteristic` — номер размера, счётчиком не является, но и не
+#: растёт: его держит заголовок. `Protocol` — путь к файлу, предел с обрезкой.
+INSPECTION_WIDTHS = (20, kit.FIT_LABEL, 30, 13, 40)
 
 #: Подсказка пустого поля детали. Прежде это была строка списка со значением
 #: `None`; у поля с отбором пустое состояние показывает сама строка ввода.
@@ -226,7 +236,7 @@ class DeviationDialog(QDialog):
         findings_layout.addLayout(finding_buttons)
 
         # --- исследования ---
-        self.inspections = kit.data_table(INSPECTION_COLUMNS)
+        self.inspections = kit.data_table(INSPECTION_COLUMNS, widths=INSPECTION_WIDTHS)
         self.inspections.currentCellChanged.connect(lambda *_: self._refresh_actions())
         self.edit_inspection = kit.secondary("Edit inspection…")
         self.drop_inspection = kit.danger("Delete inspection")

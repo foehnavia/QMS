@@ -519,24 +519,86 @@ def test_a_truncated_cell_explains_itself(qt_app) -> None:
 # --- наряд 0020 §7: ширины объявлены поимённо ---------------------------------------
 
 
-def test_a_slot_fits_the_widest_character_not_a_digit(qt_app) -> None:
-    """§7.3, предупреждение: `N` знакомест обязано вместить `N` широких знаков.
+def test_a_slot_is_the_average_glyph_and_not_the_widest(qt_app) -> None:
+    """§8.3: знакоместо — **средний** знак шрифта канона, не самый широкий.
 
-    Прежде знакоместо считалось по цифре: в шрифте канона `0` — семь пикселей,
-    а `M` — двенадцать, и колонка «на 12 знакомест» резала восьмизначное
-    `1 record`. Это и была та ошибка в единице измерения, а не в числах.
+    Разметку оператора по пикселям воспроизводит именно средний знак: текущая
+    раскладка ложилась в `знакоместа × 12 px + 20` (12 — ширина `M`), желаемая —
+    в `знакоместа × ≈7.4 px + 20`. Запас от обрезки сидит в самих числах
+    знакомест (§7.3), а не в том, что каждый знак считается за `M`.
+
+    Оговорка про платформу: под offscreen шрифт **моноширинный** (все знаки
+    13 px), поэтому «средний» и «самый широкий» здесь неразличимы, и разницу
+    ловит не этот тест, а замер на нативной платформе
+    (`tools/screenshots.py --run-db` печатает ширину каждой колонки). Тест
+    сторожит **правило**: единица берётся ровно одним способом.
     """
     from ui.kit.widgets import column_width, slot_width
 
     kit.apply_theme(qt_app)
     table = kit.data_table(("Value",))
+
+    assert slot_width(table) == table.fontMetrics().horizontalAdvance("0")
+    for slots in (6, 12, 26):
+        assert column_width(table, slots) == slot_width(table) * slots + tokens.PAD_CELL * 2
+
+
+def test_a_counter_column_is_its_header_and_nothing_more(qt_app) -> None:
+    """§8.3, класс 2: у счётчика ширина — заголовок плюс отступы, без запаса.
+
+    `0`, `15`, `9999`, `yes` не растут, заголовок задан нами и тоже не растёт;
+    запас в четверть там не нужен ни с какой стороны. Объявляется `FIT_LABEL`,
+    и число знакомест на такую колонку больше не влияет вовсе.
+    """
+    from ui.kit.widgets import column_width
+
+    kit.apply_theme(qt_app)
+    table = kit.data_table(("Characteristics",), widths=(kit.FIT_LABEL,))
     metrics = table.fontMetrics()
 
-    assert slot_width(table) >= metrics.horizontalAdvance("M")
-    for slots in (6, 12, 26):
-        room = column_width(table, slots) - tokens.PAD_CELL * 2
-        assert room >= metrics.horizontalAdvance("M" * slots), (
-            f"{slots} знакомест не вмещают {slots} самых широких знаков"
+    expected = metrics.horizontalAdvance("Characteristics") + tokens.PAD_CELL * 2
+    assert table.columnWidth(0) == expected
+    assert column_width(table, kit.FIT_LABEL, "Characteristics") == expected
+    # Заголовок короче — колонка уже; знакоместа роли не играют ни в одном случае.
+    assert column_width(table, kit.FIT_LABEL, "Insp.") < expected
+
+
+def test_a_pill_column_leaves_room_for_the_pill_not_just_its_text(qt_app) -> None:
+    """§8, находка прогона: делегат режет «Not deci…», а замер по тексту молчит.
+
+    Пилюлю рисует `DecisionPillDelegate` — своим шрифтом (крупнее и жирнее
+    табличного) и со своей оправой: отступы плюс кружок исхода. Ширина колонки
+    обязана считаться по тому, **чем рисуют**, а не по голому тексту ячейки.
+    """
+    from PySide6.QtGui import QFont, QFontMetrics
+
+    from ui.deviation_view import COLUMNS, WIDTHS
+    from ui.kit.pills import PILL_CHROME
+    from ui.kit.widgets import column_width
+
+    kit.apply_theme(qt_app)
+    table = kit.data_table(COLUMNS, widths=WIDTHS)
+    decision = COLUMNS.index("Decision")
+
+    # Оправа учтена ровно один раз и ровно та же, которой рисует делегат.
+    assert column_width(table, kit.pill(14), "Decision") == (
+        column_width(table, 14, "Decision") + PILL_CHROME
+    )
+
+    # Экран объявил именно пилюлю: ширина колонки равна расчёту с оправой и не
+    # равна расчёту без неё. Иначе под offscreen (моноширинный шрифт, знак шире
+    # реального) дефицит спрятался бы, а на экране оператора остался.
+    assert table.columnWidth(decision) == column_width(table, kit.pill(14), "Decision")
+    assert table.columnWidth(decision) != column_width(table, 14, "Decision")
+
+    font = QFont(table.font())
+    font.setPointSizeF(tokens.SIZE_PILL)
+    font.setWeight(QFont.Weight(tokens.WEIGHT_PILL))
+    pill_metrics = QFontMetrics(font)
+    room = table.columnWidth(decision) - tokens.PAD_CELL * 2
+    for text in ("Approved", "Rejected", "Conditional", "Not decided"):
+        assert pill_metrics.horizontalAdvance(text) + PILL_CHROME <= room, (
+            f"пилюля {text!r} не помещается — делегат обрежет подпись"
         )
 
 

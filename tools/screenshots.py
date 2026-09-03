@@ -60,6 +60,14 @@ from ui import kit  # noqa: E402
 OUT = REPO_ROOT / "build" / "screens"
 DB = REPO_ROOT / "build" / "screens-demo.sqlite"
 
+#: Снимки **на базе прогона** (наряд 0020 §8.5, критерий 4): демонстрационная
+#: короче реальной, и ширины колонок на ней не проверяются. Снимаем не с самого
+#: файла оператора, а с его копии: рабочая БД автономна (`CLAUDE.md` §6), и
+#: экран, открытый на чтение, всё же держит её движком — копия снимает вопрос
+#: целиком. Содержимое побайтно то же, значит и длины значений те же.
+RUN_DB = REPO_ROOT / "data" / "qms016.sqlite"
+RUN_COPY = REPO_ROOT / "build" / "screens-run.sqlite"
+
 #: Ширина показа списков — вторая, 1280, снимается отдельно (наряд 0010 §8.5).
 WIDE = 1920
 TALL = 1080
@@ -277,6 +285,75 @@ def build_database():
     return engine, url, ids
 
 
+def measure_columns(table, caption: str) -> None:
+    """Напечатать фактическую ширину каждой колонки — замер, а не впечатление.
+
+    Критерий 1 §8.5 требует число по каждой размеченной колонке. Берём его из
+    того же места, откуда его берёт отрисовка (`columnWidth`), а не глазами по
+    снимку: глаз читает те же пиксели, но с ошибкой в пару штук.
+    """
+    print(f"  {caption}:")
+    metrics = table.fontMetrics()
+    for column in range(table.columnCount()):
+        item = table.horizontalHeaderItem(column)
+        label = item.text() if item else f"#{column}"
+        room = table.columnWidth(column) - kit.tokens.PAD_CELL * 2
+        longest, widest = "", 0
+        for row in range(table.rowCount()):
+            cell = table.item(row, column)
+            text = cell.text() if cell else ""
+            if metrics.horizontalAdvance(text) > widest:
+                longest, widest = text, metrics.horizontalAdvance(text)
+        verdict = "режет" if widest > room else "ok"
+        print(
+            f"    {label:20} {table.columnWidth(column):4} px  "
+            f"место {room:4}  рекорд {widest:4} ({longest[:28]!r})  {verdict}"
+        )
+
+
+def shoot_on_run_database() -> int:
+    """Снять четыре раздела на копии базы прогона и замерить ширины (§8.5).
+
+    Диалоги сюда не берём: они открываются по идентификаторам, а идентичность
+    записей у оператора своя. Размеченные оператором колонки все живут на этих
+    четырёх экранах.
+    """
+    import shutil  # noqa: PLC0415
+
+    if not RUN_DB.exists():
+        print(f"База прогона не найдена: {RUN_DB}")
+        return 1
+    RUN_COPY.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(RUN_DB, RUN_COPY)
+
+    app = QApplication.instance() or QApplication([])
+    kit.apply_theme(app)
+    engine = create_db_engine(f"sqlite:///{RUN_COPY.as_posix()}")
+
+    from ui.main_window import MainWindow  # noqa: PLC0415
+
+    window = MainWindow(engine)
+    window.resize(WIDE, TALL)
+    print(f"Database: {RUN_COPY} (копия {RUN_DB.name})")
+    print("Screens:")
+    sections = ("reference-data", "characteristic-groups", "items", "deviations")
+    for row, name in enumerate(sections):
+        window.select_section(row)
+        shoot(window, f"run-{row + 1}-{name}")
+    print("Column widths:")
+    for row, name in enumerate(sections):
+        window.select_section(row)
+        section = window.pages.currentWidget()
+        # Экран справочников зовёт свою таблицу `values` — она там не одна из
+        # многих, а сам список значений; остальные три зовут `table`.
+        table = getattr(section, "table", None) or getattr(section, "values", None)
+        if table is not None:
+            measure_columns(table, name)
+    engine.dispose()
+    print(f"-> {OUT}")
+    return 0
+
+
 def shoot(widget: QWidget, name: str) -> None:
     """Снять виджет без `show()`: раскладку доводит `activate()` и досыл размера.
 
@@ -453,4 +530,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if "--run-db" in sys.argv:
+        raise SystemExit(shoot_on_run_database())
     raise SystemExit(main())

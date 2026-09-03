@@ -31,6 +31,12 @@ def _pen_and_brush(code: str | None) -> tuple[str | None, str, str]:
     return t.DECISION_COLOURS.get(code, t.DECISION_COLOURS[None])
 
 
+#: Оправа пилюли: собственные отступы по краям плюс место под кружок исхода.
+#: Ячейка с пилюлей обязана быть на столько шире голого текста — иначе делегат
+#: режет подпись, а замер по тексту этого не видит (наряд 0020 §8, находка).
+PILL_CHROME = t.PAD_CELL * 2 + t.GAP_PILL_ICON * 2
+
+
 class DecisionPillDelegate(QStyledItemDelegate):
     """Рисует подпись исхода пилюлей. Вешается на **одну** колонку таблицы.
 
@@ -62,7 +68,7 @@ class DecisionPillDelegate(QStyledItemDelegate):
 
         metrics = painter.fontMetrics()
         label_width = metrics.horizontalAdvance(text)
-        width = label_width + t.PAD_CELL * 2 + t.GAP_PILL_ICON * 2
+        width = label_width + PILL_CHROME
         rect = option.rect
         pill = QRectF(
             rect.left() + t.PAD_CELL,

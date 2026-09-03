@@ -281,29 +281,58 @@ def content_class(label: str, column: int, magnitude_columns: tuple[int, ...]) -
 #: Из каких знаков считается знакоместо. Не цифра: в шрифте канона `0` — семь
 #: пикселей, а `M` — двенадцать, и колонка «на 12 знакомест», посчитанная
 #: цифрой, резала восьмизначное `1 record` (замерено, предупреждение §7.3).
-_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,-·"
+#: Объявление «ширина этой колонки — её заголовок, и только он» (§8.3, класс 2).
+#: Ставится вместо числа знакомест у счётчиков и коротких фиксированных значений:
+#: `0`, `15`, `9999`, `yes` не растут, заголовок задан нами и тоже не растёт, —
+#: запас в четверть там не нужен ни с какой стороны.
+FIT_LABEL = "label"
+
+#: Метка «эту колонку рисует пилюля»: `kit.pill(14)` вместо голого `14`.
+_PILL = "pill"
+
+
+def pill(chars: int) -> tuple[str, int]:
+    """Объявить колонку, которую рисует пилюля исхода (`DecisionPillDelegate`).
+
+    Число знакомест остаётся тем же (§7.3), но к нему добавляется **оправа**
+    пилюли: её собственные отступы и кружок. Без этого делегат режет подпись
+    («Not deci…» на базе прогона), а замер по тексту ячейки обрезки не видит —
+    рисует-то не текст, а пилюля, и шрифтом покрупнее.
+    """
+    return (_PILL, chars)
 
 
 def slot_width(table) -> int:
-    """Одно знакоместо — ширина **самого широкого** знака алфавита канона.
+    """Одно знакоместо — **средняя** ширина знака шрифта канона, не самая широкая.
 
-    Требование §7.3: `N` знакомест обязано вместить `N` самых широких знаков.
-    Иначе объявленная ширина врёт ровно на разнице между цифрой и буквой.
+    Замена самого широкого знака на средний — вторая доводка (§8.3). Разметку
+    оператора по пикселям воспроизводит именно средний знак: текущая раскладка
+    ложилась в `знакоместа × 12 px + 20`, где 12 — ширина `M`, а желаемая — в
+    `знакоместа × ≈7.4 px + 20`. Гарантия от обрезки при этом не теряется: она
+    сидит в запасе в четверть внутри самих чисел знакомест (§7.3), а не в том,
+    что каждый знак считается за `M`.
     """
-    metrics = table.fontMetrics()
-    return max(metrics.horizontalAdvance(character) for character in _ALPHABET)
+    return table.fontMetrics().horizontalAdvance("0")
 
 
-def column_width(table, chars: int, label: str = "") -> int:
-    """Ширина колонки в пикселях: `chars` знакомест, но не уже своей подписи.
+def column_width(table, chars, label: str = "") -> int:
+    """Ширина колонки в пикселях. Два класса содержимого — два расчёта (§8.3).
 
-    Заголовок не переносится никогда — это нижняя граница (правило 1 §7.3).
-    Обрезанная подпись это колонка, про которую оператор не знает, что в ней
-    (`spectior` вместо `Inspections` на первом снимке).
+    `chars` — число знакомест **растущего** содержимого либо `FIT_LABEL` для
+    счётчика: тогда ширину задаёт заголовок и ничего больше.
+
+    Заголовок не переносится никогда — это нижняя граница обоих классов
+    (правило 1 §7.3). Обрезанная подпись это колонка, про которую оператор не
+    знает, что в ней (`spectior` вместо `Inspections` на первом снимке).
     """
+    from .pills import PILL_CHROME  # noqa: PLC0415 — иначе круговой импорт
+
     metrics = table.fontMetrics()
-    by_slots = slot_width(table) * chars
     by_label = metrics.horizontalAdvance(label) if label else 0
+    chrome = 0
+    if isinstance(chars, tuple) and chars[0] == _PILL:
+        chars, chrome = chars[1], PILL_CHROME
+    by_slots = 0 if chars == FIT_LABEL else slot_width(table) * chars + chrome
     return max(by_slots, by_label) + t.PAD_CELL * 2
 
 
@@ -322,7 +351,7 @@ def _fit_columns(table, magnitude_columns, content, widths) -> None:
     for column in range(table.columnCount()):
         label = table.horizontalHeaderItem(column)
         caption = label.text() if label else ""
-        if widths and column < len(widths) and widths[column]:
+        if widths and column < len(widths) and widths[column] is not None:
             slots = widths[column]
         else:
             name = (

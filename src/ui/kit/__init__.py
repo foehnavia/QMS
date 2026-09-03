@@ -47,6 +47,7 @@ from .pills import (
 from .ribbon import NavigationRibbon
 from .theme import ROLE, apply_theme, font_family, palette, stylesheet
 from .widgets import (
+    FIT_LABEL,
     Choice,
     DataTable,
     boxed,
@@ -62,6 +63,7 @@ from .widgets import (
     form,
     hint,
     inline_table_height,
+    pill,
     primary,
     screen_layout,
     secondary,
@@ -79,6 +81,8 @@ from .widgets import (
 )
 
 __all__ = [
+    "FIT_LABEL",
+    "pill",
     "Choice",
     "DataTable",
     "DECISION_ROLE",
