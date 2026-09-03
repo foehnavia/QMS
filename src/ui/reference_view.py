@@ -252,8 +252,13 @@ class ReferenceView(QWidget):
 
 
 def _used_label(used: int) -> str:
-    """Сколько записей ссылается на значение; ноль — прочерк, а не «0 records»."""
-    return iso(f"{used} records") if used else "—"
+    """Сколько записей ссылается на значение; ноль — прочерк, а не «0 records».
+
+    Единственное число при единице (§9.6): «1 record», но «2 records».
+    """
+    if not used:
+        return "—"
+    return iso(f"{used} record" if used == 1 else f"{used} records")
 
 
 __all__ = ["COLUMNS", "GENERAL_HINT", "IN_USE_HINT", "ReferenceView", "directional"]

@@ -61,7 +61,7 @@ MAGNITUDE_COLUMNS = (4,)
 #: значение) × 1.25; знакоместо — по самому широкому знаку шрифта канона.
 #: `kit.FIT_LABEL` — счётчик (§8.3, класс 2): ширина равна заголовку,
 #: запаса нет — не растёт ни содержимое, ни подпись.
-WIDTHS = (19, 15, 12, 13, kit.FIT_LABEL, kit.FIT_LABEL, kit.pill(14), 40, kit.FIT_LABEL)
+WIDTHS = (19, 15, 15, 16, kit.FIT_LABEL, kit.FIT_LABEL, kit.pill(14), 40, kit.FIT_LABEL)
 
 DECISION_COLUMN = 6
 

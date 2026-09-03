@@ -32,7 +32,7 @@ from .pickers import choose_cg_for_item
 COLUMNS = ("Item number", "Item type", "Connection", "Size class", "Characteristics", "Groups")
 #: `kit.FIT_LABEL` — счётчик (§8.3, класс 2): ширина равна заголовку,
 #: запаса нет — не растёт ни содержимое, ни подпись.
-WIDTHS = (15, 24, 13, 13, kit.FIT_LABEL, 36)
+WIDTHS = (18, 24, 13, 13, kit.FIT_LABEL, 40)
 
 #: Число размеров — колонка счётчика: направление ей задаём явно, а выравнивание
 #: остаётся левым — счётчик не сравнивают по величине (канон §6).

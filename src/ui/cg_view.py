@@ -24,7 +24,7 @@ COLUMNS = ("Group", "Positions", "Drawing")
 #: `Group` и `Groups` на экране деталей — одно и то же значение, ширина одна.
 #: `kit.FIT_LABEL` — счётчик (§8.3, класс 2): ширина равна заголовку,
 #: запаса нет — не растёт ни содержимое, ни подпись.
-WIDTHS = (36, kit.FIT_LABEL, kit.FIT_LABEL)
+WIDTHS = (40, kit.FIT_LABEL, kit.FIT_LABEL)
 
 #: Счётчик позиций — числовая колонка, но не величина: остаётся влево.
 NUMERIC_COLUMNS = (1,)

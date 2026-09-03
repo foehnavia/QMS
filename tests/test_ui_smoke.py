@@ -62,6 +62,20 @@ def test_application_shell_is_left_to_right(qt_app: QApplication) -> None:
     assert qt_app.layoutDirection() == Qt.LayoutDirection.LeftToRight
 
 
+def test_the_usage_count_says_one_record_in_the_singular() -> None:
+    """§9.6: «1 record», но «2 records» — единственное число при единице.
+
+    Замечено на базе прогона: у двух типов детали по одной ссылке, и колонка
+    читалась «1 records». Ноль остаётся прочерком, а не «0 records».
+    """
+    from ui.reference_view import _used_label
+
+    assert "1 record" in _used_label(1)
+    assert "1 records" not in _used_label(1)
+    assert "2 records" in _used_label(2)
+    assert _used_label(0) == "—"
+
+
 def test_reference_view_lists_all_six_dictionaries(seeded_engine) -> None:
     """Список списков — панелью (макет S2): видно, какие словари есть вообще."""
     from ui.reference_view import STATE_DEFAULT
