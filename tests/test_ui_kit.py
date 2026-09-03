@@ -322,6 +322,103 @@ def test_a_hebrew_value_keeps_its_own_direction(qt_app) -> None:
     assert field.lineEdit().layoutDirection() == Qt.LayoutDirection.RightToLeft
 
 
+
+def test_the_popup_does_not_swallow_the_keys(qt_app) -> None:
+    """§8.1: со второго символа поле отвечать не переставало.
+
+    Всплытие создано окном типа `Popup`, а такое окно **забирает клавиатуру
+    целиком**. Список с `NoFocus` нажатия не обрабатывал и никому не передавал —
+    они пропадали: первая буква проходила (всплытия ещё нет), вторая и все
+    следующие исчезали, `Backspace` не реагировал, выход был один — щёлкнуть
+    мимо. Теперь нажатия из всплытия переадресуются в строку.
+
+    Тест ловит это только потому, что событие идёт **через приложение**: адресат
+    выбирается так же, как выбирает Qt, — активное всплытие раньше фокуса.
+    """
+    from PySide6.QtWidgets import QApplication
+
+    from conftest import type_keys
+
+    field, _host = _field(qt_app)
+
+    trace = type_keys(field, "375")
+
+    # Всплытие действительно захватило ввод — иначе тест ничего не проверяет.
+    assert QApplication.activePopupWidget() is field.popup()
+    assert [typed for typed, _shown in trace] == ["3", "37", "375"]
+    assert trace[-1][1] == ["C1-08375A", "MF5-10375A-N"]
+
+
+def test_backspace_arrows_enter_and_escape_work_with_the_list_open(qt_app) -> None:
+    """§8.5.3: при открытом списке работают стирание, стрелки, выбор и закрытие."""
+    from conftest import (
+        backspace,
+        press_arrow,
+        press_enter,
+        press_escape,
+        type_keys,
+    )
+
+    field, _host = _field(qt_app)
+
+    type_keys(field, "C1-")
+    assert field.visible_labels() == ["C1-08375A", "C1-08420B"]
+
+    # Backspace — стирает и расширяет отбор обратно.
+    typed, shown = backspace(field)
+    assert typed == "C1"
+    assert shown == ["C1-08375A", "C1-08420B"]
+
+    # Стрелки водят по списку.
+    assert field.popup().currentRow() == 0
+    press_arrow(down=True)
+    assert field.popup().currentRow() == 1
+    press_arrow(down=False)
+    assert field.popup().currentRow() == 0
+
+    # Enter выбирает то, на чём стоит отметка, и закрывает список.
+    press_arrow(down=True)
+    press_enter()
+    assert field.current_key() == 3
+    assert field.lineEdit().text() == "C1-08420B"
+    assert field.popup().isVisible() is False
+
+    # Escape закрывает список и возвращает строку к выбранному.
+    # Перед новым набором строку чистим — оператор так и делает, иначе набранное
+    # допишется к подписи выбранного.
+    from conftest import clear_line
+
+    clear_line(field)
+    again = type_keys(field, "MF5")
+    assert again[-1][1] == ["MF5-10375A-N"]
+    press_escape()
+    assert field.popup().isVisible() is False
+    # Строка чистилась, значит выбор снят — Escape возвращает её к «не выбрано».
+    assert field.lineEdit().text() == ""
+    assert field.current_key() is None
+
+
+def test_an_empty_popup_is_never_shown(qt_app) -> None:
+    """Р-1 долга к шву: показывать нечего — не показываем.
+
+    У пустого списка `sizeHintForRow(0)` отвечает **-1**, и умолчание через
+    `or` не подставлялось: -1 истинно. Высота выходила отрицательной.
+    """
+    from conftest import shown_field
+
+    kit.apply_theme(qt_app)
+    field = kit.FilterCombo("empty on purpose")
+    field.set_rows([])
+    host = shown_field(field)  # хост держим: без ссылки виджеты уничтожаются
+    assert host.isVisible()
+
+    field.filter_to("")
+    field._open()
+
+    assert field.popup().count() == 0
+    assert field.popup().isVisible() is False
+
+
 def test_the_stylesheet_is_built_from_tokens() -> None:
     """Стиль — производная канона: значения приходят из `tokens`, не из головы."""
     sheet = kit.stylesheet()

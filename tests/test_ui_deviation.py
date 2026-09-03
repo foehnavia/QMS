@@ -902,13 +902,13 @@ def test_the_item_field_narrows_as_you_type(engine_with_item) -> None:
     всплывающий список не открывается вовсе, и прошлая редакция была зелёной
     именно поэтому (§7.4 доводки).
     """
-    from conftest import backspace, type_keys
+    from conftest import backspace, focus_field, type_keys
 
     _two_items(engine_with_item)
     dialog = DeviationDialog(engine_with_item)
     dialog.reload_items()
     dialog.show()
-    dialog.item.lineEdit().setFocus()
+    focus_field(dialog.item)
 
     trace = type_keys(dialog.item, "10375")
 
@@ -932,14 +932,14 @@ def test_the_item_field_forgets_the_filter_when_focus_leaves(engine_with_item) -
     состояния на закрытии списка и было тем, что стирало набранное посреди
     работы (§7.3).
     """
-    from conftest import clear_line, leave_field, type_keys
+    from conftest import clear_line, focus_field, leave_field, type_keys
 
     _two_items(engine_with_item)
     dialog = DeviationDialog(engine_with_item)
     dialog.reload_items()
     dialog.show()
     dialog.item.setCurrentText("MF5-10375A-N")
-    dialog.item.lineEdit().setFocus()
+    focus_field(dialog.item)
 
     # Оператор дописал к выбранному номеру то, чего нет ни у одной детали.
     type_keys(dialog.item, "zzz")
@@ -952,7 +952,7 @@ def test_the_item_field_forgets_the_filter_when_focus_leaves(engine_with_item) -
     assert dialog.item.popup().isVisible() is False
 
     # А стирание строки — законное снятие выбора, и список при этом полон.
-    dialog.item.lineEdit().setFocus()
+    focus_field(dialog.item)
     typed, shown = clear_line(dialog.item)
     assert typed == ""
     assert shown == ["C1-08375A", "MF5-10375A-N"]

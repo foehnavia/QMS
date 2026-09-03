@@ -233,20 +233,29 @@ def _close_windows_after_each_test():
     app.processEvents()
 
 
-def press_key(widget, text: str = "", key=None) -> None:
-    """Одно настоящее нажатие: событие с текстом, как его шлёт система.
+def press_key(text: str = "", key=None) -> None:
+    """Одно нажатие — **через приложение**, а не прямой посылкой в виджет.
 
-    `QTest.keyClick` кириллицу калечит (доходит `Ð`), поэтому событие собираем
-    сами — путь до виджета тот же, а текст доходит целым.
+    Правило §8.3 наряда 0019, оплаченное дважды. Прямая посылка в строку ввода
+    обходит диспетчеризацию Qt, а именно она перенаправляет нажатия в окно,
+    захватившее ввод. Из-за этого тест проверял обработчик, а не поведение: у
+    оператора со второго символа поле не отвечало вовсе, а тесты были зелёными.
+
+    Адресата выбираем так же, как выбирает Qt: сперва активное всплытие (окно
+    типа `Popup` держит захват), затем виджет с фокусом. Событие уходит
+    `postEvent`-ом и разбирается циклом событий.
     """
     from PySide6.QtCore import QEvent, Qt
     from PySide6.QtGui import QKeyEvent
     from PySide6.QtWidgets import QApplication
 
+    target = QApplication.activePopupWidget() or QApplication.focusWidget()
+    assert target is not None, "некому доставить нажатие: нет ни всплытия, ни фокуса"
+
     code = key if key is not None else Qt.Key.Key_unknown
     for kind in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
-        QApplication.sendEvent(
-            widget, QKeyEvent(kind, code, Qt.KeyboardModifier.NoModifier, text)
+        QApplication.postEvent(
+            target, QKeyEvent(kind, code, Qt.KeyboardModifier.NoModifier, text)
         )
     QApplication.processEvents()
 
@@ -259,7 +268,7 @@ def type_keys(field, text: str) -> list[tuple[str, list[str]]]:
     """
     trace = []
     for letter in text:
-        press_key(field.lineEdit(), letter)
+        press_key(letter)
         trace.append((field.lineEdit().text(), field.visible_labels()))
     return trace
 
@@ -268,10 +277,37 @@ def backspace(field) -> tuple[str, list[str]]:
     """Стереть символ — тем же путём, что и оператор."""
     from PySide6.QtCore import Qt
 
-    edit = field.lineEdit()
-    edit.setSelection(len(edit.text()) - 1, 1)
-    press_key(edit, "", Qt.Key.Key_Backspace)
-    return edit.text(), field.visible_labels()
+    press_key("", Qt.Key.Key_Backspace)
+    return field.lineEdit().text(), field.visible_labels()
+
+
+def press_arrow(down: bool = True) -> None:
+    """Стрелка по списку — через приложение."""
+    from PySide6.QtCore import Qt
+
+    press_key("", Qt.Key.Key_Down if down else Qt.Key.Key_Up)
+
+
+def press_enter() -> None:
+    from PySide6.QtCore import Qt
+
+    press_key("", Qt.Key.Key_Return)
+
+
+def press_escape() -> None:
+    from PySide6.QtCore import Qt
+
+    press_key("", Qt.Key.Key_Escape)
+
+
+def click_away(field) -> None:
+    """Щелчок мимо — всплытие закрывается захватом, как в жизни."""
+    from PySide6.QtWidgets import QApplication
+
+    popup = QApplication.activePopupWidget()
+    if popup is not None:
+        popup.close()
+    QApplication.processEvents()
 
 
 def leave_field(field, target=None) -> None:
@@ -300,17 +336,18 @@ def clear_line(field) -> tuple[str, list[str]]:
     """Стереть строку целиком — выделить всё и нажать Backspace, как оператор."""
     from PySide6.QtCore import Qt
 
-    edit = field.lineEdit()
-    edit.selectAll()
-    press_key(edit, "", Qt.Key.Key_Backspace)
-    return edit.text(), field.visible_labels()
+    field.lineEdit().selectAll()
+    press_key("", Qt.Key.Key_Backspace)
+    return field.lineEdit().text(), field.visible_labels()
 
 
 def shown_field(field, width: int = 320):
-    """Показать поле: у скрытого виджета всплывающий список не открывается вовсе.
+    """Показать поле и дать ему фокус — как оно живёт у оператора.
 
-    Это и есть та разница, на которой прошлая редакция была зелёной: без показа
-    дефект прятался, потому что список не всплывал ни разу.
+    Показ нужен потому, что у скрытого виджета всплывающий список не
+    открывается вовсе (первая доводка). Фокус — потому, что события теперь
+    доставляются через приложение, а адресата приложение ищет по фокусу и по
+    активному всплытию (§8.3).
     """
     from PySide6.QtWidgets import QVBoxLayout, QWidget
 
@@ -319,5 +356,19 @@ def shown_field(field, width: int = 320):
     layout.addWidget(field)
     host.resize(width, width // 4)
     host.show()
-    field.lineEdit().setFocus()
+    focus_field(field)
     return host
+
+
+def focus_field(field) -> None:
+    """Поставить фокус в строку поля и убедиться, что приложение его видит."""
+    from PySide6.QtWidgets import QApplication
+
+    window = field.window()
+    window.raise_()
+    window.activateWindow()
+    field.lineEdit().setFocus()
+    QApplication.processEvents()
+    assert QApplication.focusWidget() is field.lineEdit(), (
+        "приложение не видит фокуса в поле — доставлять нажатия будет некому"
+    )

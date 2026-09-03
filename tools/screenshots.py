@@ -385,8 +385,11 @@ def main() -> int:
     )
     field.resize(kit.tokens.DIALOG_NARROW, kit.tokens.INPUT_HEIGHT)
     field.layout().activate()
-    field.lineEdit().setText("1037")
-    field.filter_to("1037")
+    # Кадр снимается **после второго символа** (§8.5.2): именно до этого
+    # состояния дефект второй доводки не доживал — со второй буквы поле
+    # переставало отвечать вовсе.
+    field.lineEdit().setText("10")
+    field.filter_to("10")
 
     popup = field.popup()
     popup.resize(

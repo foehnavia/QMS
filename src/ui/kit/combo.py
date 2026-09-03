@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QPoint, Qt, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -86,6 +87,12 @@ class FilterCombo(QWidget):
         self._list.setWindowFlags(Qt.WindowType.Popup)
         self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._list.itemClicked.connect(self._pick)
+        # Окно этого типа забирает клавиатуру и мышь целиком — это его
+        # назначение. Значит нажатия идут **в него**, а не в строку ввода, и
+        # список с `NoFocus` их роняет: до второй доводки поле отвечало ровно на
+        # одну букву. Фильтр событий переадресует набор в строку — так устроен и
+        # штатный автодополнитель Qt.
+        self._list.installEventFilter(self)
         directional(self._list)
 
         layout = QVBoxLayout(self)
@@ -197,6 +204,8 @@ class FilterCombo(QWidget):
     # --- события ---------------------------------------------------------------
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
+        if watched is self._list:
+            return self._popup_event(event)
         if watched is not self._edit:
             return super().eventFilter(watched, event)
 
@@ -215,6 +224,21 @@ class FilterCombo(QWidget):
         elif event.type() == QEvent.Type.KeyPress and self._on_key(event.key()):
             return True
         return super().eventFilter(watched, event)
+
+    def _popup_event(self, event) -> bool:
+        """Нажатия, попавшие во всплытие. `True` — событие поглощено нами.
+
+        Пока окно захватило клавиатуру, единственное место, куда должен попадать
+        набор, — строка ввода. Поэтому всё, что не управляет списком, уходит ей
+        `sendEvent`-ом: буквы, `Backspace`, `Delete`, `Home`/`End`. Список
+        оставляет себе только стрелки, `Enter` и `Escape`.
+        """
+        if event.type() != QEvent.Type.KeyPress:
+            return False
+        if self._on_key(event.key()):
+            return True
+        QApplication.sendEvent(self._edit, event)
+        return True
 
     def _on_key(self, key: int) -> bool:
         """Клавиши работы со списком. `True` — событие обработано нами."""
@@ -278,8 +302,17 @@ class FilterCombo(QWidget):
         успевал закрыться и наполниться заново между двумя событиями, и на
         экране выходила одна строка высотой, внутри которой прокручивались все.
         """
-        row_height = self._list.sizeHintForRow(0) or t.TABLE_ROW_HEIGHT
-        visible = min(max(self._list.count(), 1), t.POPUP_ROWS)
+        if not self._list.count():
+            # Пустое всплытие не показываем вовсе (Р-1 долга к шву): показывать
+            # нечего, а `sizeHintForRow(0)` на пустом списке отвечает **-1** —
+            # умолчание через `or` не подставлялось, потому что -1 истинно.
+            self._list.hide()
+            return
+
+        row_height = self._list.sizeHintForRow(0)
+        if row_height <= 0:
+            row_height = t.TABLE_ROW_HEIGHT
+        visible = min(self._list.count(), t.POPUP_ROWS)
 
         self._list.setFixedWidth(self.width())
         self._list.setFixedHeight(visible * row_height + self._list.frameWidth() * 2)

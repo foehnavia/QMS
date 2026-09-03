@@ -604,11 +604,11 @@ def test_the_group_field_narrows_the_same_way(seeded_engine) -> None:
         for name in ("Implant_Con_375_C1", "Implant_Con_420_SP", "Abutment_C1"):
             create_group(session, name, (GPositionSpec(1, 3.75),))
 
-    from conftest import type_keys
+    from conftest import focus_field, type_keys
 
     dialog = ItemDialog(seeded_engine)
     dialog.show()
-    dialog.group.lineEdit().setFocus()
+    focus_field(dialog.group)
 
     trace = type_keys(dialog.group, "con_")
     assert [typed for typed, _shown in trace][-1] == "con_"
