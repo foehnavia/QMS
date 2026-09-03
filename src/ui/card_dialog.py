@@ -61,6 +61,7 @@ from .deviation_dialog import (
     FINDING_COLUMNS,
     FINDING_MAGNITUDE_COLUMNS,
     FINDING_NUMERIC_COLUMNS,
+    FINDING_WIDTHS,
     DeviationDialog,
 )
 from .inspection_dialog import InspectionDialog
@@ -80,6 +81,14 @@ PRECEDENT_COLUMNS = (
 )
 
 #: Числовые колонки прецедента: дата, знак с величиной, счётчик исследований.
+#: Ширины поимённо (§7.3 наряда 0020): max(заголовок, самое длинное реальное
+#: значение) × 1.25; знакоместо — по самому широкому знаку шрифта канона.
+#: `Characteristic` — составная ячейка `19 · C1 SP375 Int. Con. Zone`:
+#: у неё предел с обрезкой, а не расчёт по рекорду.
+PRECEDENT_WIDTHS = (19, 13, 15, 12, 30, 14, 14, 40, 8)
+#: С колонкой совпадения — она добавляется описательной вкладкой.
+PRECEDENT_MATCH_WIDTH = 13
+
 PRECEDENT_NUMERIC_COLUMNS = (1, 5, 8)
 
 #: Вправо — только «знак · величина»: её и сравнивают вниз по столбцу.
@@ -141,6 +150,7 @@ class PrecedentTable(kit.DataTable):
             self,
             numeric_columns=PRECEDENT_NUMERIC_COLUMNS,
             magnitude_columns=PRECEDENT_MAGNITUDE_COLUMNS,
+            widths=PRECEDENT_WIDTHS + ((PRECEDENT_MATCH_WIDTH,) if with_match else ()),
         )
         self.setItemDelegateForColumn(
             PRECEDENT_DECISION_COLUMN, DecisionPillDelegate(self)
@@ -278,6 +288,7 @@ class CardDialog(QDialog):
             FINDING_COLUMNS,
             numeric_columns=FINDING_NUMERIC_COLUMNS,
             magnitude_columns=FINDING_MAGNITUDE_COLUMNS,
+            widths=FINDING_WIDTHS,
         )
         self.findings.currentCellChanged.connect(lambda *_: self.refresh_precedents())
 

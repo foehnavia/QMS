@@ -219,6 +219,9 @@ def dialog_layout(widget: QWidget) -> QVBoxLayout:
 
 #: Класс → предел в знаках. Ширина — свойство **типа данных**: номер детали
 #: одинаково широк в списке отклонений, в карточке и в привязке.
+#: Ниже этой доли области таблица прижимается к левому краю, а не центрируется.
+CENTRING_SHARE = 0.6
+
 CONTENT_WIDTH = {
     "identifier": t.WIDTH_IDENTIFIER,
     "magnitude": t.WIDTH_MAGNITUDE,
@@ -275,36 +278,60 @@ def content_class(label: str, column: int, magnitude_columns: tuple[int, ...]) -
     return "identifier"
 
 
-def column_width(table, chars: int, label: str = "") -> int:
-    """Предел в знаках — в пикселях того шрифта, которым таблица и рисует.
+#: Из каких знаков считается знакоместо. Не цифра: в шрифте канона `0` — семь
+#: пикселей, а `M` — двенадцать, и колонка «на 12 знакомест», посчитанная
+#: цифрой, резала восьмизначное `1 record` (замерено, предупреждение §7.3).
+_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,-·"
 
-    Ниже подписи колонка не сужается: обрезанная подпись — это колонка, про
-    которую оператор не знает, что в ней (`spectior` вместо `Inspections` на
-    первом снимке). Предел класса и подпись — два ограничения снизу, берём
-    большее.
+
+def slot_width(table) -> int:
+    """Одно знакоместо — ширина **самого широкого** знака алфавита канона.
+
+    Требование §7.3: `N` знакомест обязано вместить `N` самых широких знаков.
+    Иначе объявленная ширина врёт ровно на разнице между цифрой и буквой.
     """
     metrics = table.fontMetrics()
-    by_class = metrics.horizontalAdvance("0") * chars
+    return max(metrics.horizontalAdvance(character) for character in _ALPHABET)
+
+
+def column_width(table, chars: int, label: str = "") -> int:
+    """Ширина колонки в пикселях: `chars` знакомест, но не уже своей подписи.
+
+    Заголовок не переносится никогда — это нижняя граница (правило 1 §7.3).
+    Обрезанная подпись это колонка, про которую оператор не знает, что в ней
+    (`spectior` вместо `Inspections` на первом снимке).
+    """
+    metrics = table.fontMetrics()
+    by_slots = slot_width(table) * chars
     by_label = metrics.horizontalAdvance(label) if label else 0
-    return max(by_class, by_label) + t.PAD_CELL * 2
+    return max(by_slots, by_label) + t.PAD_CELL * 2
 
 
-def _fit_columns(table, magnitude_columns: tuple[int, ...], content) -> None:
-    """Раздать колонкам ширину их класса. Ни одна не тянется."""
+def _fit_columns(table, magnitude_columns, content, widths) -> None:
+    """Раздать колонкам ширину. Ни одна не тянется.
+
+    Порядок источников (решение §7.3): **объявленная экраном ширина** →
+    объявленный класс → класс, угаданный по подписи. Угадывание осталось
+    умолчанием для необъявленных колонок и только им: оно развело `Connection`
+    (короткое содержимое, широкий класс) с `Item type` (длинное содержимое,
+    узкий), потому что имена врут.
+    """
     header = table.horizontalHeader()
     header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     header.setStretchLastSection(False)
     for column in range(table.columnCount()):
         label = table.horizontalHeaderItem(column)
-        name = (
-            content[column]
-            if content and column < len(content)
-            else content_class(label.text() if label else "", column, magnitude_columns)
-        )
-        table.setColumnWidth(
-            column,
-            column_width(table, CONTENT_WIDTH[name], label.text() if label else ""),
-        )
+        caption = label.text() if label else ""
+        if widths and column < len(widths) and widths[column]:
+            slots = widths[column]
+        else:
+            name = (
+                content[column]
+                if content and column < len(content)
+                else content_class(caption, column, magnitude_columns)
+            )
+            slots = CONTENT_WIDTH[name]
+        table.setColumnWidth(column, column_width(table, slots, caption))
 
 
 def _centre_columns(table, width: int | None = None) -> None:
@@ -320,7 +347,12 @@ def _centre_columns(table, width: int | None = None) -> None:
     available = (table.width() if width is None else width) - table.frameWidth() * 2
     if bar.isVisible():
         available -= bar.width()
-    margin = max((available - total) // 2, 0)
+    # Центрируем **только** когда таблица занимает существенную часть области
+    # (правило 3 §7.3). Поле шире самой таблицы читается как поломка, а не как
+    # приём: на снимке Reference data так и вышло.
+    margin = 0
+    if available > 0 and total >= available * CENTRING_SHARE:
+        margin = max((available - total) // 2, 0)
 
     # Отступ задаётся **листом стиля**, а не `setViewportMargins`: последние Qt
     # держит под свои заголовки, и правка их разводит шапку с телом — на снимке
@@ -382,6 +414,7 @@ def dress_table(
     numeric_columns: tuple[int, ...] = (),
     magnitude_columns: tuple[int, ...] = (),
     content: tuple[str, ...] = (),
+    widths: tuple[int, ...] = (),
     read_only: bool = True,
 ) -> QTableWidget:
     """Одеть **готовую** таблицу по канону §7.
@@ -399,6 +432,9 @@ def dress_table(
     # Границы колонок видимы: без них клик по ячейке в широкой таблице —
     # догадка, а не выбор (§3.1 наряда 0020).
     table.setShowGrid(True)
+    # Ячейка однострочная (правило 2 §7.3): длинное режется с подсказкой, а не
+    # разъезжается вниз. Двухстрочные ячейки и были первым, что назвал оператор.
+    table.setWordWrap(False)
 
     # Полотно белое, поле вокруг него — утопленная поверхность.
     #
@@ -409,7 +445,7 @@ def dress_table(
     # `theme`, потому что бывает он только у части виджета.
     table.viewport().setStyleSheet(f"background: {t.WHITE};")
 
-    _fit_columns(table, magnitude_columns, content)
+    _fit_columns(table, magnitude_columns, content, widths)
     _centre_columns(table)
 
     if read_only:
@@ -424,6 +460,7 @@ def data_table(
     numeric_columns: tuple[int, ...] = (),
     magnitude_columns: tuple[int, ...] = (),
     content: tuple[str, ...] = (),
+    widths: tuple[int, ...] = (),
     read_only: bool = True,
 ) -> QTableWidget:
     """Таблица данных канона §7.
@@ -442,6 +479,7 @@ def data_table(
         numeric_columns=numeric_columns,
         magnitude_columns=magnitude_columns,
         content=content,
+        widths=widths,
         read_only=read_only,
     )
 

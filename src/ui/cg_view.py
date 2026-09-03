@@ -17,7 +17,12 @@ from .cg_editor import CgEditor
 from .item_dialog import open_mapping
 from .pickers import pick_item
 
+#: Ширины поимённо (§7.3 наряда 0020): max(заголовок, самое длинное реальное
+#: значение) × 1.25, у текстовых — рекорд плюс добавочное слово. Знакоместо
+#: считается по самому широкому знаку шрифта канона, а не по цифре.
 COLUMNS = ("Group", "Positions", "Drawing")
+#: `Group` и `Groups` на экране деталей — одно и то же значение, ширина одна.
+WIDTHS = (36, 11, 9)
 
 #: Счётчик позиций — числовая колонка, но не величина: остаётся влево.
 NUMERIC_COLUMNS = (1,)
@@ -50,7 +55,7 @@ class CgView(QWidget):
         self._summary = ""
         self._rows_shown = 0
 
-        self.table = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS)
+        self.table = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS, widths=WIDTHS)
         self.table.doubleClicked.connect(self.open_editor)
         self.empty = kit.empty_state(EMPTY_TITLE, EMPTY_BODY)
 

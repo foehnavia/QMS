@@ -92,6 +92,10 @@ FINDING_COLUMNS = (
 #: Числовые колонки таблицы находок: величина со знаком, точка замера, счётчик.
 #: Зона и тип отклонения сюда не входят потому, что это **текст**, а не число:
 #: направление им считается по содержимому, как любой текстовой ячейке.
+#: Ширины поимённо (§7.3 наряда 0020): max(заголовок, самое длинное реальное
+#: значение) × 1.25; знакоместо — по самому широкому знаку шрифта канона.
+FINDING_WIDTHS = (10, 8, 14, 24, 23, 19, 13)
+
 FINDING_NUMERIC_COLUMNS = (2, 5, 6)
 
 #: Из них выравнивается вправо только **величина** (решение Cowork по ревью
@@ -190,6 +194,7 @@ class DeviationDialog(QDialog):
             FINDING_COLUMNS,
             numeric_columns=FINDING_NUMERIC_COLUMNS,
             magnitude_columns=FINDING_MAGNITUDE_COLUMNS,
+            widths=FINDING_WIDTHS,
         )
         self.findings.currentCellChanged.connect(lambda *_: self._refresh_actions())
         # Таблица находок — то, ради чего форма открыта: она не имеет права

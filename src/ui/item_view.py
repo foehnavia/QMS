@@ -26,7 +26,11 @@ from .item_positions_dialog import ItemPositionsDialog
 from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
 
+#: Ширины поимённо (§7.3 наряда 0020): max(заголовок, самое длинное реальное
+#: значение) × 1.25, у текстовых — рекорд плюс добавочное слово. Знакоместо
+#: считается по самому широкому знаку шрифта канона, а не по цифре.
 COLUMNS = ("Item number", "Item type", "Connection", "Size class", "Characteristics", "Groups")
+WIDTHS = (15, 24, 13, 13, 16, 36)
 
 #: Число размеров — колонка счётчика: направление ей задаём явно, а выравнивание
 #: остаётся левым — счётчик не сравнивают по величине (канон §6).
@@ -57,7 +61,7 @@ class ItemView(QWidget):
         self._summary = ""
         self._rows_shown = 0
 
-        self.table = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS)
+        self.table = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS, widths=WIDTHS)
         self.table.doubleClicked.connect(self.open_positions)
         self.empty = kit.empty_state(EMPTY_TITLE, EMPTY_BODY)
 

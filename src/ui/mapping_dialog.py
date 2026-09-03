@@ -57,6 +57,11 @@ NUMERIC_COLUMNS = (0, 2, 3)
 #: Классы содержимого объявлены явно (§3.1 наряда 0020): угадать по подписи
 #: «Canon geometry» нельзя — это не свободный текст, а компактная составная
 #: ячейка `3.75 +0.05 / −0.05`.
+#: Ширины поимённо (§7.3 наряда 0020): max(заголовок, самое длинное реальное
+#: значение) × 1.25; знакоместо — по самому широкому знаку шрифта канона.
+WIDTHS = (10, 14, 15, 23)
+
+#: Класс остаётся умолчанием, если ширина почему-то не объявлена.
 CONTENT = ("identifier", "state", "identifier", "state")
 
 STATE_LABELS = {
@@ -102,6 +107,7 @@ class MappingDialog(QDialog):
             COLUMNS,
             numeric_columns=NUMERIC_COLUMNS,
             content=CONTENT,
+            widths=WIDTHS,
             read_only=False,
         )
         self.table.itemChanged.connect(self._on_edit)

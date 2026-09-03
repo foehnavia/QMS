@@ -44,7 +44,11 @@ from . import kit
 from .common import directional, iso, joined, strip_iso
 from .kit import tokens
 
+#: Ширины поимённо (§7.3 наряда 0020): max(заголовок, самое длинное реальное
+#: значение) × 1.25, у текстовых — рекорд плюс добавочное слово. Знакоместо
+#: считается по самому широкому знаку шрифта канона, а не по цифре.
 COLUMNS = ("Value", "Used by", "State")
+WIDTHS = (26, 12, 12)
 
 #: Счётчик ссылок — числовая колонка, но не величина: остаётся влево (канон §6).
 NUMERIC_COLUMNS = (1,)
@@ -92,7 +96,7 @@ class ReferenceView(QWidget):
             self.lists.addItem(item)
         self.lists.currentRowChanged.connect(lambda *_args: self.reload())
 
-        self.values = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS)
+        self.values = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS, widths=WIDTHS)
         self.empty = kit.empty_state(EMPTY_TITLE, EMPTY_BODY)
         self.hint = kit.hint()
 

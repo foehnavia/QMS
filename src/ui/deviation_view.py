@@ -57,6 +57,10 @@ NUMERIC_COLUMNS = (3, 4, 5, 8)
 #: край держит их под подписью колонки (канон §6).
 MAGNITUDE_COLUMNS = (4,)
 
+#: Ширины поимённо (§7.3 наряда 0020): max(заголовок, самое длинное реальное
+#: значение) × 1.25; знакоместо — по самому широкому знаку шрифта канона.
+WIDTHS = (19, 15, 12, 13, 10, 10, 14, 40, 13)
+
 DECISION_COLUMN = 6
 
 EMPTY_TITLE = "No deviations registered yet"
@@ -90,6 +94,7 @@ class DeviationView(QWidget):
             COLUMNS,
             numeric_columns=NUMERIC_COLUMNS,
             magnitude_columns=MAGNITUDE_COLUMNS,
+            widths=WIDTHS,
         )
         # Двойной клик ведёт в карточку, а не в правку: карточка — рабочий
         # экран отклонения, правка из неё в одном нажатии (решение Cowork 1).

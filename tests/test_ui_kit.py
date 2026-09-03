@@ -461,22 +461,32 @@ def test_each_class_carries_its_own_limit(qt_app) -> None:
         assert table.columnWidth(column) >= table.fontMetrics().horizontalAdvance(label)
 
 
-def test_a_narrow_table_is_centred_and_a_wide_one_is_not(qt_app) -> None:
-    """Центрирование с деградацией (§3.1).
+def test_centring_only_when_the_table_fills_most_of_the_area(qt_app) -> None:
+    """Правило 3 §7.3: центрируем только заполненную область.
 
-    Уже своей области — по центру, лишнее забирают отступы; шире — отступы
-    исчезают, и таблица прокручивается вбок. Без второй половины сломались бы
-    широкие экраны.
+    Поле шире самой таблицы читается как поломка, а не как приём — так и вышло
+    на Reference data. Порог — доля области (`CENTRING_SHARE`); ниже неё
+    таблица прижимается к левому краю, выше — центрируется, а совсем широкая
+    отдаёт отступы и прокручивается.
     """
+    from PySide6.QtCore import QRect
+
+    from ui.kit.widgets import CENTRING_SHARE
+
     kit.apply_theme(qt_app)
     table = kit.data_table(("Number", "Date"))
+    total = sum(table.columnWidth(c) for c in range(table.columnCount()))
 
-    table.resize(1200, 200)
-    table.setGeometry(table.geometry())
-    assert table._margin > 0, "узкая таблица не отцентрирована"
+    # Область вдвое шире таблицы — доля ниже порога, значит влево.
+    table.setGeometry(QRect(0, 0, total * 2, 200))
+    assert table._margin == 0, "узкая таблица утоплена в поле вместо левого края"
 
-    table.resize(200, 200)
-    table.setGeometry(table.geometry())
+    # Область чуть шире таблицы — доля выше порога, центрируем.
+    table.setGeometry(QRect(0, 0, int(total / CENTRING_SHARE) - 20, 200))
+    assert table._margin > 0, "заполненная таблица не отцентрирована"
+
+    # Область уже таблицы — отступов нет вовсе.
+    table.setGeometry(QRect(0, 0, total // 2, 200))
     assert table._margin == 0, "широкая таблица обязана отдать отступы"
 
 
@@ -503,6 +513,112 @@ def test_a_truncated_cell_explains_itself(qt_app) -> None:
     table.itemDelegate().helpEvent(event, table, option, index)
 
     assert QToolTip.text() == long_value
+
+
+
+# --- наряд 0020 §7: ширины объявлены поимённо ---------------------------------------
+
+
+def test_a_slot_fits_the_widest_character_not_a_digit(qt_app) -> None:
+    """§7.3, предупреждение: `N` знакомест обязано вместить `N` широких знаков.
+
+    Прежде знакоместо считалось по цифре: в шрифте канона `0` — семь пикселей,
+    а `M` — двенадцать, и колонка «на 12 знакомест» резала восьмизначное
+    `1 record`. Это и была та ошибка в единице измерения, а не в числах.
+    """
+    from ui.kit.widgets import column_width, slot_width
+
+    kit.apply_theme(qt_app)
+    table = kit.data_table(("Value",))
+    metrics = table.fontMetrics()
+
+    assert slot_width(table) >= metrics.horizontalAdvance("M")
+    for slots in (6, 12, 26):
+        room = column_width(table, slots) - tokens.PAD_CELL * 2
+        assert room >= metrics.horizontalAdvance("M" * slots), (
+            f"{slots} знакомест не вмещают {slots} самых широких знаков"
+        )
+
+
+def test_a_declared_width_beats_the_guessed_class(qt_app) -> None:
+    """§7.3: класс остался умолчанием, объявление экрана — правилом.
+
+    Догадка по имени и развела `Connection` (короткое содержимое, широкий
+    класс) с `Item type` (длинное содержимое, узкий): имена врут.
+    """
+    kit.apply_theme(qt_app)
+    guessed = kit.data_table(("Item type",))
+    declared = kit.data_table(("Item type",), widths=(24,))
+
+    assert declared.columnWidth(0) != guessed.columnWidth(0)
+    assert declared.columnWidth(0) >= 24 * kit.widgets.slot_width(declared)
+
+
+def test_no_cell_and_no_header_wraps(qt_app) -> None:
+    """Критерий 1 §7.4: ни ячейка, ни заголовок не уезжают на вторую строку."""
+    from PySide6.QtWidgets import QTableWidgetItem
+
+    kit.apply_theme(qt_app)
+    table = kit.data_table(("Value", "Used by"), widths=(26, 12))
+    table.setRowCount(1)
+    table.setItem(0, 0, QTableWidgetItem("Straight Multy-Unit"))
+    table.setItem(0, 1, QTableWidgetItem("2 records"))
+
+    assert table.wordWrap() is False
+    metrics = table.fontMetrics()
+    for column, text in ((0, "Straight Multy-Unit"), (1, "2 records")):
+        room = table.columnWidth(column) - tokens.PAD_CELL * 2
+        assert metrics.horizontalAdvance(text) <= room, (
+            f"{text!r} не помещается в свою колонку"
+        )
+        label = table.horizontalHeaderItem(column).text()
+        assert metrics.horizontalAdvance(label) <= room, f"заголовок {label!r} не влез"
+
+
+def test_every_declared_width_holds_a_quarter_more(qt_app) -> None:
+    """Критерий 6 §7.4: запас в четверть — проверкой, а не глазами.
+
+    К самому длинному реальному значению каждой объявленной колонки можно
+    дописать ещё четверть длины, и оно по-прежнему не обрежется. Значения
+    удлиняются искусственно: завтра они удлинятся сами.
+    """
+    kit.apply_theme(qt_app)
+
+    from ui.cg_view import COLUMNS as CG_COLUMNS
+    from ui.cg_view import WIDTHS as CG_WIDTHS
+    from ui.item_view import COLUMNS as ITEM_COLUMNS
+    from ui.item_view import WIDTHS as ITEM_WIDTHS
+    from ui.reference_view import COLUMNS as REF_COLUMNS
+    from ui.reference_view import WIDTHS as REF_WIDTHS
+
+    # Самое длинное реальное значение каждой колонки — из базы прогона.
+    longest = {
+        ("Value",): "Straight Multy-Unit",
+        ("Used by",): "2 records",
+        ("Item number",): "MF5-10375A-N",
+        ("Item type",): "Straight Multy-Unit",
+        ("Connection",): "IntHex",
+        ("Size class",): "General",
+        ("Groups",): "C1 SP375 Int. Con. Zone",
+        ("Group",): "C1 SP375 Int. Con. Zone",
+    }
+
+    for columns, widths in (
+        (REF_COLUMNS, REF_WIDTHS),
+        (ITEM_COLUMNS, ITEM_WIDTHS),
+        (CG_COLUMNS, CG_WIDTHS),
+    ):
+        table = kit.data_table(columns, widths=widths)
+        metrics = table.fontMetrics()
+        for index, name in enumerate(columns):
+            value = longest.get((name,))
+            if value is None:
+                continue
+            grown = value + "M" * max(len(value) // 4, 1)
+            room = table.columnWidth(index) - tokens.PAD_CELL * 2
+            assert metrics.horizontalAdvance(grown) <= room, (
+                f"{name}: {grown!r} ({len(grown)} знаков) не помещается — запаса нет"
+            )
 
 
 def test_the_stylesheet_is_built_from_tokens() -> None:
