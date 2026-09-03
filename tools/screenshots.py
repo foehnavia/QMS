@@ -368,6 +368,45 @@ def main() -> int:
         "15-dialog-error",
     )
 
+    # --- 18. поле с отбором: набранная подстрока и суженный список ---
+    # Всплывающий список — отдельное окно, и в снимок формы он не попадает.
+    # Собираем кадр сами: строка и список снимаются порознь и склеиваются, —
+    # показывать окно на экране ради снимка нельзя (`CLAUDE.md` §9).
+    from PySide6.QtGui import QPainter, QPixmap  # noqa: PLC0415
+
+    field = kit.FilterCombo("— pick an item —")
+    field.set_rows(
+        [
+            (1, "C1-08375A"),
+            (2, "MF5-10375A-N"),
+            (3, "C1-08420B"),
+            (4, "MT-SD1037A"),
+        ]
+    )
+    field.resize(kit.tokens.DIALOG_NARROW, kit.tokens.INPUT_HEIGHT)
+    field.layout().activate()
+    field.lineEdit().setText("1037")
+    field.filter_to("1037")
+
+    popup = field.popup()
+    popup.resize(
+        field.width(),
+        popup.count() * (popup.sizeHintForRow(0) or kit.tokens.TABLE_ROW_HEIGHT)
+        + popup.frameWidth() * 2,
+    )
+
+    line_shot = field.grab()
+    list_shot = popup.grab()
+    frame = QPixmap(field.width(), line_shot.height() + list_shot.height())
+    frame.fill(kit.tokens.WHITE)
+    painter = QPainter(frame)
+    painter.drawPixmap(0, 0, line_shot)
+    painter.drawPixmap(0, line_shot.height(), list_shot)
+    painter.end()
+    OUT.mkdir(parents=True, exist_ok=True)
+    frame.save(str(OUT / "18-filter-field.png"))
+    print("  18-filter-field.png")
+
     # --- 17. стенд индикатора: два состояния одного элемента рядом ---
     # Своим снимком, потому что на экранах умолчаний нет: по канону В-9
     # радиокнопка стартует невыбранной, и отмеченного состояния снимок экрана

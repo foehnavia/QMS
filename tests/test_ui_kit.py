@@ -137,138 +137,188 @@ def test_tokens_carry_the_ratified_font_stack() -> None:
     assert "system-ui" not in tokens.FONT_FAMILY
 
 
-# --- наряд 0019: поле выбора с отбором по набранному --------------------------------
+# --- наряд 0019 (доводка §7): поле выбора с отбором ---------------------------------
+#
+# Проверки идут **настоящими нажатиями** по показанному полю и сверяют то, что
+# видит оператор: содержимое строки и список подписей после каждого нажатия.
+# Первая редакция проверялась вызовом внутренних методов и была зелёной при
+# неработающем поле — этого повторять нельзя.
 
 
 ITEMS = [
     (1, "C1-08375A"),
     (2, "MF5-10375A-N"),
     (3, "C1-08420B"),
-    (4, 'אזור הברגה'),
+    (4, "маккад"),
 ]
 
 
-def _field():
+def _field(qt_app):
+    from conftest import shown_field
+
+    kit.apply_theme(qt_app)
     field = kit.FilterCombo("type to narrow the list")
     field.set_rows(ITEMS)
-    return field
+    host = shown_field(field)
+    return field, host
 
 
-def test_the_filter_narrows_by_substring_not_by_prefix() -> None:
-    """§3.5.1: отбор по вхождению — номер помнят серединой чаще, чем началом.
+def test_every_keystroke_stays_in_the_line(qt_app) -> None:
+    """§7.1.1: набранное видно в строке — после **каждого** нажатия.
 
-    Обычный `QComboBox` искал по первой букве и список не сужал вовсе: это и
-    была находка №17.
+    На живой сборке первая буква пропадала: список и строка у редактируемого
+    `QComboBox` — один источник, и пересборка модели стирала набранное.
     """
-    field = _field()
+    from conftest import type_keys
 
-    field.filter_to("375")
+    field, _host = _field(qt_app)
 
-    # `C1-08375A` — совпадение в середине, `MF5-10375A-N` — тоже в середине.
-    assert field.visible_labels() == ["C1-08375A", "MF5-10375A-N"]
-    assert field.filter_to("mf5") == [(2, "MF5-10375A-N")], "отбор регистрозависим"
+    trace = type_keys(field, "мак")
+
+    assert [typed for typed, _shown in trace] == ["м", "ма", "мак"]
 
 
-def test_deleting_a_character_widens_the_list_back() -> None:
-    """§3.5.2: каждое изменение набранного пересобирает список заново.
+def test_the_list_shows_exactly_what_was_matched(qt_app) -> None:
+    """§7.1.2: в списке ровно отобранное — сверяем подписи, а не «сузился ли».
 
-    У прежнего поля вторая буква начинала поиск с нуля, а стереть набранное
-    было нечем — строки ввода у элемента не было.
+    Симптом оператора: на букву `м` показывалась запись, в которой этой буквы
+    нет вовсе.
     """
-    field = _field()
+    from conftest import type_keys
 
-    field.filter_to("C1-084")
-    assert field.visible_labels() == ["C1-08420B"]
+    field, _host = _field(qt_app)
 
-    field.filter_to("C1-0")
-    assert field.visible_labels() == ["C1-08375A", "C1-08420B"]
+    trace = type_keys(field, "м")
 
-    field.filter_to("")
-    assert field.visible_labels() == [label for _key, label in ITEMS]
+    assert trace[-1] == ("м", ["маккад"])
 
 
-def test_nothing_matches_is_explained_not_left_blank() -> None:
-    """§3.5.3: пустой список без объяснения читается как «таких деталей нет»."""
-    field = _field()
+def test_the_popup_height_matches_what_is_in_it(qt_app) -> None:
+    """§7.1.3: высота списка и его содержимое — одно состояние.
 
-    assert field.filter_to("zzz") == []
+    Симптом оператора: список ростом в одну строку, а внутри прокручиваются все
+    записи. Значит содержимое и высота относились к разным моментам.
+    """
+    from conftest import type_keys
+
+    field, _host = _field(qt_app)
+    type_keys(field, "C1")
+
+    popup = field.popup()
+    row_height = popup.sizeHintForRow(0)
+
+    assert popup.count() == 2, field.visible_labels()
+    assert popup.isVisible()
+    fits = popup.height() / row_height
+    assert 2 <= fits < 3, f"в списке {popup.count()} строк, а по высоте {fits:.1f}"
+
+
+def test_a_middle_substring_filters_and_backspace_widens(qt_app) -> None:
+    """§7.1.4: вхождение в середине отбирает, стирание расширяет обратно."""
+    from conftest import backspace, type_keys
+
+    field, _host = _field(qt_app)
+
+    trace = type_keys(field, "10375")
+    assert trace[-1] == ("10375", ["MF5-10375A-N"])
+
+    typed, shown = backspace(field)
+    assert typed == "1037"
+    assert shown == ["MF5-10375A-N"]
+
+    for _ in range(4):
+        typed, shown = backspace(field)
+    assert typed == ""
+    assert shown == [label for _key, label in ITEMS], "полное стирание вернуло не всё"
+
+
+def test_nothing_matches_is_explained_not_left_blank(qt_app) -> None:
+    """Пустой список без объяснения читается как «таких деталей нет»."""
+    from conftest import type_keys
+
+    field, _host = _field(qt_app)
+
+    type_keys(field, "zzz")
+
     assert field.is_explaining() is True
     shown = field.visible_labels()
-    assert len(shown) == 1
-    assert "Nothing matches" in shown[0] and str(len(ITEMS)) in shown[0]
+    assert len(shown) == 1 and "Nothing matches" in shown[0]
     # Объяснение не выбирается: значением поля оно стать не может.
-    assert field.model().item(0).isEnabled() is False
+    assert not field.popup().item(0).flags()
 
 
-def test_closing_the_list_drops_the_filter() -> None:
-    """§3.5.4: открыл заново — список полон, набранного нет.
+def test_free_text_never_becomes_the_value(qt_app) -> None:
+    """Страховка от свободного текста: несовпавшее откатывается по уходу фокуса."""
+    from conftest import type_keys
 
-    Половина жалобы оператора была именно про это: отметка оставалась там, где
-    он её оставил, и сбросить её было нечем.
-    """
-    field = _field()
-    field.setCurrentText("C1-08420B")
-
-    field.filter_to("375")
-    assert len(field.visible_labels()) == 2
-
-    field.hidePopup()
-
-    assert field.visible_labels() == [label for _key, label in ITEMS]
-    assert field.currentData() == 3, "выбор пережил снятие отбора"
-
-
-def test_free_text_never_becomes_the_value() -> None:
-    """§3.5.5: набранное, не совпавшее ни с чем, откатывается к прежнему выбору."""
-    field = _field()
+    field, _host = _field(qt_app)
     field.setCurrentText("C1-08375A")
 
-    field.lineEdit().setText("MF5-999")  # оператор набрал несуществующее
-    field.settle()
+    type_keys(field, "MF5-999")
+    field.settle()  # так же зовёт форма и уход фокуса
 
-    assert field.currentData() == 1
-    assert field.currentText() == "C1-08375A"
-
-
-def test_an_emptied_field_means_nothing_is_selected() -> None:
-    """Обратная сторона отката: стёртая строка — законное «не выбрано».
-
-    Иначе снять выбор было бы нечем, а у обоих мест применения это состояние
-    допустимо (деталь ещё не названа, деталь без группы).
-    """
-    field = _field()
-    field.setCurrentText("C1-08375A")
-
-    field._on_typed("")
-
-    assert field.currentData() is None
+    assert field.current_key() == 1
+    assert field.lineEdit().text() == "C1-08375A"
 
 
-def test_the_field_yields_the_key_not_the_label() -> None:
-    """§3.5.6: наружу идёт идентификатор, и он не зависит от состояния отбора.
+def test_the_field_yields_the_key_not_the_label(qt_app) -> None:
+    """Контракт наружу: идентификатор, и он не зависит от состояния отбора."""
+    from conftest import type_keys
 
-    Обычный `currentData()` вернул бы данные текущей строки **суженного**
-    списка — то есть значение, которого оператор не выбирал.
-    """
-    field = _field()
+    field, _host = _field(qt_app)
     field.setCurrentText("MF5-10375A-N")
 
-    field.filter_to("C1")  # список сужен на совсем другие записи
+    type_keys(field, "C1")  # список сужен на совсем другие записи
 
     assert field.currentData() == 2
     assert field.current_key() == 2
 
 
-def test_a_hebrew_value_keeps_its_own_direction() -> None:
-    """Канон §6: направление поля следует за набранным, а не за окном."""
+def test_choosing_a_row_sets_the_value_and_closes_the_list(qt_app) -> None:
+    """Выбор строки — единственный момент, когда код пишет в строку ввода."""
+    from conftest import type_keys
+
+    field, _host = _field(qt_app)
+    seen = []
+    field.keyChanged.connect(seen.append)
+
+    type_keys(field, "8420")
+    field._pick(field.popup().item(0))
+
+    assert field.current_key() == 3
+    assert field.lineEdit().text() == "C1-08420B"
+    assert field.popup().isVisible() is False
+    assert seen == [3]
+
+
+def test_an_emptied_line_means_nothing_is_selected(qt_app) -> None:
+    """Стёртая строка — законное «не выбрано»: иначе снять выбор нечем."""
+    from conftest import clear_line
+
+    field, _host = _field(qt_app)
+    field.setCurrentText("C1-08375A")
+    field.lineEdit().setFocus()
+
+    typed, shown = clear_line(field)
+
+    assert typed == ""
+    assert field.current_key() is None
+    # И список при этом полон: стирание — не отбор, а снятие выбора.
+    assert shown == [label for _key, label in ITEMS]
+
+
+def test_a_hebrew_value_keeps_its_own_direction(qt_app) -> None:
+    """Канон §6: направление строки следует за набранным, а не за окном."""
     from PySide6.QtCore import Qt
 
-    field = _field()
-    field.filter_to("הברגה")
+    from conftest import type_keys
+
+    field, _host = _field(qt_app)
+    field.set_rows(ITEMS + [(5, "אזור הברגה")])
+
+    type_keys(field, "אזור")
 
     assert field.visible_labels() == ["אזור הברגה"]
-    field.lineEdit().setText("אזור")
-    kit.bind_direction(field.lineEdit())
     assert field.lineEdit().layoutDirection() == Qt.LayoutDirection.RightToLeft
 
 

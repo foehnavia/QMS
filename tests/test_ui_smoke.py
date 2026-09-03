@@ -604,13 +604,17 @@ def test_the_group_field_narrows_the_same_way(seeded_engine) -> None:
         for name in ("Implant_Con_375_C1", "Implant_Con_420_SP", "Abutment_C1"):
             create_group(session, name, (GPositionSpec(1, 3.75),))
 
+    from conftest import type_keys
+
     dialog = ItemDialog(seeded_engine)
+    dialog.show()
+    dialog.group.lineEdit().setFocus()
 
-    assert len(dialog.group.visible_labels()) == 3
-    dialog.group.filter_to("con_")
-    assert dialog.group.visible_labels() == ["Implant_Con_375_C1", "Implant_Con_420_SP"]
+    trace = type_keys(dialog.group, "con_")
+    assert [typed for typed, _shown in trace][-1] == "con_"
+    assert trace[-1][1] == ["Implant_Con_375_C1", "Implant_Con_420_SP"]
 
-    dialog.group.filter_to("нет такой")
+    type_keys(dialog.group, "нет такой")
     assert dialog.group.is_explaining() is True
 
     # Наружу форма отдаёт ключ группы, а не её имя.

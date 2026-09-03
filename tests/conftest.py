@@ -202,3 +202,122 @@ def stub_mapping_dialog(monkeypatch, action=None) -> list[tuple[int, int]]:
 
     monkeypatch.setattr(module.MappingDialog, "run", staticmethod(fake_run))
     return calls
+
+
+# --- настоящие нажатия клавиш (доводка наряда 0019) --------------------------------
+#
+# Прошлая редакция поля с отбором была закрыта зелёными тестами и не работала у
+# оператора с первого нажатия: тесты звали внутренние методы компонента, а не
+# слали события клавиш. Разница принципиальная — путь `keyPressEvent` →
+# `textEdited` → перерисовка проходил мимо проверки.
+
+
+@pytest.fixture(autouse=True)
+def _close_windows_after_each_test():
+    """Закрыть всё показанное — окна не должны переживать свой тест.
+
+    Понадобилось, когда проверки поля с отбором стали **показывать** виджеты:
+    всплывающий список — отдельное окно с захватом ввода, и оставшееся от
+    соседнего теста всплытие ломало доставку фокуса следующему. Поймано на
+    падении, которое вне pytest не воспроизводилось.
+    """
+    yield
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        if widget.isVisible():
+            widget.close()
+    app.processEvents()
+
+
+def press_key(widget, text: str = "", key=None) -> None:
+    """Одно настоящее нажатие: событие с текстом, как его шлёт система.
+
+    `QTest.keyClick` кириллицу калечит (доходит `Ð`), поэтому событие собираем
+    сами — путь до виджета тот же, а текст доходит целым.
+    """
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtWidgets import QApplication
+
+    code = key if key is not None else Qt.Key.Key_unknown
+    for kind in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
+        QApplication.sendEvent(
+            widget, QKeyEvent(kind, code, Qt.KeyboardModifier.NoModifier, text)
+        )
+    QApplication.processEvents()
+
+
+def type_keys(field, text: str) -> list[tuple[str, list[str]]]:
+    """Набрать строку по букве. Возвращает `(что в строке, что в списке)` на каждом шаге.
+
+    Возвращается именно то, что видит оператор: содержимое строки ввода и
+    подписи списка — а не внутренние величины компонента.
+    """
+    trace = []
+    for letter in text:
+        press_key(field.lineEdit(), letter)
+        trace.append((field.lineEdit().text(), field.visible_labels()))
+    return trace
+
+
+def backspace(field) -> tuple[str, list[str]]:
+    """Стереть символ — тем же путём, что и оператор."""
+    from PySide6.QtCore import Qt
+
+    edit = field.lineEdit()
+    edit.setSelection(len(edit.text()) - 1, 1)
+    press_key(edit, "", Qt.Key.Key_Backspace)
+    return edit.text(), field.visible_labels()
+
+
+def leave_field(field, target=None) -> None:
+    """Оператор ушёл из поля — настоящим событием потери фокуса.
+
+    Под offscreen окно теста не становится активным, и `setFocus()` соседнего
+    виджета фокусных событий не порождает вовсе (замерено: `hasFocus()` у строки
+    всё время `False`). Поэтому шлём то самое событие, которое пришло бы от
+    системы, — с причиной «ушёл», а не «открылось всплытие»: различать их
+    компонент обязан, и здесь это и проверяется.
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QFocusEvent
+    from PySide6.QtWidgets import QApplication
+
+    if target is not None:
+        target.setFocus()
+    QApplication.sendEvent(
+        field.lineEdit(),
+        QFocusEvent(QFocusEvent.Type.FocusOut, Qt.FocusReason.OtherFocusReason),
+    )
+    QApplication.processEvents()
+
+
+def clear_line(field) -> tuple[str, list[str]]:
+    """Стереть строку целиком — выделить всё и нажать Backspace, как оператор."""
+    from PySide6.QtCore import Qt
+
+    edit = field.lineEdit()
+    edit.selectAll()
+    press_key(edit, "", Qt.Key.Key_Backspace)
+    return edit.text(), field.visible_labels()
+
+
+def shown_field(field, width: int = 320):
+    """Показать поле: у скрытого виджета всплывающий список не открывается вовсе.
+
+    Это и есть та разница, на которой прошлая редакция была зелёной: без показа
+    дефект прятался, потому что список не всплывал ни разу.
+    """
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    layout.addWidget(field)
+    host.resize(width, width // 4)
+    host.show()
+    field.lineEdit().setFocus()
+    return host

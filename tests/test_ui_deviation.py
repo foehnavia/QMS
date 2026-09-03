@@ -896,40 +896,68 @@ def _two_items(engine) -> tuple[int, int]:
 
 
 def test_the_item_field_narrows_as_you_type(engine_with_item) -> None:
-    """Критерий 1: набор сужает список по вхождению, стирание расширяет.
+    """Критерий 1: набор сужает список, стирание расширяет — **в живой форме**.
 
-    Прежде это был обычный `QComboBox`: первая буква переставляла отметку, но
-    список оставался полным (находка №17, прогон встал на шаге 8).
+    Проверяется настоящими нажатиями по показанной форме: без показа
+    всплывающий список не открывается вовсе, и прошлая редакция была зелёной
+    именно поэтому (§7.4 доводки).
     """
+    from conftest import backspace, type_keys
+
     _two_items(engine_with_item)
     dialog = DeviationDialog(engine_with_item)
     dialog.reload_items()
+    dialog.show()
+    dialog.item.lineEdit().setFocus()
 
-    assert dialog.item.visible_labels() == ["C1-08375A", "MF5-10375A-N"]
+    trace = type_keys(dialog.item, "10375")
 
-    dialog.item.filter_to("10375")
-    assert dialog.item.visible_labels() == ["MF5-10375A-N"]
+    # После каждого нажатия в строке ровно набранное.
+    assert [typed for typed, _shown in trace] == ["1", "10", "103", "1037", "10375"]
+    # И в списке ровно отобранное — по подписям, а не «сузился ли».
+    assert trace[-1][1] == ["MF5-10375A-N"]
 
-    dialog.item.filter_to("")
-    assert dialog.item.visible_labels() == ["C1-08375A", "MF5-10375A-N"]
+    typed, shown = backspace(dialog.item)
+    assert (typed, shown) == ("1037", ["MF5-10375A-N"])
 
-    dialog.item.filter_to("нет такой")
-    assert dialog.item.visible_labels() != []
+    type_keys(dialog.item, "9")
+    assert dialog.item.is_explaining() is True
+    dialog.close()
+
+
+def test_the_item_field_forgets_the_filter_when_focus_leaves(engine_with_item) -> None:
+    """Критерий 2: ушёл фокус — список полон, в строке снова выбранное.
+
+    `hidePopup` больше не переопределён — его нет вовсе: восстановление
+    состояния на закрытии списка и было тем, что стирало набранное посреди
+    работы (§7.3).
+    """
+    from conftest import clear_line, leave_field, type_keys
+
+    _two_items(engine_with_item)
+    dialog = DeviationDialog(engine_with_item)
+    dialog.reload_items()
+    dialog.show()
+    dialog.item.setCurrentText("MF5-10375A-N")
+    dialog.item.lineEdit().setFocus()
+
+    # Оператор дописал к выбранному номеру то, чего нет ни у одной детали.
+    type_keys(dialog.item, "zzz")
     assert dialog.item.is_explaining() is True
 
+    leave_field(dialog.item, dialog.wo)  # ушёл в соседнее поле, ничего не выбрав
 
-def test_the_item_field_forgets_the_filter_when_it_closes(engine_with_item) -> None:
-    """Критерий 2: открыл заново — список полон, отбор пуст."""
-    _two_items(engine_with_item)
-    dialog = DeviationDialog(engine_with_item)
-    dialog.reload_items()
-    dialog.item.setCurrentText("MF5-10375A-N")
+    assert dialog.item.lineEdit().text() == "MF5-10375A-N", "набранное не откатилось"
+    assert dialog.item.current_key() is not None
+    assert dialog.item.popup().isVisible() is False
 
-    dialog.item.filter_to("C1")
-    dialog.item.hidePopup()
-
-    assert dialog.item.visible_labels() == ["C1-08375A", "MF5-10375A-N"]
-    assert dialog.item.currentText() == "MF5-10375A-N"
+    # А стирание строки — законное снятие выбора, и список при этом полон.
+    dialog.item.lineEdit().setFocus()
+    typed, shown = clear_line(dialog.item)
+    assert typed == ""
+    assert shown == ["C1-08375A", "MF5-10375A-N"]
+    assert dialog.item.current_key() is None
+    dialog.close()
 
 
 def test_typed_nonsense_cannot_reach_the_database(engine_with_item) -> None:
