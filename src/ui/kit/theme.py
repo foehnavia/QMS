@@ -202,25 +202,34 @@ QRadioButton {{
 QRadioButton::indicator {{
     width: {t.INDICATOR_SIZE}px;
     height: {t.INDICATOR_SIZE}px;
-    border-radius: {t.INDICATOR_SIZE // 2}px;
+    /* Radius from the **painted box**, not from the content: QSS `width`
+       sizes the content, and the drawn box is larger by two borders. Derived
+       from `INDICATOR_SIZE` alone it was a circle only at `BORDER_WIDTH = 1`
+       (R-1 of the 0019 review). */
+    border-radius: {(t.INDICATOR_SIZE + 2 * t.BORDER_WIDTH) // 2}px;
     border: {t.BORDER_WIDTH}px solid {t.N_250};
     background: {t.WHITE};
 }}
 QRadioButton::indicator:hover {{ border-color: {t.N_400}; }}
 QRadioButton::indicator:checked {{
     border: {t.BORDER_WIDTH}px solid {t.BLUE_600};
-    border-radius: {t.INDICATOR_SIZE // 2}px;
+    border-radius: {(t.INDICATOR_SIZE + 2 * t.BORDER_WIDTH) // 2}px;
     background: {t.BLUE_600};
 }}
 QRadioButton:disabled {{ color: {t.N_450}; }}
 QRadioButton::indicator:disabled {{ background: {t.N_50}; border-color: {t.N_250}; }}
 
 /* --- table: the row is the unit of selection, a cell never takes focus --- */
+/* The field around the table is a **sunken surface**: the table is as wide as
+   its columns add up to, and when that is narrower than the area, the spare
+   width goes to the margins. They are visible, so they are a role of the canon
+   and not a tinted background. The canvas itself (the viewport) stays white —
+   painted by the palette in `dress_table`. */
 QTableView, QTableWidget, QListWidget {{
-    background: {t.WHITE};
+    background: {t.SURFACE_SUNKEN};
     border: {t.BORDER_WIDTH}px solid {t.N_200};
     border-radius: {t.RADIUS_PANEL}px;
-    gridline-color: {t.N_100};
+    gridline-color: {t.GRID_LINE};
     color: {t.N_700};
     outline: none;
     selection-background-color: {t.BLUE_50};

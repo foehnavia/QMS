@@ -25,7 +25,7 @@ from domain.findings import make_finding
 from domain.groups import GPositionSpec, create_group
 from domain.mappings import bind
 from domain.precedents import CANON_UNBOUND
-from domain.reference import add_value, list_values
+from domain.reference import ensure_value, list_values
 from ui.card_dialog import NO_LABELS_HINT, NO_SELECTION_HINT, CardDialog
 from ui.deviation_view import DeviationView
 
@@ -45,12 +45,12 @@ def engine(seeded_session):
 
 def _zone(session, name: str = "אזור הברגה") -> RefZone:
     existing = [v for v in list_values(session, RefZone) if v.name == name]
-    return existing[0] if existing else add_value(session, RefZone, name)
+    return ensure_value(session, RefZone, name)
 
 
 def _kind(session, name: str = "thread burr") -> RefDeviationType:
     existing = [v for v in list_values(session, RefDeviationType) if v.name == name]
-    return existing[0] if existing else add_value(session, RefDeviationType, name)
+    return ensure_value(session, RefDeviationType, name)
 
 
 def _case(
@@ -222,8 +222,16 @@ def test_binding_from_the_card_revives_the_position_section(engine, monkeypatch)
             bind(session, item, group.positions[0], "12")
         return True
 
-    monkeypatch.setattr(module.MappingDialog, "run", staticmethod(fake_run))
+    # Привязка из карточки идёт тем же помощником, что и три остальных входа
+    # (§3.2 наряда 0020), поэтому подменяем диалог там, где он теперь живёт.
+    import ui.item_dialog as mapping_module
+
+    monkeypatch.setattr(mapping_module.MappingDialog, "run", staticmethod(fake_run))
     monkeypatch.setattr(module, "choose_cg_for_item", lambda *args: cg_id)
+    # Привязана одна позиция из двух, значит общий вход покажет предупреждение
+    # о незакрытых (§3.2). Модальное окно под offscreen ждёт ответа вечно —
+    # перехватываем, как требует `CLAUDE.md` §9.
+    monkeypatch.setattr(mapping_module.QMessageBox, "exec", lambda self: 0)
 
     card.bind_canon()
 

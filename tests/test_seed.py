@@ -16,9 +16,16 @@ def test_seed_fills_the_starting_sets(session: Session) -> None:
     inserted = seed_reference(session)
     session.commit()
 
+    # Сид кладёт значения в том же виде, что и ручной ввод: первая буква
+    # заглавная, аббревиатуры нетронуты (находка №6). Сверяем с приведёнными,
+    # а не с сырым списком — иначе тест требовал бы от сида разнобоя.
+    from domain.reference import capitalised
+
     for model, names in REFERENCE_SEED.items():
         assert inserted[model.__tablename__] == len(names)
-        assert {row.name for row in session.query(model)} == set(names)
+        assert {row.name for row in session.query(model)} == {
+            capitalised(name) for name in names
+        }
 
 
 def test_seed_is_idempotent(session: Session) -> None:

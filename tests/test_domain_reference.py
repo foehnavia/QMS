@@ -38,13 +38,14 @@ def test_every_reference_model_declares_its_dependents() -> None:
 
 def test_add_rename_delete(seeded_session: Session) -> None:
     value = add_value(seeded_session, RefZone, "  neck  ")
-    assert value.name == "neck"  # пробелы обрезаются
+    # Пробелы обрезаются, первая буква — заглавная (находка №6).
+    assert value.name == "Neck"
 
     rename_value(seeded_session, RefZone, value, "neck area")
     assert ref(seeded_session, RefZone, "neck area") is value
 
     delete_value(seeded_session, RefZone, value)
-    assert "neck area" not in {row.name for row in list_values(seeded_session, RefZone)}
+    assert "Neck area" not in {row.name for row in list_values(seeded_session, RefZone)}
 
 
 def test_add_duplicate_is_reported_not_raised_as_integrity_error(seeded_session: Session) -> None:
@@ -81,7 +82,7 @@ def test_value_used_by_an_item_cannot_be_deleted(seeded_session: Session) -> Non
     assert usage_count(seeded_session, RefItemType, implant) == 1
     with pytest.raises(ValueInUse) as excinfo:
         delete_value(seeded_session, RefItemType, implant)
-    assert "implant" in str(excinfo.value)
+    assert "Implant" in str(excinfo.value)
 
 
 def test_value_used_by_a_finding_cannot_be_deleted(seeded_session: Session) -> None:

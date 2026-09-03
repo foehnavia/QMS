@@ -19,7 +19,7 @@ import pytest
 import ui.kit
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QMouseEvent, QWheelEvent
-from PySide6.QtWidgets import QDialogButtonBox
+from PySide6.QtWidgets import QDialog, QDialogButtonBox
 
 from conftest import make_item, make_png
 from db.models import CharacteristicGroup, GPosition, Item
@@ -27,7 +27,7 @@ from db.session import session_scope
 from domain.groups import GPositionSpec, create_group, set_drawing
 from domain.mappings import bind, binding_state, mark_absent
 from ui.cg_dialog import CgDialog
-from ui.common import strip_iso
+from ui.common import position_index, strip_iso
 from ui.cg_editor import CgEditor
 from ui.cg_view import CgView
 from ui.drawing_view import DrawingPane, DrawingView
@@ -335,7 +335,7 @@ def test_editor_locks_the_index_of_every_position(group_engine) -> None:
 
     assert not editor.table.item(3, 0).flags() & Qt.ItemFlag.ItemIsEditable
     # Выдан следующий за максимальным, а не занявший дыру.
-    assert editor.table.item(3, 0).text() == "4"
+    assert strip_iso(editor.table.item(3, 0).text()) == "g4"
 
 
 def test_editor_ignores_a_forced_index_swap(group_engine) -> None:
@@ -440,7 +440,7 @@ def test_add_position_keeps_what_was_typed(group_engine) -> None:
     assert _typed(editor, 0) == ["4.25", "0.05", "−0.05"]
     # Новая строка пустая и с индексом max + 1 — это правило не тронуто.
     assert _typed(editor, 3) == ["", "", ""]
-    assert editor.table.item(3, 0).text() == "4"
+    assert strip_iso(editor.table.item(3, 0).text()) == "g4"
 
 
 def test_removing_a_position_keeps_what_was_typed_in_the_others(group_engine) -> None:
@@ -514,7 +514,7 @@ def test_save_writes_what_is_on_screen_after_add_and_remove(group_engine, quiet)
     editor.remove_position()  # снимаем g2
 
     on_screen = {
-        int(editor.table.item(row, 0).text()): _typed(editor, row)
+        position_index(editor.table.item(row, 0).text()): _typed(editor, row)
         for row in range(editor.table.rowCount())
     }
     editor.save()
@@ -548,7 +548,8 @@ def test_reload_is_the_only_thing_that_drops_what_was_typed(group_engine) -> Non
 
     editor.reload()
 
-    assert _typed(editor, 0) == ["3.75", "0.05", "-0.05"]
+    # Минус канона и в редакторе тоже (Р-4 долга к шву).
+    assert _typed(editor, 0) == ["3.75", "0.05", "−0.05"]
 
 
 # --- Новая группа: число позиций с чертежа -----------------------------------------
@@ -562,7 +563,9 @@ def test_new_group_lays_the_table_out_by_the_number_of_positions(seeded_engine) 
     dialog.count.setValue(5)
 
     assert dialog.table.rowCount() == 5
-    assert [dialog.table.item(row, 0).text() for row in range(5)] == ["1", "2", "3", "4", "5"]
+    assert [
+        strip_iso(dialog.table.item(row, 0).text()) for row in range(5)
+    ] == ["g1", "g2", "g3", "g4", "g5"]
 
 
 def test_shrinking_the_count_drops_rows_from_the_tail(seeded_engine) -> None:
@@ -613,7 +616,9 @@ def test_mapping_dialog_shows_states_and_blocks_save(group_engine) -> None:
     save = dialog.buttons.button(QDialogButtonBox.StandardButton.Save)
 
     assert dialog.table.rowCount() == 3
-    assert save.isEnabled() is False
+    # «Done» доступна всегда (§3.3 наряда 0020): полноту спрашивает нажатие,
+    # а не доступность — см. `test_done_is_always_available_and_names_what_is_missing`.
+    assert save.isEnabled() is True
     assert "g1" in dialog.status.text()
     assert dialog.table.item(0, 1).text() == STATE_LABELS["none"] == "undecided"
 
@@ -748,7 +753,7 @@ def test_mapping_shows_an_interference_fit_as_entered(group_engine) -> None:
     оператору ровно в тот момент, когда он решает, принадлежит ли деталь этой
     группе, поэтому дефект был блокирующим.
     """
-    from ui.common import strip_iso
+    from ui.common import position_index, strip_iso
     from ui.mapping_dialog import COLUMNS
 
     with session_scope(group_engine) as session:
@@ -868,3 +873,86 @@ def test_mapping_reads_the_group_once(group_engine) -> None:
 
     selects = [text for text in statements if text.lstrip().upper().startswith("SELECT")]
     assert len(selects) <= 6, selects
+
+
+# --- наряд 0020: «Done» проверяет, окна разворачиваются ------------------------------
+
+
+def test_done_is_always_available_and_names_what_is_missing(group_engine) -> None:
+    """§3.3: кнопка доступна всегда; полноту спрашивает **нажатие**.
+
+    Прежде полнота была закодирована в доступности кнопки, и оператор,
+    набравший номер в последнюю позицию, тянулся к мёртвой кнопке (находка
+    №15). Проверяется нажатием, а не свойством: `isEnabled()` и раньше отвечал
+    «верно» — врал экран.
+    """
+    from PySide6.QtWidgets import QDialog, QDialogButtonBox
+
+    dialog = MappingDialog(group_engine, _item_id(group_engine), _cg_id(group_engine))
+    done = dialog.buttons.button(QDialogButtonBox.StandardButton.Save)
+
+    assert done.isEnabled() is True, "кнопка обязана быть доступна всегда"
+
+    done.click()
+
+    assert dialog.result() != QDialog.DialogCode.Accepted, "окно закрылось при пробеле"
+    assert "g1" in dialog.status.text() and "g2" in dialog.status.text()
+
+
+def test_done_counts_what_was_typed_without_enter(group_engine, quiet) -> None:
+    """§3.3: набранное в последней ячейке засчитывается без `Enter`.
+
+    Ровно то, на чём споткнулся оператор: значение лежало в открытом редакторе
+    ячейки и в состояние не уходило.
+    """
+    from PySide6.QtWidgets import QDialog, QDialogButtonBox
+
+    dialog = MappingDialog(group_engine, _item_id(group_engine), _cg_id(group_engine))
+    dialog.table.item(0, LOCAL_NUMBER).setText("12")
+    dialog.table.item(1, LOCAL_NUMBER).setText("19")
+    dialog.table.item(2, LOCAL_NUMBER).setText("32")
+
+    dialog.buttons.button(QDialogButtonBox.StandardButton.Save).click()
+
+    assert quiet == []
+    assert dialog.result() == QDialog.DialogCode.Accepted
+
+
+def test_an_occupied_position_is_rebound_in_place(group_engine, quiet) -> None:
+    """Р-1 долга к шву: правка номера на привязанной строке — перепривязка.
+
+    Прежде отбивалось доменным «позиция уже занята», и оператор должен был
+    сперва нажать «Clear»: два действия там, где он делает одно.
+    """
+    dialog = MappingDialog(group_engine, _item_id(group_engine), _cg_id(group_engine))
+    dialog.table.item(0, LOCAL_NUMBER).setText("12")
+    assert dialog.table.item(0, 1).text() == "linked"
+
+    dialog.table.item(0, LOCAL_NUMBER).setText("77")
+
+    assert quiet == []
+    assert strip_iso(dialog.table.item(0, LOCAL_NUMBER).text()) == "77"
+    assert dialog.table.item(0, 1).text() == "linked"
+
+
+def test_the_drawing_windows_can_be_maximised(group_engine) -> None:
+    """§3.4: чертёж — рабочая поверхность, окно обязано разворачиваться."""
+    from PySide6.QtCore import Qt
+
+    mapping = MappingDialog(group_engine, _item_id(group_engine), _cg_id(group_engine))
+    editor = CgEditor(group_engine, _cg_id(group_engine))
+
+    for window in (mapping, editor):
+        assert window.windowFlags() & Qt.WindowType.WindowMaximizeButtonHint
+
+
+def test_the_position_label_is_the_same_everywhere(group_engine) -> None:
+    """Р-3: один ярлык `g13` — в редакторе, в форме группы и в привязке."""
+    from ui.common import position_label
+
+    editor = CgEditor(group_engine, _cg_id(group_engine))
+    mapping = MappingDialog(group_engine, _item_id(group_engine), _cg_id(group_engine))
+
+    assert strip_iso(editor.table.item(0, 0).text()) == "g1"
+    assert strip_iso(mapping.table.item(0, 0).text()) == "g1"
+    assert strip_iso(position_label(13)) == "g13"

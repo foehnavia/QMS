@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemDelegate,
     QDialog,
     QDialogButtonBox,
     QSplitter,
@@ -33,7 +34,7 @@ from db.session import session_scope
 from domain.mappings import bind, binding_state, clear, is_complete, mark_absent
 
 from . import kit
-from .common import canon_geometry_label, iso, strip_iso
+from .common import canon_geometry_label, iso, position_label, strip_iso
 from .drawing_view import DrawingPane
 from .kit import tokens
 
@@ -52,6 +53,11 @@ LOCAL_NUMBER = COLUMNS.index("Local number")
 #: сравнивают в ней номинал, а он у левого края токена — правый край держал бы в
 #: столбик хвост допуска, то есть не то, на что смотрят.
 NUMERIC_COLUMNS = (0, 2, 3)
+
+#: Классы содержимого объявлены явно (§3.1 наряда 0020): угадать по подписи
+#: «Canon geometry» нельзя — это не свободный текст, а компактная составная
+#: ячейка `3.75 +0.05 / −0.05`.
+CONTENT = ("identifier", "state", "identifier", "state")
 
 STATE_LABELS = {
     "linked": "linked",
@@ -85,11 +91,18 @@ class MappingDialog(QDialog):
         # Чертёж занял верх окна и требует высоты; таблица под ним осталась при
         # своей ширине — с колонкой геометрии (В-6) уже узкой она не бывает.
         self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_TALL)
+        # Чертёж — рабочая поверхность, а не иллюстрация: окно обязано
+        # разворачиваться на весь экран (находка №16). Диалогу на Windows
+        # кнопку разворота дают явно.
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
 
         self.drawing = DrawingPane()
 
         self.table = kit.data_table(
-            COLUMNS, numeric_columns=NUMERIC_COLUMNS, read_only=False
+            COLUMNS,
+            numeric_columns=NUMERIC_COLUMNS,
+            content=CONTENT,
+            read_only=False,
         )
         self.table.itemChanged.connect(self._on_edit)
         #: Геометрия позиции по её индексу — заполняется вместе с состояниями.
@@ -110,7 +123,9 @@ class MappingDialog(QDialog):
         # получили состояние (потому и включается по полноте), «Закрыть» — уход.
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setText("Done")
         self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Close")
-        self.buttons.accepted.connect(self.accept)
+        # «Done» **проверяет**, а не заблокирована (§3.3 наряда 0020): она
+        # доступна всегда, а полноту спрашивает нажатие.
+        self.buttons.accepted.connect(self.finish)
         self.buttons.rejected.connect(self.reject)
 
         side = kit.boxed(
@@ -175,20 +190,54 @@ class MappingDialog(QDialog):
         self._loading = True
         self.table.setRowCount(len(self._states))
         for row, state in enumerate(self._states):
-            self.table.setItem(row, 0, _read_only(iso(f"g{state.g_index}")))
+            self.table.setItem(row, 0, _read_only(position_label(state.g_index)))
             self.table.setItem(row, 1, _read_only(STATE_LABELS[state.state]))
             self.table.setItem(row, 2, QTableWidgetItem(state.local_number or ""))
             self.table.setItem(row, 3, _read_only(self._canon_cell(state.g_index)))
         self._loading = False
 
-        complete = is_complete(self._states)
-        self.buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(complete)
         undecided = [f"g{s.g_index}" for s in self._states if not s.is_decided]
+        complete = is_complete(self._states)
         self.status.setText(
             "Every position has a state — the mapping can be finished."
             if complete
             else "Awaiting a decision: " + ", ".join(iso(name) for name in undecided)
         )
+
+    def finish(self) -> None:
+        """Нажали «Done»: досчитать набранное, проверить полноту, назвать пробел.
+
+        Прежде полнота была закодирована в **доступности** кнопки, и оператор,
+        набравший номер в последнюю позицию, тянулся к мёртвой кнопке: набранное
+        лежало в открытом редакторе ячейки и в состояние ещё не ушло (находка
+        №15). Теперь порядок обратный — сперва закрываем редактор, потом
+        спрашиваем.
+
+        Смысл конвенции S3 сохраняется: подтвердить, что ни одна позиция не
+        забыта. Меняется способ — с запрета на проверку (ратифицировано Cowork).
+        Тем же движением снимается Р-2/0018: у пустой группы кнопка была мертва
+        навсегда.
+        """
+        self._commit_open_editor()
+        undecided = [state for state in self._states if not state.is_decided]
+        if not undecided:
+            self.accept()
+            return
+
+        names = ", ".join(iso(f"g{state.g_index}") for state in undecided)
+        self.status.setText(f"Not finished — no state for {names}.")
+
+    def _commit_open_editor(self) -> None:
+        """Закрыть открытый редактор ячейки, чтобы набранное ушло в состояние.
+
+        Тот самый шаг, которого не хватало: без него последнее набранное
+        значение существует только в редакторе и в полноту не попадает.
+        """
+        editor = self.table.viewport().focusWidget()
+        if editor is None:
+            return
+        self.table.commitData(editor)
+        self.table.closeEditor(editor, QAbstractItemDelegate.EndEditHint.NoHint)
 
     def _canon_cell(self, g_index: int) -> str:
         """Номинал и допуск позиции — то, **по чему** оператор решает (В-6).
@@ -233,6 +282,14 @@ class MappingDialog(QDialog):
             with session_scope(self._engine) as session:
                 session_item = session.get(Item, self._item_id)
                 position = session.get(GPosition, state.g_position_id)
+                if state.state == "linked" and state.local_number != number:
+                    # Правка номера на привязанной строке — это **перепривязка**,
+                    # а не ошибка (Р-1 долга к шву). Прежде она отбивалась
+                    # доменным «позиция уже занята», и оператор должен был
+                    # сперва нажать «Clear»: два действия там, где он делает
+                    # одно. Снимаем прежнюю связь и ставим новую в одной
+                    # транзакции — инвариант «один индекс = один размер» цел.
+                    clear(session, session_item, position)
                 bind(session, session_item, position, number)
         except Exception as error:
             kit.show_error(self, error, title="Not bound")

@@ -31,7 +31,7 @@ from domain.errors import ValidationError
 from domain.groups import GPositionSpec, create_group
 
 from . import kit
-from .common import numeric_field, strip_iso
+from .common import numeric_field, position_index, position_label, strip_iso
 from .kit import tokens
 
 #: Подписи по ISO 286 (решение 2026-09-02): `Tolerance +` / `Tolerance −`
@@ -183,9 +183,9 @@ class CgDialog(QDialog):
         taken = []
         for row in range(self.table.rowCount()):
             cell = self.table.item(row, 0)
-            text = strip_iso(cell.text()).strip() if cell else ""
-            if text.isdigit():
-                taken.append(int(text))
+            index = position_index(cell.text()) if cell else None
+            if index is not None:
+                taken.append(index)
         return max(taken, default=0) + 1
 
     def drop_row(self) -> None:
@@ -200,12 +200,11 @@ class CgDialog(QDialog):
         """Собрать g-позиции из таблицы; ошибки ввода — доменными сообщениями."""
         specs: list[GPositionSpec] = []
         for row in range(self.table.rowCount()):
-            raw_index = strip_iso(
-                self.table.item(row, 0).text() if self.table.item(row, 0) else ""
-            ).strip()
+            cell = self.table.item(row, 0)
+            raw_index = position_index(cell.text() if cell else "")
             # Индекс выдаём мы сами и правке он не подлежит; проверка осталась
             # страховкой на случай, если ячейку когда-нибудь снова откроют.
-            if not raw_index.isdigit():
+            if raw_index is None:
                 raise ValidationError(
                     f"Row {row + 1}: the g-position index is issued by the form "
                     "and must be a whole number."
@@ -217,7 +216,7 @@ class CgDialog(QDialog):
 
             specs.append(
                 GPositionSpec(
-                    g_index=int(raw_index),
+                    g_index=raw_index,
                     nominal=parse_optional_number(cell(1), f"Row {row + 1}, nominal"),
                     tol_plus=parse_optional_number(cell(2), f"Row {row + 1}, upper deviation"),
                     tol_minus=parse_optional_number(cell(3), f"Row {row + 1}, lower deviation"),
@@ -239,7 +238,7 @@ class CgDialog(QDialog):
 
 def _issued_index(g_index: int) -> QTableWidgetItem:
     """Ячейка выданного индекса: только чтение (ратификация В-8)."""
-    cell = QTableWidgetItem(str(g_index))
+    cell = QTableWidgetItem(position_label(g_index))
     cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
     cell.setToolTip(
         "The g-position index is issued as max + 1 and never reused: it is the "

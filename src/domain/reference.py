@@ -91,10 +91,58 @@ def usage_count(session: Session, model: type, value) -> int:
     return total
 
 
+def _existing(session: Session, model: type, name: str):
+    """Значение с таким именем **без учёта регистра**.
+
+    Регистронезависимо потому, что регистр перестал быть различием (находка
+    №6): раз `thread root` сохраняется как `Thread root`, то `THREAD ROOT` —
+    то же значение, а не второе. Прежняя точная сверка пропускала двойников
+    ровно с этого дня.
+    """
+    lowered = (name or "").casefold()
+    for value in session.scalars(select(model)):
+        if value.name.casefold() == lowered:
+            return value
+    return None
+
+
+def capitalised(name: str) -> str:
+    """Первая буква заглавная — но аббревиатуру не трогаем (находка №6).
+
+    `thread root` набирают строчными, и в списке рядом с `Solidworks assembly`
+    это читается как разнобой, а не как значение. Правило узкое: меняется
+    **только первый символ**, и только если строка не выглядит аббревиатурой —
+    `NP`, `C1`, `IntHex` остаются собой.
+    """
+    name = (name or "").strip()
+    if not name:
+        return name
+    head = name.split()[0]
+    looks_like_abbreviation = sum(1 for ch in head if ch.isupper()) > 1 or head.isupper()
+    if looks_like_abbreviation:
+        return name
+    return name[0].upper() + name[1:]
+
+
+def normalise_case(session: Session, model: type) -> int:
+    """Привести регистр уже заведённых значений. Возвращает число правок."""
+    changed = 0
+    for value in session.scalars(select(model)):
+        fixed = capitalised(value.name)
+        if fixed != value.name and not session.scalar(
+            select(model).where(model.name == fixed)
+        ):
+            value.name = fixed
+            changed += 1
+    if changed:
+        session.flush()
+    return changed
+
+
 def add_value(session: Session, model: type, name: str):
     """Добавить значение. Дубль — понятной ошибкой, не `IntegrityError`."""
-    name = _clean_name(name)
-    if session.scalar(select(model).where(model.name == name)):
+    name = capitalised(_clean_name(name))
+    if _existing(session, model, name) is not None:
         raise DuplicateValue(f"“{name}” already exists in this reference list.")
     value = model(name=name)
     session.add(value)
@@ -102,16 +150,29 @@ def add_value(session: Session, model: type, name: str):
     return value
 
 
+def ensure_value(session: Session, model: type, name: str):
+    """Значение справочника: найти или завести. Регистр значением не считается.
+
+    Заводилось это четырьмя одинаковыми помощниками по тестам и инструментам, и
+    все четыре искали **точным** совпадением. С приведением регистра (находка
+    №6) такой поиск перестал находить засеянное, а `add_value` следом честно
+    отбивал дубль. Одна функция вместо четырёх копий закрывает и это.
+    """
+    found = _existing(session, model, capitalised(_clean_name(name)))
+    return found if found is not None else add_value(session, model, name)
+
+
 def rename_value(session: Session, model: type, value, new_name: str):
     """Переименовать значение; структурный дефолт защищён."""
-    new_name = _clean_name(new_name)
+    new_name = capitalised(_clean_name(new_name))
     if is_protected(model, value.name):
         raise ProtectedValue(
             f"“{value.name}” is a structural default of the reference list — cannot be renamed."
         )
     if new_name == value.name:
         return value
-    if session.scalar(select(model).where(model.name == new_name)):
+    clash = _existing(session, model, new_name)
+    if clash is not None and clash is not value:
         raise DuplicateValue(f"“{new_name}” already exists in this reference list.")
     value.name = new_name
     session.flush()

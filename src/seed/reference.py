@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+
+from domain.reference import capitalised
 from sqlalchemy.orm import Session
 
 from db.models import (
@@ -47,6 +49,10 @@ def seed_reference(session: Session) -> dict[str, int]:
     inserted: dict[str, int] = {}
     for model, names in REFERENCE_SEED.items():
         existing = set(session.scalars(select(model.name)).all())
+        # Через ту же функцию, что и ручной ввод: сид и оператор обязаны
+        # приводить значение к одному виду, иначе список расходится в регистре
+        # с первого же дня (находка №6).
+        names = [capitalised(name) for name in names]
         missing = [name for name in names if name not in existing]
         session.add_all([model(name=name) for name in missing])
         inserted[model.__tablename__] = len(missing)
@@ -60,6 +66,19 @@ def ref(session: Session, model: type, name: str):
     Точка доступа к `General`-дефолтам: `ref(session, RefSize, GENERAL)`.
     """
     obj = session.scalar(select(model).where(model.name == name))
+    if obj is None:
+        # Регистр перестал быть различием (находка №6): значение хранится с
+        # заглавной, а зовут его как написано в каноне и в тестах. Искать
+        # точным совпадением значило бы требовать помнить, как оно записано.
+        lowered = name.casefold()
+        obj = next(
+            (
+                value
+                for value in session.scalars(select(model))
+                if value.name.casefold() == lowered
+            ),
+            None,
+        )
     if obj is None:
         raise KeyError(f"{model.__tablename__}: no value {name!r}")
     return obj

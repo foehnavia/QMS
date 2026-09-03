@@ -14,7 +14,7 @@ from . import kit
 from .common import joined, strip_iso
 from .cg_dialog import CgDialog
 from .cg_editor import CgEditor
-from .mapping_dialog import MappingDialog
+from .item_dialog import open_mapping
 from .pickers import pick_item
 
 COLUMNS = ("Group", "Positions", "Drawing")
@@ -165,5 +165,7 @@ class CgView(QWidget):
 
         item_id = pick_item(self, items)
         if item_id is not None:
-            MappingDialog.run(self._engine, item_id, cg_id, self)
+            # Тот же помощник, что на экране деталей: одна работа — одно
+            # поведение на всех четырёх входах (§3.2 наряда 0020).
+            open_mapping(self._engine, self, item_id, cg_id)
             self.reload()

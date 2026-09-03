@@ -269,7 +269,13 @@ def test_canon_column_follows_the_mapping_without_reopening_the_form(
             bind(session, item, group.positions[0], "12")
         return True
 
-    monkeypatch.setattr(module.MappingDialog, "run", staticmethod(fake_run))
+    # Ранняя привязка идёт общим помощником (§3.2 наряда 0020) — подменяем
+    # диалог там, где он теперь живёт, и перехватываем предупреждение о
+    # незакрытых позициях: под offscreen модальное окно вешает прогон.
+    import ui.item_dialog as mapping_module
+
+    monkeypatch.setattr(mapping_module.MappingDialog, "run", staticmethod(fake_run))
+    monkeypatch.setattr(mapping_module.QMessageBox, "exec", lambda self: 0)
     monkeypatch.setattr(module, "choose_cg_for_item", lambda *args: _cg_id(engine_with_item))
 
     dialog.on_map_canon()

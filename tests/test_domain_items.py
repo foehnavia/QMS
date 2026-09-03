@@ -55,7 +55,7 @@ def test_item_is_created_with_classifiers(seeded_session: Session) -> None:
     seeded_session.commit()
 
     assert (item.item_type.name, item.connection_type.name, item.size.name) == (
-        "implant",
+        "Implant",
         "C1",
         "NP",
     )

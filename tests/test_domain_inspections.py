@@ -19,7 +19,7 @@ from domain.inspections import (
     remove_inspection,
     update_inspection,
 )
-from domain.reference import add_value, list_values
+from domain.reference import list_values
 
 TODAY = date(2026, 8, 11)
 
@@ -28,9 +28,9 @@ def _type(session: Session, name: str | None = None) -> RefInspectionType:
     values = list_values(session, RefInspectionType)
     if name is None:
         return values[0]
-    return next((v for v in values if v.name == name), None) or add_value(
-        session, RefInspectionType, name
-    )
+    from domain.reference import ensure_value
+
+    return ensure_value(session, RefInspectionType, name)
 
 
 def _finding(session: Session, item: Item, local_number: str = "12", wo: str = "W1"):

@@ -42,7 +42,7 @@ from domain.groups import (
 
 from . import kit
 from .cg_dialog import parse_optional_number
-from .common import iso
+from .common import iso, position_label
 from .drawing_view import BROKEN_IMAGE, DrawingPane
 from .kit import tokens
 
@@ -111,6 +111,8 @@ class CgEditor(QDialog):
         # Выше прежнего: чертёж стал главным элементом экрана и получил свою
         # вертикаль, а таблица позиций под ним осталась при своей.
         self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_TALL)
+        # Разворот на весь экран — по той же причине, что и в привязке (§3.4).
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
 
         self.name_edit = QLineEdit()
 
@@ -369,7 +371,8 @@ def _index_cell(row: _Row) -> QTableWidgetItem:
     вводится: он выдаётся как `max + 1` и не переиспользуется — `g5` живёт не
     только в таблице, а ещё на чертеже и в протоколе контроля.
     """
-    cell = QTableWidgetItem(str(row.g_index))
+    # Ярлык один на всё приложение — `g13` (Р-3 долга к шву).
+    cell = QTableWidgetItem(position_label(row.g_index))
     cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
     cell.setToolTip(
         "The g-position index is issued as max + 1 and never changes: "
@@ -379,8 +382,13 @@ def _index_cell(row: _Row) -> QTableWidgetItem:
 
 
 def _text(value: float | None) -> str:
-    """Число для ячейки: в изоляте, иначе ведущий минус в RTL уезжает в хвост."""
-    return "" if value is None else iso(f"{value:g}")
+    """Число для ячейки: в изоляте и с минусом канона (Р-4 долга к шву).
+
+    Редактор показывал `-0.05` дефисом, а привязка и карточка — `−0.05`
+    (U+2212): одно и то же значение двумя знаками на соседних экранах. Ввод от
+    этого не страдает — `parse_optional_number` принимает оба.
+    """
+    return "" if value is None else iso(f"{value:g}".replace("-", "−"))
 
 
 def _in_use(g_index: int, used: int) -> Exception:

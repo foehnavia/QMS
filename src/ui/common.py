@@ -58,6 +58,8 @@ __all__ = [
     "numeric_field",
     "show_error",
     "canon_geometry_label",
+    "position_index",
+    "position_label",
     "signed_label",
     "strip_iso",
     "tolerance_label",
@@ -171,6 +173,28 @@ def signed_label(direction: str, value: float | None) -> str:
     return iso(f"{sign} {number}".strip())
 
 
+def position_label(g_index: int) -> str:
+    """Ярлык g-позиции — один на всё приложение: `g13` (Р-3 долга к шву).
+
+    До этого один и тот же индекс назывался `1` в редакторе группы, `g1` в
+    привязке и `G1` на чертеже. Ярлык — общий словарь чертежа и базы, ради
+    которого запрещено переиспользование индексов; разнобой написания бьёт
+    ровно в это. Метка конструктора (`G13`) отличается только регистром и
+    читается как тот же идентификатор.
+    """
+    return iso(f"g{g_index}")
+
+
+def position_index(text: str) -> int | None:
+    """Прочитать индекс обратно из ярлыка. `None` — это не ярлык позиции.
+
+    Пара к `position_label`: раз показ в одном месте, то и разбор в одном,
+    иначе они разойдутся на первой же правке.
+    """
+    cleaned = strip_iso(text or "").strip().lstrip("gG")
+    return int(cleaned) if cleaned.isdigit() else None
+
+
 def deviation_text(value: float | None) -> str:
     """Одно предельное отклонение со **своим** знаком: `+0.05` · `−0.02` · `+0`.
 
@@ -182,10 +206,14 @@ def deviation_text(value: float | None) -> str:
 
     Знак минуса — `−` (U+2212), как у `signed_label` и как пишет канон: в базе он
     ASCII-дефис (единая точка для парсера S6), а показывать оператору два разных
-    минуса на одном экране незачем. Ноль знака не выдумывает и идёт как `+0`.
+    минуса на одном экране незачем. Ноль знака не несёт вовсе и пишется как `0` (ISO 286).
     """
     if value is None:
         return ""
+    if value == 0:
+        # По ISO 286 нулевое отклонение пишется без знака: `+0` обещает
+        # направление, которого у нуля нет (Р-5 долга к шву).
+        return "0"
     return f"{'−' if value < 0 else '+'}{abs(value):g}"
 
 

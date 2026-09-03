@@ -64,7 +64,7 @@ from .deviation_dialog import (
     DeviationDialog,
 )
 from .inspection_dialog import InspectionDialog
-from .mapping_dialog import MappingDialog
+from .item_dialog import open_mapping
 from .pickers import choose_cg_for_item
 
 PRECEDENT_COLUMNS = (
@@ -127,7 +127,7 @@ NO_PRECEDENTS_TITLE = "No precedents yet"
 NO_PRECEDENTS_HINT = "only deviations that already carry a decision are listed"
 
 
-class PrecedentTable(QTableWidget):
+class PrecedentTable(kit.DataTable):
     """Таблица прецедентов. Единица строки — **отклонение целиком** (`Search.md`)."""
 
     def __init__(self, *, with_match: bool = False, parent: QWidget | None = None) -> None:
@@ -591,7 +591,7 @@ class CardDialog(QDialog):
         cg_id = choose_cg_for_item(self, self._engine, item_id)
         if cg_id is None:
             return
-        MappingDialog.run(self._engine, item_id, cg_id, self)
+        open_mapping(self._engine, self, item_id, cg_id)
         self.reload()
 
     def _on_table_selected(self, table: PrecedentTable) -> None:

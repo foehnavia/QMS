@@ -52,7 +52,7 @@ from domain.groups import GPositionSpec, create_group, set_drawing  # noqa: E402
 from domain.inspections import create_inspection  # noqa: E402
 from domain.items import create_item  # noqa: E402
 from domain.mappings import bind  # noqa: E402
-from domain.reference import add_value, list_values  # noqa: E402
+from domain.reference import ensure_value, list_values  # noqa: E402
 from domain.errors import ValidationError  # noqa: E402
 from seed.reference import ref, seed_reference  # noqa: E402
 from ui import kit  # noqa: E402
@@ -171,8 +171,8 @@ def build_database():
         # заведено намеренно: оператор может ввести любое, и экран обязан это
         # пережить — на нём и виден RTL-путь делегата.
         for name in ("inner diameter", "thread root", "אזור הברגה"):
-            add_value(session, RefZone, name)
-        add_value(session, RefDeviationType, "thread depth")
+            ensure_value(session, RefZone, name)
+        ensure_value(session, RefDeviationType, "thread depth")
 
         group = create_group(session, "Implant_Con_375_C1", POSITIONS)
         set_drawing(session, group, _drawing_png(), "implant.png")
@@ -204,10 +204,10 @@ def build_database():
         bind(session, item, group.positions[1], "19")
         bind(session, other, group.positions[0], "77")
 
-        zone = [v for v in list_values(session, RefZone) if v.name == "thread root"][0]
-        kind = [
-            v for v in list_values(session, RefDeviationType) if v.name == "thread burr"
-        ][0]
+        # Регистр значений приводится при сохранении (находка №6), поэтому
+        # ищем без учёта регистра — как это делает и `ref`.
+        zone = ensure_value(session, RefZone, "thread root")
+        kind = ensure_value(session, RefDeviationType, "thread burr")
 
         # Прецедент — с решением: без решения он в выдачу не попадает.
         past = register(
@@ -278,9 +278,22 @@ def build_database():
 
 
 def shoot(widget: QWidget, name: str) -> None:
-    """Снять виджет без `show()`: раскладку доводит `activate()`."""
+    """Снять виджет без `show()`: раскладку доводит `activate()` и досыл размера.
+
+    Одного `activate()` мало: разделитель (`QSplitter`) раскладывает своих детей
+    в `resizeEvent`, а скрытому виджету Qt его не шлёт. Из-за этого таблица
+    внутри разделителя оставалась при своей стартовой ширине, и центрирование
+    считалось не от той (наряд 0020 §3.1). Досылаем событие сами — тот же приём,
+    что в `drawing_view`.
+    """
+    from PySide6.QtGui import QResizeEvent  # noqa: PLC0415
+
     OUT.mkdir(parents=True, exist_ok=True)
     layout = widget.layout()
+    if layout is not None:
+        layout.activate()
+    size = QWidget.size(widget)
+    QApplication.sendEvent(widget, QResizeEvent(size, size))
     if layout is not None:
         layout.activate()
     widget.grab().save(str(OUT / f"{name}.png"))

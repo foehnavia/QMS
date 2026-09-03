@@ -234,7 +234,7 @@ def test_canon_geometry_without_numbers_is_a_dash() -> None:
         (0.05, None, "+0.05"),  # задано одно — второе не выдумывается
         (None, -0.05, "−0.05"),
         (None, None, ""),  # оба пусты — токена нет вовсе
-        (0, 0, "+0 / +0"),  # ноль знака не несёт: пишем `+0`
+        (0, 0, "0 / 0"),  # ноль знака не несёт вовсе (ISO 286)
     ],
 )
 def test_each_deviation_carries_its_own_sign(plus, minus, expected) -> None:

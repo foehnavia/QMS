@@ -23,7 +23,7 @@ from domain.precedents import (
     precedents_same_dimension,
     precedents_same_position,
 )
-from domain.reference import add_value, list_values
+from domain.reference import ensure_value, list_values
 
 TODAY = date(2026, 8, 11)
 POSITIONS = (GPositionSpec(1, 3.75, 0.05, -0.05), GPositionSpec(2, 2.0))
@@ -31,12 +31,12 @@ POSITIONS = (GPositionSpec(1, 3.75, 0.05, -0.05), GPositionSpec(2, 2.0))
 
 def _zone(session: Session, name: str = "אזור הברגה") -> RefZone:
     existing = [v for v in list_values(session, RefZone) if v.name == name]
-    return existing[0] if existing else add_value(session, RefZone, name)
+    return ensure_value(session, RefZone, name)
 
 
 def _kind(session: Session, name: str = "thread burr") -> RefDeviationType:
     existing = [v for v in list_values(session, RefDeviationType) if v.name == name]
-    return existing[0] if existing else add_value(session, RefDeviationType, name)
+    return ensure_value(session, RefDeviationType, name)
 
 
 def _case(

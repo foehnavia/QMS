@@ -419,6 +419,92 @@ def test_an_empty_popup_is_never_shown(qt_app) -> None:
     assert field.popup().isVisible() is False
 
 
+
+# --- наряд 0020 §3.1: ширина — свойство класса содержимого ---------------------------
+
+
+def test_no_column_stretches_and_width_is_the_sum(qt_app) -> None:
+    """Ширина таблицы — сумма колонок и от размера окна не зависит (§3.1).
+
+    Прежде колонки тянулись на всё окно (`Stretch`), и на широком экране
+    идентификатор занимал полполосы, а объяснение всё равно не помещалось.
+    """
+    from PySide6.QtWidgets import QHeaderView
+
+    kit.apply_theme(qt_app)
+    table = kit.data_table(("Number", "Date", "Explanation"))
+    header = table.horizontalHeader()
+
+    assert header.sectionResizeMode(0) != QHeaderView.ResizeMode.Stretch
+    assert header.stretchLastSection() is False
+
+    table.resize(600, 200)
+    narrow = [table.columnWidth(c) for c in range(3)]
+    table.resize(1900, 200)
+    wide = [table.columnWidth(c) for c in range(3)]
+
+    assert narrow == wide, "колонка тянется за окном"
+
+
+def test_each_class_carries_its_own_limit(qt_app) -> None:
+    """Класс содержимого несёт предел: счётчик уже идентификатора, текст шире."""
+    kit.apply_theme(qt_app)
+    table = kit.data_table(("Number", "Findings", "Explanation"))
+
+    identifier, counter, text = (table.columnWidth(c) for c in range(3))
+
+    assert counter < identifier < text
+    # И ни одна не уже собственной подписи: обрезанная подпись — это колонка,
+    # про которую оператор не знает, что в ней.
+    for column in range(3):
+        label = table.horizontalHeaderItem(column).text()
+        assert table.columnWidth(column) >= table.fontMetrics().horizontalAdvance(label)
+
+
+def test_a_narrow_table_is_centred_and_a_wide_one_is_not(qt_app) -> None:
+    """Центрирование с деградацией (§3.1).
+
+    Уже своей области — по центру, лишнее забирают отступы; шире — отступы
+    исчезают, и таблица прокручивается вбок. Без второй половины сломались бы
+    широкие экраны.
+    """
+    kit.apply_theme(qt_app)
+    table = kit.data_table(("Number", "Date"))
+
+    table.resize(1200, 200)
+    table.setGeometry(table.geometry())
+    assert table._margin > 0, "узкая таблица не отцентрирована"
+
+    table.resize(200, 200)
+    table.setGeometry(table.geometry())
+    assert table._margin == 0, "широкая таблица обязана отдать отступы"
+
+
+def test_a_truncated_cell_explains_itself(qt_app) -> None:
+    """Предел без подсказки — потеря данных на экране (§3.1).
+
+    Проверяем **то, чем показывают**: делегат отвечает на запрос подсказки
+    полным текстом ровно тогда, когда текст не помещается.
+    """
+    from PySide6.QtCore import QEvent, QPoint
+    from PySide6.QtGui import QHelpEvent
+    from PySide6.QtWidgets import QTableWidgetItem, QToolTip
+
+    kit.apply_theme(qt_app)
+    table = kit.data_table(("Number",))
+    table.setRowCount(1)
+    long_value = "DEV-260903-0001-and-a-very-long-tail-that-cannot-fit"
+    table.setItem(0, 0, QTableWidgetItem(long_value))
+    table.setColumnWidth(0, 60)
+
+    index = table.model().index(0, 0)
+    option = table.viewOptions() if hasattr(table, "viewOptions") else None
+    event = QHelpEvent(QEvent.Type.ToolTip, QPoint(5, 5), table.mapToGlobal(QPoint(5, 5)))
+    table.itemDelegate().helpEvent(event, table, option, index)
+
+    assert QToolTip.text() == long_value
+
+
 def test_the_stylesheet_is_built_from_tokens() -> None:
     """Стиль — производная канона: значения приходят из `tokens`, не из головы."""
     sheet = kit.stylesheet()
@@ -530,7 +616,7 @@ def test_an_empty_state_can_change_its_reason() -> None:
     assert "No precedents" not in box.body_label.text()
 
 
-def test_the_choice_shows_which_option_is_taken() -> None:
+def test_the_choice_shows_which_option_is_taken(qt_app) -> None:
     """Сверяем то, **чем рисуют**: отмеченный кружок обязан быть на экране.
 
     Qt рисует родной индикатор, только пока виджет не попал под лист стиля; как
@@ -540,6 +626,12 @@ def test_the_choice_shows_which_option_is_taken() -> None:
     """
     from PySide6.QtGui import QColor
     from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    # Тему применяем сами (§3.6 наряда 0020): лист стиля сюда приходил побочно,
+    # от соседнего теста, и запущенный в одиночку тест мерил родной стиль
+    # Windows — то есть проверял не то, что чинили. Тест, зависящий от порядка
+    # запуска, не проверка, а лотерея.
+    kit.apply_theme(qt_app)
 
     host = QWidget()
     layout = QVBoxLayout(host)
@@ -565,20 +657,22 @@ def test_the_choice_shows_which_option_is_taken() -> None:
 
 
 
-def _indicator_box(image, row_top: int, row_bottom: int, zone: int = 26):
-    """Прямоугольник нарисованного индикатора внутри строки радиокнопки.
+def _indicator_box(image, row_top: int, row_bottom: int, colour: str, zone: int = 26):
+    """Рамка индикатора — по **его собственному цвету**, а не «всё, что не фон».
 
-    Ищем всё, что не фон, в левой зоне строки: индикатор стоит слева от подписи.
-    Возвращает `(left, top, right, bottom)` или `None`, если не нарисовано ничего.
+    Прежний замер брал любые непохожие на фон пиксели и при широкой рамке
+    прихватывал чужое: ореол фокуса, кольцо соседней кнопки, подпись. Цвет
+    индикатора известен — им и меряем; заодно исчезает зависимость от того, кто
+    ещё нарисован рядом.
     """
     from PySide6.QtGui import QColor
 
-    background = QColor(image.pixel(image.width() - 2, row_top + 1)).rgb() & 0xFFFFFF
+    wanted = QColor(colour).rgb() & 0xFFFFFF
     painted = [
         (x, y)
         for y in range(row_top, row_bottom)
         for x in range(0, zone)
-        if image.pixel(x, y) & 0xFFFFFF != background
+        if image.pixel(x, y) & 0xFFFFFF == wanted
     ]
     if not painted:
         return None
@@ -599,6 +693,7 @@ def test_the_radio_indicator_is_the_same_circle_in_both_states(qt_app) -> None:
     Поэтому тест меряет **нарисованное**: рамку индикатора в каждом состоянии,
     её размер, левый край и долю закрашенного (у круга ≈ π/4, у квадрата ≈ 1).
     """
+    from PySide6.QtGui import QColor
     from PySide6.QtWidgets import QRadioButton, QVBoxLayout, QWidget
 
     # Тему применяем **сами**: без листа стиля индикатор рисует родной стиль
@@ -618,8 +713,13 @@ def test_the_radio_indicator_is_the_same_circle_in_both_states(qt_app) -> None:
     checked.setChecked(True)
 
     image = host.grab().toImage()
-    marked = _indicator_box(image, checked.y(), checked.y() + checked.height())
-    plain = _indicator_box(image, unchecked.y(), unchecked.y() + unchecked.height())
+    # Отмеченный красится акцентом, невыбранный — цветом своей рамки.
+    marked = _indicator_box(
+        image, checked.y(), checked.y() + checked.height(), tokens.BLUE_600
+    )
+    plain = _indicator_box(
+        image, unchecked.y(), unchecked.y() + unchecked.height(), tokens.N_250
+    )
 
     assert marked is not None, "отмеченный индикатор не нарисован"
     assert plain is not None, "невыбранный индикатор не нарисован"
@@ -627,12 +727,37 @@ def test_the_radio_indicator_is_the_same_circle_in_both_states(qt_app) -> None:
     def size(box):
         return box[2] - box[0] + 1, box[3] - box[1] + 1
 
-    assert size(marked) == size(plain), (
-        f"размеры разошлись: отмеченный {size(marked)}, невыбранный {size(plain)}"
+    # Размер сверяем с **рисуемой коробкой**, а не двух состояний между собой:
+    # отмеченный залит целиком, невыбранный виден только кольцом рамки, и их
+    # рамки по цвету не равны по построению. Коробка одна и та же:
+    # содержимое плюс две рамки (Р-1 ревью наряда 0019).
+    drawn = tokens.INDICATOR_SIZE + 2 * tokens.BORDER_WIDTH
+    width, height = size(marked)
+    # Допуск в два пикселя — цена точного совпадения по цвету: край круга
+    # сглажен, и крайнее кольцо в чистый акцент не попадает (замерено).
+    assert abs(width - drawn) <= 2 and abs(height - drawn) <= 2, (
+        f"отмеченный индикатор {size(marked)} против рисуемой коробки {drawn}"
     )
-    assert marked[0] == plain[0], (
-        f"левые края разошлись: {marked[0]} против {plain[0]}"
+    # Левый край меряем **краем фигуры**, а не краем чистого цвета: у залитого
+    # диска и у кольца чистый цвет начинается на разном пикселе из-за
+    # сглаживания, и сравнивать их между собой значит сравнивать заливки, а не
+    # положение. Ореол фокуса из замера исключён — он рисуется своим цветом.
+    def left_edge(row_top: int, row_bottom: int) -> int:
+        background = QColor(image.pixel(image.width() - 2, row_top + 1)).rgb() & 0xFFFFFF
+        halo = QColor(tokens.BLUE_HALO).rgb() & 0xFFFFFF
+        middle = (row_top + row_bottom) // 2
+        for x in range(26):
+            pixel = image.pixel(x, middle) & 0xFFFFFF
+            if pixel not in (background, halo):
+                return x
+        return -1
+
+    marked_edge = left_edge(checked.y(), checked.y() + checked.height())
+    plain_edge = left_edge(unchecked.y(), unchecked.y() + unchecked.height())
+    assert marked_edge >= 0 and abs(marked_edge - plain_edge) <= 1, (
+        f"левые края разошлись: {marked_edge} против {plain_edge}"
     )
+    assert abs(width - height) <= 1, "индикатор не квадратен по габариту — не круг"
 
     # Форма меряется **углами**, а не долей закраски: доля обманывает — у
     # прежнего отмеченного индикатора она была 0.45 (белая середина в толстой
@@ -643,14 +768,14 @@ def test_the_radio_indicator_is_the_same_circle_in_both_states(qt_app) -> None:
     # такого запаса не даёт — в него заходит край самого диска.
     from PySide6.QtGui import QColor
 
-    background = QColor(image.pixel(image.width() - 2, checked.y() + 1)).rgb() & 0xFFFFFF
+    accent = QColor(tokens.BLUE_600).rgb() & 0xFFFFFF
 
     def corner(x0: int, y0: int, dx: int, dy: int, side: int = 2) -> int:
         return sum(
             1
             for step_y in range(side)
             for step_x in range(side)
-            if image.pixel(x0 + step_x * dx, y0 + step_y * dy) & 0xFFFFFF != background
+            if image.pixel(x0 + step_x * dx, y0 + step_y * dy) & 0xFFFFFF == accent
         )
 
     corners = (

@@ -21,7 +21,7 @@ from domain.items import groups_of, list_items
 
 from . import kit
 from .common import iso, joined, strip_iso
-from .item_dialog import ItemDialog, complete_new_item, warn_incomplete_mapping
+from .item_dialog import ItemDialog, complete_new_item, open_mapping
 from .item_positions_dialog import ItemPositionsDialog
 from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
@@ -210,11 +210,7 @@ class ItemView(QWidget):
         if cg_id is None:
             return
 
-        # У **ранее заведённой** детали откат невозможен: записи уже лежат, а
-        # прежнее состояние нигде не сохранено (§3.3a). Поэтому предупреждение
-        # без запрета — с возможностью вернуться и дозакрыть позиции.
-        while True:
-            MappingDialog.run(self._engine, item_id, cg_id, parent=self)
-            if not warn_incomplete_mapping(self._engine, self, item_id, cg_id):
-                break
+        # Через общий помощник: у всех четырёх входов в привязку поведение одно
+        # (§3.2 наряда 0020).
+        open_mapping(self._engine, self, item_id, cg_id)
         self.reload()

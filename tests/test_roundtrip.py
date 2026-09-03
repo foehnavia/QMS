@@ -37,7 +37,7 @@ def test_full_graph_survives_a_reopen(migrated_url: str) -> None:
 
         # item -> справочники
         assert (item.item_type.name, item.connection_type.name, item.size.name) == (
-            "implant",
+            "Implant",
             "C1",
             "NP",
         )
@@ -72,8 +72,8 @@ def test_full_graph_survives_a_reopen(migrated_url: str) -> None:
         assert directions == {"12": Direction.PLUS, "19": Direction.MINUS}
         f12 = next(f for f in dev.findings if f.characteristic.local_number == "12")
         assert f12.value == 0.08
-        assert f12.zone.name == "thread"
-        assert f12.deviation_type.name == "thread burr"
+        assert f12.zone.name == "Thread"
+        assert f12.deviation_type.name == "Thread burr"
 
         # deviation -> inspection -> finding / type
         insp = dev.inspections[0]

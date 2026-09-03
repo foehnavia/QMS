@@ -66,7 +66,7 @@ from .common import (
 )
 from .finding_dialog import FindingDialog, FindingRow
 from .inspection_dialog import InspectionDialog
-from .item_dialog import ItemDialog, complete_new_item
+from .item_dialog import ItemDialog, complete_new_item, open_mapping
 from .kit import tokens
 from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
@@ -531,7 +531,9 @@ class DeviationDialog(QDialog):
         cg_id = choose_cg_for_item(self, self._engine, item_id)
         if cg_id is None:
             return
-        MappingDialog.run(self._engine, item_id, cg_id, self)
+        # Тот же помощник, что на экране деталей: ранняя привязка (R2) — та же
+        # работа, и молчать о незакрытых позициях ей незачем (§3.2).
+        open_mapping(self._engine, self, item_id, cg_id)
         # Колонка «канон» пересчитывается здесь же — форму переоткрывать не надо.
         self._refresh()
 

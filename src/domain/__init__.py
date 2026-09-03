@@ -94,6 +94,7 @@ __all__ = [
     "discard_item",
     "delete_deviation",
     "delete_value",
+    "ensure_value",
     "ensure_finding_target",
     "get_or_create_characteristic",
     "groups_of",

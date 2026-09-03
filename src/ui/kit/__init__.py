@@ -48,6 +48,7 @@ from .ribbon import NavigationRibbon
 from .theme import ROLE, apply_theme, font_family, palette, stylesheet
 from .widgets import (
     Choice,
+    DataTable,
     boxed,
     button_row,
     column,
@@ -79,6 +80,7 @@ from .widgets import (
 
 __all__ = [
     "Choice",
+    "DataTable",
     "DECISION_ROLE",
     "DirectionalDelegate",
     "FilterCombo",

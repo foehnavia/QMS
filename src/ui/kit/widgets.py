@@ -215,11 +215,173 @@ def dialog_layout(widget: QWidget) -> QVBoxLayout:
 # --- таблица ---------------------------------------------------------------------
 
 
+# --- ширина колонки: класс содержимого, а не число на экране ----------------------
+
+#: Класс → предел в знаках. Ширина — свойство **типа данных**: номер детали
+#: одинаково широк в списке отклонений, в карточке и в привязке.
+CONTENT_WIDTH = {
+    "identifier": t.WIDTH_IDENTIFIER,
+    "magnitude": t.WIDTH_MAGNITUDE,
+    "date": t.WIDTH_DATE,
+    "state": t.WIDTH_STATE,
+    "counter": t.WIDTH_COUNTER,
+    "text": t.WIDTH_TEXT,
+    "link": t.WIDTH_LINK,
+}
+
+#: Слова подписей, по которым класс угадывается **по умолчанию**. Экран может
+#: назвать класс сам (`content=`), но шестнадцать экранов ради этого не
+#: переписываются: у большинства колонок класс читается из имени.
+_BY_NAME = (
+    ("date", "date"),
+    ("counter", "qty"),
+    ("counter", "findings"),
+    ("counter", "inspections"),
+    ("counter", "insp."),
+    ("counter", "positions"),
+    ("counter", "characteristics"),
+    ("counter", "used by"),
+    ("text", "explanation"),
+    ("text", "comment"),
+    ("link", "protocol"),
+    ("link", "attachment"),
+    ("link", "drawing"),
+    ("state", "state"),
+    ("state", "decision"),
+    ("state", "result"),
+    ("state", "zone"),
+    ("state", "type"),
+    ("state", "size"),
+    ("state", "connection"),
+    ("state", "groups"),
+    ("state", "canon"),
+    ("state", "value"),
+)
+
+
+def content_class(label: str, column: int, magnitude_columns: tuple[int, ...]) -> str:
+    """Класс колонки: объявленный экраном, угаданный по подписи или базовый.
+
+    Величина узнаётся не по имени, а по тому, что экран **уже объявил**
+    (`magnitude_columns`): это тот же список, которым задаётся выравнивание, и
+    заводить рядом второй значило бы дать им разойтись.
+    """
+    if column in magnitude_columns:
+        return "magnitude"
+    lowered = label.casefold()
+    for name, needle in _BY_NAME:
+        if needle in lowered:
+            return name
+    return "identifier"
+
+
+def column_width(table, chars: int, label: str = "") -> int:
+    """Предел в знаках — в пикселях того шрифта, которым таблица и рисует.
+
+    Ниже подписи колонка не сужается: обрезанная подпись — это колонка, про
+    которую оператор не знает, что в ней (`spectior` вместо `Inspections` на
+    первом снимке). Предел класса и подпись — два ограничения снизу, берём
+    большее.
+    """
+    metrics = table.fontMetrics()
+    by_class = metrics.horizontalAdvance("0") * chars
+    by_label = metrics.horizontalAdvance(label) if label else 0
+    return max(by_class, by_label) + t.PAD_CELL * 2
+
+
+def _fit_columns(table, magnitude_columns: tuple[int, ...], content) -> None:
+    """Раздать колонкам ширину их класса. Ни одна не тянется."""
+    header = table.horizontalHeader()
+    header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+    header.setStretchLastSection(False)
+    for column in range(table.columnCount()):
+        label = table.horizontalHeaderItem(column)
+        name = (
+            content[column]
+            if content and column < len(content)
+            else content_class(label.text() if label else "", column, magnitude_columns)
+        )
+        table.setColumnWidth(
+            column,
+            column_width(table, CONTENT_WIDTH[name], label.text() if label else ""),
+        )
+
+
+def _centre_columns(table, width: int | None = None) -> None:
+    """Центрировать полотно, а лишнюю ширину отдать отступам.
+
+    Таблица уже своей области → отступы поровну по краям, и в них видна
+    утопленная поверхность. Сумма колонок шире области → отступы исчезают и
+    таблица прокручивается вбок: без этой второй половины сломались бы широкие
+    экраны (правка пользователя к решению 02.09).
+    """
+    total = sum(table.columnWidth(column) for column in range(table.columnCount()))
+    bar = table.verticalScrollBar()
+    available = (table.width() if width is None else width) - table.frameWidth() * 2
+    if bar.isVisible():
+        available -= bar.width()
+    margin = max((available - total) // 2, 0)
+
+    # Отступ задаётся **листом стиля**, а не `setViewportMargins`: последние Qt
+    # держит под свои заголовки, и правка их разводит шапку с телом — на снимке
+    # это вышло смещённой шапкой и обрезанной первой строкой. Отступ листа —
+    # часть коробки виджета, и полотно с шапкой едут вместе (замерено).
+    if getattr(table, "_margin", None) == margin:
+        return
+    table._margin = margin
+    # Селектор по типу, а не голое свойство: голое наследуют дети, и шапка
+    # получала отступ **вторично** — на снимке подписи стояли на 334 px правее
+    # своих колонок.
+    table.setStyleSheet(
+        f"QTableView {{ padding-left: {margin}px; padding-right: {margin}px; }}"
+    )
+    # Пересчёт стиля — синхронно. Иначе он ждёт следующего прохода цикла
+    # событий, а снимки снимаются без него: на снимке шапка оставалась на
+    # прежнем месте, пока тело уже переехало.
+    table.style().unpolish(table)
+    table.style().polish(table)
+
+
+class DataTable(QTableWidget):
+    """Таблица канона: полотно центрируется, лишняя ширина уходит в отступы.
+
+    Пересчёт висит на `setGeometry`, а не на `resizeEvent`, и это не вкусовщина:
+    скрытому виджету Qt событие изменения размера **не шлёт вовсе** — оно
+    откладывается до показа. Снимки же снимаются без `show()` (`CLAUDE.md` §9),
+    и на первом снимке таблица вышла прижатой влево при пустом поле справа.
+    `setGeometry` зовёт раскладка независимо от видимости.
+    """
+
+    def setGeometry(self, rect) -> None:  # noqa: N802 - Qt API
+        # Отступ считаем **до** раскладки и по новой ширине: поставленный после,
+        # он до шапки не доезжает — она уже разложена, и на снимке подписи
+        # уезжали относительно тела.
+        _centre_columns(self, rect.width())
+        super().setGeometry(rect)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        _centre_columns(self)
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt API
+        """Показ — момент, когда ширина заведомо настоящая.
+
+        Нужен потому, что `QWidget::setGeometry` в Qt **не виртуальный**:
+        раскладка зовёт его в C++, мимо питоньей замены. Пересчёт на отрисовке
+        пробовался и отвергнут — он меняет отступ уже после того, как разложена
+        шапка, и та уезжает относительно тела (видно снимком).
+        """
+        super().showEvent(event)
+        _centre_columns(self)
+
+
+
 def dress_table(
     table: QTableWidget,
     *,
     numeric_columns: tuple[int, ...] = (),
     magnitude_columns: tuple[int, ...] = (),
+    content: tuple[str, ...] = (),
     read_only: bool = True,
 ) -> QTableWidget:
     """Одеть **готовую** таблицу по канону §7.
@@ -229,13 +391,27 @@ def dress_table(
     похожим: разошедшиеся настройки двух таблиц и есть та болезнь, ради
     которой заведён `kit`.
     """
-    table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
     table.horizontalHeader().setFixedHeight(t.TABLE_HEADER_HEIGHT)
     table.verticalHeader().setVisible(False)
     table.verticalHeader().setDefaultSectionSize(t.TABLE_ROW_HEIGHT)
     table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-    table.setShowGrid(False)
+    # Границы колонок видимы: без них клик по ячейке в широкой таблице —
+    # догадка, а не выбор (§3.1 наряда 0020).
+    table.setShowGrid(True)
+
+    # Полотно белое, поле вокруг него — утопленная поверхность.
+    #
+    # Лист стиля красит **и полотно тоже** (фон `QAbstractScrollArea` в QSS
+    # достаётся viewport), поэтому палитры мало: на первом же снимке всё, что
+    # правее последней колонки, вышло утопленным, а белыми остались только
+    # ячейки. Полотну цвет задаём явно — и это единственный `setStyleSheet` вне
+    # `theme`, потому что бывает он только у части виджета.
+    table.viewport().setStyleSheet(f"background: {t.WHITE};")
+
+    _fit_columns(table, magnitude_columns, content)
+    _centre_columns(table)
+
     if read_only:
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     directional(table, numeric_columns, magnitude_columns)
@@ -247,6 +423,7 @@ def data_table(
     *,
     numeric_columns: tuple[int, ...] = (),
     magnitude_columns: tuple[int, ...] = (),
+    content: tuple[str, ...] = (),
     read_only: bool = True,
 ) -> QTableWidget:
     """Таблица данных канона §7.
@@ -258,12 +435,13 @@ def data_table(
     Направление ячейки — по её содержимому, числовые и величинные колонки
     объявляются списком, а не угадываются (канон §6).
     """
-    table = QTableWidget(0, len(columns))
+    table = DataTable(0, len(columns))
     table.setHorizontalHeaderLabels(columns)
     return dress_table(
         table,
         numeric_columns=numeric_columns,
         magnitude_columns=magnitude_columns,
+        content=content,
         read_only=read_only,
     )
 

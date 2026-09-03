@@ -88,7 +88,7 @@ def test_item_dialog_preselects_general(seeded_engine) -> None:
     dialog = ItemDialog(seeded_engine)
 
     assert dialog.connection_type.currentText() == "General"
-    assert dialog.size.currentText() == "General"
+    assert dialog.size_class.currentText() == "General"
     assert dialog.item_type.currentText() == NO_TYPE
     # Пустое поле группы — «группа не выбрана». Прежде это была строка списка,
     # теперь подсказка строки ввода: у поля с отбором пустое состояние своё
@@ -628,3 +628,58 @@ def test_the_group_field_narrows_the_same_way(seeded_engine) -> None:
 
         expected = session.query(CharacteristicGroup).filter_by(name="Abutment_C1").one()
         assert dialog.created_group_id == expected.cg_id
+
+
+# --- наряд 0020 §3.6: дымовое покрытие достаёт **внутрь** диалогов -------------------
+#
+# До этого нажималось всё на четырёх разделах, а действия внутри диалогов
+# по-прежнему звались по имени метода. Дефект того же класса там возможен: между
+# кнопкой и обработчиком есть промежуток, и он ничем не покрыт.
+
+
+def _dialogs(engine) -> list:
+    """Диалоги, которые оператор открывает чаще всего, — с настоящими данными."""
+    from ui.card_dialog import CardDialog
+    from ui.cg_dialog import CgDialog
+    from ui.cg_editor import CgEditor
+    from ui.deviation_dialog import DeviationDialog
+    from ui.finding_dialog import FindingDialog
+    from ui.item_dialog import ItemDialog
+    from ui.item_positions_dialog import ItemPositionsDialog
+    from ui.mapping_dialog import MappingDialog
+
+    from db.models import CharacteristicGroup, Deviation, Item
+    from db.session import session_scope
+
+    with session_scope(engine) as session:
+        item_id = session.query(Item).first().item_id
+        cg_id = session.query(CharacteristicGroup).first().cg_id
+        deviation_id = session.query(Deviation).first().deviation_id
+
+    return [
+        ItemDialog(engine),
+        ItemPositionsDialog(engine, item_id),
+        CgDialog(engine),
+        CgEditor(engine, cg_id),
+        MappingDialog(engine, item_id, cg_id),
+        FindingDialog(engine, item_id),
+        DeviationDialog(engine, deviation_id),
+        CardDialog(engine, deviation_id),
+    ]
+
+
+def test_every_dialog_action_survives_being_pressed(qt_app, deaf, slot_errors, filled_engine) -> None:
+    """§3.6: каждая кнопка каждого диалога нажимается и не роняет обработчик.
+
+    Нажатием, а не вызовом метода: между кнопкой и обработчиком есть
+    промежуток, и дефект №12 жил ровно в нём. Ловушка `sys.excepthook`
+    обязательна — PySide исключение слота наружу не отдаёт (наряд 0017).
+    """
+    for dialog in _dialogs(filled_engine):
+        name = type(dialog).__name__
+        actions = _actions(dialog)
+        assert actions, f"у диалога {name} не нашлось действий"
+        _press(actions)
+        dialog.close()
+
+    assert slot_errors == [], [repr(error) for error in slot_errors]

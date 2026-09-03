@@ -113,7 +113,10 @@ class ItemDialog(QDialog):
 
         self.item_type = _combo()
         self.connection_type = _combo()
-        self.size = _combo()
+        # `size_class`, а не `size`: `self.size` перекрывал `QWidget.size()`,
+        # и всякий вызов размера у этого диалога падал «QComboBox is not
+        # callable» — поймано инструментом снимков (наряд 0020).
+        self.size_class = _combo()
         # Тот же класс, что и поле детали: групп на производственном наборе
         # десятки, и прокручивать их незачем (наряд 0019 §3.2).
         self.group = kit.FilterCombo(NO_GROUP)
@@ -139,7 +142,7 @@ class ItemDialog(QDialog):
         form.addRow("Item number:", self.number_edit)
         form.addRow("Item type:", self.item_type)
         form.addRow("Connection type:", self.connection_type)
-        form.addRow("Size class:", self.size)
+        form.addRow("Size class:", self.size_class)
         self.group_label = "Characteristic group:"
         form.addRow(self.group_label, self.group_row)
 
@@ -176,7 +179,7 @@ class ItemDialog(QDialog):
             self.number_edit.setText(item.item_number)
             _select_text(self.item_type, item.item_type.name if item.item_type else NO_TYPE)
             _select_text(self.connection_type, item.connection_type.name)
-            _select_text(self.size, item.size.name)
+            _select_text(self.size_class, item.size.name)
 
         self.group_row.setVisible(False)
         self.group_hint.setVisible(False)
@@ -199,7 +202,7 @@ class ItemDialog(QDialog):
 
         _fill(self.item_type, [NO_TYPE, *item_types], NO_TYPE)
         _fill(self.connection_type, connections, GENERAL)
-        _fill(self.size, sizes, GENERAL)
+        _fill(self.size_class, sizes, GENERAL)
         self.group.set_rows(groups)
         if keep_group:
             self.group.setCurrentText(keep_group)
@@ -227,7 +230,7 @@ class ItemDialog(QDialog):
                     connection_type=_by_name(
                         session, RefConnectionType, self.connection_type.currentText()
                     ),
-                    size=_by_name(session, RefSize, self.size.currentText()),
+                    size=_by_name(session, RefSize, self.size_class.currentText()),
                 )
                 if self._item_id is None:
                     item = create_item(session, **fields)
@@ -323,6 +326,63 @@ def incomplete_mapping_text(gap: list[str], item_number: str) -> str:
         f"{joined(*gap, sep=', ')} {verb} no state. "
         f"The mapping of item {iso(item_number)} stays incomplete."
     )
+
+
+def open_mapping(
+    engine: Engine, parent: QWidget | None, item_id: int, cg_id: int
+) -> None:
+    """Открыть привязку **ранее заведённой** детали — единственным путём.
+
+    Четыре входа звали `MappingDialog.run` порознь, и предупреждение о
+    незакрытых позициях стояло ровно на одном из них: экран деталей говорил,
+    ранняя привязка формы отклонения, раздел групп и карточка молчали (Р-1
+    ревью наряда 0018). Одна работа не может вести себя по-разному в
+    зависимости от того, какой кнопкой её открыли.
+
+    Цикл: пока оператор хочет вернуться в привязку — открываем снова.
+    """
+    while True:
+        MappingDialog.run(engine, item_id, cg_id, parent=parent)
+        if not warn_incomplete_mapping(engine, parent, item_id, cg_id):
+            return
+
+
+def open_mapping(
+    engine: Engine, parent: QWidget | None, item_id: int, cg_id: int
+) -> None:
+    """Открыть привязку **ранее заведённой** детали — единственным путём.
+
+    Четыре входа звали `MappingDialog.run` порознь, и предупреждение о
+    незакрытых позициях стояло ровно на одном из них: экран деталей говорил,
+    ранняя привязка формы отклонения, раздел групп и карточка молчали (Р-1
+    ревью наряда 0018). Одна работа не может вести себя по-разному в
+    зависимости от того, какой кнопкой её открыли.
+
+    Цикл: пока оператор хочет вернуться в привязку — открываем снова.
+    """
+    while True:
+        MappingDialog.run(engine, item_id, cg_id, parent=parent)
+        if not warn_incomplete_mapping(engine, parent, item_id, cg_id):
+            return
+
+
+def open_mapping(
+    engine: Engine, parent: QWidget | None, item_id: int, cg_id: int
+) -> None:
+    """Открыть привязку **ранее заведённой** детали — единственным путём.
+
+    Четыре входа звали `MappingDialog.run` порознь, и предупреждение о
+    незакрытых позициях стояло ровно на одном из них: экран деталей говорил,
+    ранняя привязка формы отклонения, раздел групп и карточка молчали (Р-1
+    ревью наряда 0018). Одна работа не может вести себя по-разному в
+    зависимости от того, какой кнопкой её открыли.
+
+    Цикл: пока оператор хочет вернуться в привязку — открываем снова.
+    """
+    while True:
+        MappingDialog.run(engine, item_id, cg_id, parent=parent)
+        if not warn_incomplete_mapping(engine, parent, item_id, cg_id):
+            return
 
 
 def warn_incomplete_mapping(
