@@ -3,7 +3,7 @@ part_of: MIS-QMS/docs/model
 entity: _overview
 order: 10
 canon: true
-rev: "1.01"
+rev: "1.00"
 updated: 2026-09-06
 title: MIS-QMS — Production Deviations Database · Concept Overview
 ---
