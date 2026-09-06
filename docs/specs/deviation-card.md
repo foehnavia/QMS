@@ -210,13 +210,28 @@ part was its own. Found by hand-running naryad `0024`, on `C1-10375A` / `g13` / 
 - Headings state what the section returns. The old `Other items` would have started
   lying the moment the exclusion was lifted.
 
-**The `!` sign has exactly one meaning**, and one definition in the code (`ui.common`):
-*this number is read against another revision, and there is nothing behind it but the
-number.* A canon-bound dimension from a previous revision therefore carries the row mark
-but **no** `!` — the g-position finds it regardless of numbering. Rendered red and bold so
-it reads at a glance; the whole cell is coloured rather than the sign alone, because
-painting two runs inside one cell needs a delegate laying out text by hand, and that is
-where this application's direction bugs lived (QMS-016).
+**The two marks differ by property, not by function** (revised after the acceptance of
+naryad `0025`; `Search.md` v1.05):
+
+| Property | Says | Where |
+|---|---|---|
+| **colour** (red) | there is nothing behind this number but the number — no canon to lean on | the dimension cell, non-CG only |
+| **weight** (bold) | this row is another issue of the drawing | the revision cell, on **every** screen listing deviations |
+
+They are read together, not against each other: a bold red row says "earlier issue, and no
+canon either" — exactly the sum of its parts. Each property has one function in the code
+(`ui.common.mark_unbound`, `ui.common.mark_other_revision`), and the revision mark is set
+by the same call in the precedent sections and in a part's own deviation list, so one fact
+cannot look different on two screens.
+
+A canon-bound dimension from a previous revision therefore carries the row mark but **no**
+`!` — the g-position finds it regardless of numbering. The whole cell is coloured rather
+than the sign alone, because painting two runs inside one cell needs a delegate laying out
+text by hand, and that is where this application's direction bugs lived (QMS-016).
+
+*What was wrong before:* one function set both marks, so the revision column of the part's
+deviation list came out red — colour borrowed for the other property's meaning — while the
+same column in the precedent sections was merely bold.
 
 The card header now carries `Revision` next to `Item`, read-only: a part number without a
 revision does not say which drawing its local numbers are read against.
