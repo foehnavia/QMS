@@ -3,7 +3,7 @@ part_of: MIS-QMS/docs/model
 entity: Search
 order: 100
 canon: true
-rev: "1.03"
+rev: "1.04"
 updated: 2026-09-06
 ---
 
@@ -15,11 +15,26 @@ updated: 2026-09-06
 
 ## Levels
 
-- **Level 1 — exact.** By the **(Item, dimension)** pair. If the dimension is
-  canon-bound (in a CG), by the **canonical position (CG + g-index)** — which also
-  matches other parts at the same constructive location (`CharacteristicGroup.md`). If
-  the dimension is not in a CG, search runs on the (Item, dimension) pair. This is the
-  level the **deviation card** shows automatically (`DeviationCard.md`).
+- **Level 1 — exact.** Two sections, divided by **how the match was made** — never by
+  whose part it is:
+  - **by number** — the same part, the same local number, across **all of its
+    revisions**;
+  - **by canon** — the same canonical position (CG + g-index), across all parts **and
+    all revisions, other revisions of the same part included**
+    (`CharacteristicGroup.md`). Excluded from it is only what the first section already
+    showed — the same dimension of the same revision — so nothing is listed twice.
+
+  This is the level the **deviation card** shows automatically (`DeviationCard.md`).
+
+  > **Why the sections are cut this way (QMS-017, hand-run 2026-09-06).** They used to be
+  > cut by part — "same part" and "*other* parts, same position" — and that was correct
+  > while a part had one set of dimensions: same part plus same g-position then implied
+  > the same local number, so the first section already covered it. A revision breaks the
+  > implication: the same part can reach the same g-position under a **different** local
+  > number. Such a precedent then belonged to neither section — the first missed it
+  > because the number had moved, the second discarded it because the part was its own.
+  > The partition now follows the mechanics of matching, and the exclusion is stated as
+  > what it always meant: *do not repeat what the neighbouring section showed.*
 - **Level 2 — descriptive. Not an automatic output — a search the engineer sets up**
   (revised 2026-09-03, QMS-016; supersedes the S5 ratification of an automatic
   "zone OR type" list). The purpose stands: find parts that **cannot be linked by a
@@ -48,31 +63,42 @@ updated: 2026-09-06
 ## Revisions in the output (QMS-017)
 
 Dimensions belong to a part revision (`Characteristic.md`), so a match may cross the
-boundary between two issues of the same drawing. Such a match is **shown, never
-filtered out** — the engineer decides what an older issue is worth — but it is **always
-marked**, at two levels, because the two paths of Level 1 are not equally safe across
-revisions.
+boundary between two issues of the same drawing. Such a match is **shown, never filtered
+out** — the engineer decides what an older issue is worth — but it is **always marked**.
 
 | Path | What carries the meaning | Across revisions |
 |---|---|---|
-| canon: `(CG, g-index)` | the g-position — a canonical identity that survives re-numbering | resolved through the **mapping of the finding's own revision**, so it stays correct on its own |
-| direct: `(Item, local#)` | the local number alone | **the number may mean a different feature** in the other revision |
+| by canon: `(CG, g-index)` | the g-position — a canonical identity that survives re-numbering | resolved through the **mapping of the finding's own revision**; survives a moved local number, on the same part as on any other |
+| by number: `(Item, local#)` | the local number alone | **the number may mean a different feature** in the other revision |
 
-- **Row marking — "same part, different revision".** Whenever the precedent's revision
-  differs from the current one, the row says so plainly. This is what the engineer needs
-  in order to judge comparability at all: a tolerance moved between issues means an
-  earlier "approved" was granted against limits that are no longer in force.
-- **Dimension marking — a warning sign (`!`) on a non-CG dimension.** For a dimension
-  with no canon there is nothing behind the number: the match rests on the local number
-  and nothing else, and a re-issue may have moved it. The stronger mark belongs here and
-  nowhere else.
+**Two marks, and each has exactly one meaning:**
+
+- **On the row — "same part, another revision".** Set whenever the precedent's revision
+  differs from the current one. It is what lets the engineer judge comparability at all: a
+  tolerance moved between issues means an earlier "approved" was granted against limits no
+  longer in force.
+- **On the dimension — a warning sign (`!`).** One meaning wherever it appears: *this
+  number is read against another revision, and there is nothing behind it but the number.*
+  Hence:
+
+  | Case | Row mark | `!` |
+  |---|---|---|
+  | previous revision, dimension **canon-bound** | yes | no — the g-position finds it regardless of numbering |
+  | previous revision, dimension **not in a CG** | yes | yes |
+  | current revision | no | no |
+
+  The sign is never given a second meaning on a second screen: the same rule governs the
+  precedent sections and the list of a part's own deviations opened from its card.
+
 - Parts of the previous issue keep arriving from the shop for two to three months after
   a change, so cross-revision precedents are not a rare curiosity — they are the normal
   state during that window.
-- **A precedent whose local number moved between revisions is not found automatically**
-  in stage 1 (`Item.md`, Revision): the numbers no longer meet, and cross-revision
-  re-linking is deliberately deferred. It is raised by hand — the previous revision, and
-  the group the part used to hold, stay fully readable for exactly that purpose.
+- **What is still lost, and what is not.** A **canon-bound** dimension whose local number
+  moved between revisions **is found** — that is precisely what the canonical layer is
+  for, and it is the same mechanism that links different parts. Lost is only the
+  **non-canon** dimension whose number moved: nothing but the number ever linked it, and
+  cross-revision re-linking is deliberately deferred (`Item.md`, Revision). It is raised
+  by hand — the previous revision stays fully readable for exactly that purpose.
 
 ## Notes
 
