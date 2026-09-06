@@ -28,6 +28,7 @@ from sqlalchemy import Engine
 
 from db.models import Direction, Item, RefDeviationType, RefZone
 from db.session import session_scope
+from domain.revisions import current_revision
 from domain.errors import ValidationError
 from domain.reference import list_values
 
@@ -234,8 +235,16 @@ def canon_state(engine: Engine, item_id: int | None, local_number: str) -> str:
         item = session.get(Item, item_id)
         if item is None:
             return CANON_NEW
+        revision = current_revision(item)
+        if revision is None:
+            return CANON_NEW
         characteristic = next(
-            (c for c in item.characteristics if c.local_number == local_number), None
+            (
+                c
+                for c in current_revision(item).characteristics
+                if c.local_number == local_number
+            ),
+            None,
         )
         if characteristic is None:
             return CANON_NEW

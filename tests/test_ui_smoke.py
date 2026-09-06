@@ -154,12 +154,17 @@ def test_the_item_form_saves_without_any_numbers_and_names_the_group(
 
     dialog = ItemDialog(seeded_engine)
     dialog.number_edit.setText("C1-08375A")
+    # Ревизия обязательна: без неё домен отбивает сохранение, форма
+    # показывает модальное окно, и прогон под offscreen виснет (§9).
+    dialog.revision_edit.setText("A")
     dialog.group.setCurrentText("CG-A")
     dialog.save()
 
     assert dialog.created_number == "C1-08375A"
     assert dialog.created_group_id == cg_id
     with session_scope(create_db_engine(str(seeded_engine.url))) as session:
+        from conftest import rev
+
         item = list_items(session)[0]
         assert dialog.created_item_id == item.item_id
         # Размеров ещё нет: их заведёт привязка, а не форма.
@@ -173,6 +178,9 @@ def test_without_a_group_the_form_creates_the_item_alone(seeded_engine) -> None:
 
     dialog = ItemDialog(seeded_engine)
     dialog.number_edit.setText("NO-CG-ITEM")
+    # Ревизия обязательна: без неё домен отбивает сохранение, форма
+    # показывает модальное окно, и прогон под offscreen виснет (§9).
+    dialog.revision_edit.setText("A")
     dialog.save()
 
     assert dialog.created_group_id is None
@@ -636,6 +644,9 @@ def test_the_group_field_narrows_the_same_way(seeded_engine) -> None:
     dialog.group.settle()
     dialog.group.setCurrentText("Abutment_C1")
     dialog.number_edit.setText("C1-08375A")
+    # Ревизия обязательна: без неё домен отбивает сохранение, форма
+    # показывает модальное окно, и прогон под offscreen виснет (§9).
+    dialog.revision_edit.setText("A")
     dialog.save()
 
     with session_scope(seeded_engine) as session:

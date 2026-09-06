@@ -31,6 +31,7 @@ from sqlalchemy import Engine
 
 from db.models import CharacteristicGroup, GPosition, Item
 from db.session import session_scope
+from domain.revisions import current_revision
 from domain.mappings import bind, binding_state, clear, is_complete, mark_absent
 
 from . import kit
@@ -179,7 +180,11 @@ class MappingDialog(QDialog):
             group = session.get(CharacteristicGroup, self._cg_id)
             self.setWindowTitle(f"Mapping — {item.item_number} · {group.name}")
             drawing = group.drawing
-            self._states = binding_state(session, item, group)
+            # Привязка ведётся в **действующей** ревизии детали (QMS-017).
+            # Разрешение здесь, а не в подписи диалога: оба входа — заведение
+            # детали и «Add revision» — оставляют действующей ровно ту ревизию,
+            # которую оператор сейчас правит, а прошлые не редактируются вовсе.
+            self._states = binding_state(session, current_revision(item), group)
             # Геометрию берём из той же коллекции, которую уже обошёл
             # `binding_state`: новых запросов не нужно.
             self._geometry = {
@@ -295,8 +300,8 @@ class MappingDialog(QDialog):
                     # сперва нажать «Clear»: два действия там, где он делает
                     # одно. Снимаем прежнюю связь и ставим новую в одной
                     # транзакции — инвариант «один индекс = один размер» цел.
-                    clear(session, session_item, position)
-                bind(session, session_item, position, number)
+                    clear(session, current_revision(session_item), position)
+                bind(session, current_revision(session_item), position, number)
         except Exception as error:
             kit.show_error(self, error, title="Not bound")
         self.reload()
@@ -311,7 +316,7 @@ class MappingDialog(QDialog):
             with session_scope(self._engine) as session:
                 item = session.get(Item, self._item_id)
                 position = session.get(GPosition, state.g_position_id)
-                mark_absent(session, item, position)
+                mark_absent(session, current_revision(item), position)
         except Exception as error:
             kit.show_error(self, error, title="Not marked")
             return
@@ -327,7 +332,7 @@ class MappingDialog(QDialog):
             with session_scope(self._engine) as session:
                 item = session.get(Item, self._item_id)
                 position = session.get(GPosition, state.g_position_id)
-                clear(session, item, position)
+                clear(session, current_revision(item), position)
         except Exception as error:
             kit.show_error(self, error, title="Not cleared")
             return

@@ -74,6 +74,7 @@ PRECEDENT_COLUMNS = (
     "Deviation",
     "Date",
     "Item",
+    "Revision",
     "WO",
     "Characteristic",
     "Sign · value",
@@ -89,15 +90,39 @@ PRECEDENT_COLUMNS = (
 #: у неё предел с обрезкой, а не расчёт по рекорду.
 #: `kit.FIT_LABEL` — счётчик (§8.3, класс 2): ширина равна заголовку,
 #: запаса нет — не растёт ни содержимое, ни подпись.
-PRECEDENT_WIDTHS = (19, 16, 15, 15, 30, 14, kit.pill(14), 40, kit.FIT_LABEL)
+#: `Revision` — обозначение как выпущено, обычно один-два знака; класс 2
+#: (§8.3 наряда 0020): ширина по заголовку, запаса нет.
+PRECEDENT_WIDTHS = (
+    19,
+    16,
+    15,
+    kit.FIT_LABEL,
+    15,
+    30,
+    14,
+    kit.pill(14),
+    40,
+    kit.FIT_LABEL,
+)
 
-PRECEDENT_NUMERIC_COLUMNS = (1, 5, 8)
+#: Дата, «знак · величина», счётчик. Ревизия сюда **не входит**: обозначение —
+#: идентификатор, а не величина, сравнивать по нему нечего, и левый край держит
+#: его у подписи колонки (`CLAUDE.md` §9).
+PRECEDENT_NUMERIC_COLUMNS = (1, 6, 9)
 
 #: Вправо — только «знак · величина»: её и сравнивают вниз по столбцу.
-PRECEDENT_MAGNITUDE_COLUMNS = (5,)
+PRECEDENT_MAGNITUDE_COLUMNS = (6,)
 
 #: Колонка исхода — рисуется пилюлей (канон §1).
-PRECEDENT_DECISION_COLUMN = 6
+PRECEDENT_DECISION_COLUMN = 7
+
+#: Колонка ревизии и колонка размера — на них садятся обе пометки `Search.md`.
+PRECEDENT_REVISION_COLUMN = 3
+PRECEDENT_SIZE_COLUMN = 5
+
+#: Знак у не-канонного размера: за его номером не стоит g-позиция, совпадение
+#: держится на одном локальном номере — а номер принадлежит чертежу.
+UNBOUND_MARK = "!"
 
 UNBOUND_TITLE = "Search by canonical position is unavailable"
 UNBOUND_HINT = (
@@ -165,10 +190,15 @@ class PrecedentTable(kit.DataTable):
             # Составная ячейка: номер размера и g-подпись — самостоятельные
             # токены, каждый в своём изоляте (наряд 0007, §4а).
             size = joined(row.local_number, row.g_label)
+            if not row.is_canon_bound:
+                # Знак **перед** номером и в своём изоляте: он самостоятельный
+                # токен, а не часть номера (`CLAUDE.md` §9, атомарный токен).
+                size = joined(UNBOUND_MARK, row.local_number)
             values = [
                 iso(row.dev_number),
                 iso(f"{row.date:%d.%m.%Y}"),
                 iso(row.item_number),
+                iso(row.revision),
                 iso(row.wo),
                 size,
                 signed_label(row.direction, row.value),
@@ -181,17 +211,33 @@ class PrecedentTable(kit.DataTable):
                 cell = QTableWidgetItem(value)
                 if column == 0:
                     cell.setData(Qt.ItemDataRole.UserRole, row.deviation_id)
-                if column == 4 and row.g_label:
+                if column == PRECEDENT_SIZE_COLUMN and row.g_label:
                     # Узкая колонка съедает имя группы — оно нужно, чтобы понять,
                     # по какому канону совпало; держим в подсказке.
                     cell.setToolTip(f"{row.local_number} · {row.g_label}")
+                if column == PRECEDENT_SIZE_COLUMN and not row.is_canon_bound:
+                    cell.setToolTip(
+                        "Not bound to the canon: this match rests on the local "
+                        "number alone, and the number belongs to the drawing."
+                    )
+                if column == PRECEDENT_REVISION_COLUMN and row.other_revision:
+                    # Пометка «та же деталь, другая ревизия» — всегда при
+                    # расхождении. Совпадение через ревизию не отсеивается
+                    # никогда, только помечается (`Search.md`).
+                    cell.setToolTip(
+                        f"Same item, another revision ({row.revision}) than the one "
+                        "this card is read from."
+                    )
+                    font = cell.font()
+                    font.setBold(True)
+                    cell.setFont(font)
                 if column == PRECEDENT_DECISION_COLUMN:
                     # Код исхода рядом с подписью: пилюлю красит он. Домен
                     # отдаёт в `row.decision` именно **код** — подпись из него
                     # строит `decision_dev_label` строкой выше, и обратное
                     # преобразование здесь красило все пилюли как «нет решения».
                     cell.setData(DECISION_ROLE, row.decision)
-                if column == 7:
+                if column == 8:
                     # Обоснование в строке урезано, целиком — в подсказке: это
                     # главный текст прецедента, терять его нельзя.
                     cell.setToolTip(row.explanation)

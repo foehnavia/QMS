@@ -39,6 +39,7 @@ from db.models import (
 from db.session import session_scope
 from domain.groups import list_groups
 from domain.items import create_item, discard_item, update_item
+from domain.revisions import current_revision, list_revisions
 from domain.mappings import binding_state, is_complete
 from domain.reference import list_values
 
@@ -111,6 +112,15 @@ class ItemDialog(QDialog):
         self.number_edit.setPlaceholderText('e.g. C1-08375A (מק"ט)')
         bind_direction(self.number_edit)
 
+        # Обозначение ревизии вводится оператором с чертежа и молчаливого дефолта
+        # не имеет (QMS-017, ратификация 4): подставленная «A» выглядела бы фактом
+        # с чертежа, а была бы догадкой — и разошлась бы с бланком в первый же раз,
+        # когда деталь заводят по чертежу ревизии C. Поле латинско-цифровое, но
+        # обозначение приходит как выпущено, поэтому направление — по содержимому.
+        self.revision_edit = QLineEdit()
+        self.revision_edit.setPlaceholderText("as issued, e.g. A")
+        bind_direction(self.revision_edit)
+
         self.item_type = _combo()
         self.connection_type = _combo()
         # `size_class`, а не `size`: `self.size` перекрывал `QWidget.size()`,
@@ -140,6 +150,8 @@ class ItemDialog(QDialog):
 
         form = kit.stretching_form()
         form.addRow("Item number:", self.number_edit)
+        self.revision_label = "Revision:"
+        form.addRow(self.revision_label, self.revision_edit)
         form.addRow("Item type:", self.item_type)
         form.addRow("Connection type:", self.connection_type)
         form.addRow("Size class:", self.size_class)
@@ -177,6 +189,21 @@ class ItemDialog(QDialog):
         with session_scope(self._engine) as session:
             item = session.get(Item, item_id)
             self.number_edit.setText(item.item_number)
+            revisions = list_revisions(item)
+            current = current_revision(item)
+            self.revision_edit.setText(current.designation if current else "")
+            # Правка детали ревизию не меняет: новая заводится клонированием
+            # («Add revision»), а не переписыванием обозначения в этой форме —
+            # иначе правка опечатки и выпуск нового чертежа выглядели бы одним
+            # действием. Поле показывает действующую и список всех, только читать.
+            self.revision_edit.setReadOnly(True)
+            self.revision_edit.setToolTip(
+                "Revisions: "
+                + ", ".join(
+                    f"{revision.designation}{' (current)' if revision.is_current else ''}"
+                    for revision in revisions
+                )
+            )
             _select_text(self.item_type, item.item_type.name if item.item_type else NO_TYPE)
             _select_text(self.connection_type, item.connection_type.name)
             _select_text(self.size_class, item.size.name)
@@ -233,7 +260,9 @@ class ItemDialog(QDialog):
                     size=_by_name(session, RefSize, self.size_class.currentText()),
                 )
                 if self._item_id is None:
-                    item = create_item(session, **fields)
+                    item = create_item(
+                        session, revision=self.revision_edit.text(), **fields
+                    )
                     # Размеры здесь не заводятся: их создаст привязка
                     # (`mappings.bind`), и она же скажет, какой номер чей.
                     self.created_item_id = item.item_id
@@ -260,7 +289,7 @@ def mapping_gap(engine: Engine, item_id: int, cg_id: int) -> list[str]:
     with session_scope(engine) as session:
         item = session.get(Item, item_id)
         group = session.get(CharacteristicGroup, cg_id)
-        states = binding_state(session, item, group)
+        states = binding_state(session, current_revision(item), group)
         if is_complete(states):
             return []
         return [f"g{state.g_index}" for state in states if not state.is_decided]

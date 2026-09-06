@@ -26,6 +26,7 @@ from db.models import (
     RefZone,
 )
 from db.session import session_scope
+from domain.revisions import current_revision
 from domain.deviations import register
 from domain.findings import make_finding
 from domain.groups import GPositionSpec, create_group
@@ -174,8 +175,11 @@ def test_the_ui_path_keeps_the_finding_on_the_deviation_item(engine_with_item) -
     with session_scope(engine_with_item) as session:
         finding = session.query(Finding).one()
         # Размер №12 есть у обеих деталей — находка обязана взять свой.
-        assert finding.characteristic.item.item_number == "C1-08375A"
-        assert finding.characteristic.item_id == finding.deviation.item_id
+        assert finding.characteristic.revision.item.item_number == "C1-08375A"
+        # Размер теперь принадлежит ревизии — деталь достаётся через неё, а
+        # инвариант наряда сильнее прежнего: сходиться обязана **ревизия**.
+        assert finding.characteristic.revision_id == finding.deviation.revision_id
+        assert finding.characteristic.revision.item_id == finding.deviation.item_id
 
 
 def test_findings_are_edited_and_removed_through_the_form(engine_with_item) -> None:
@@ -293,12 +297,14 @@ def test_canon_state_reads_the_s3_layer(engine_with_item) -> None:
     with session_scope(engine_with_item) as session:
         from domain.characteristics import get_or_create_characteristic
 
-        get_or_create_characteristic(session, session.get(Item, item_id), "12")
+        get_or_create_characteristic(
+            session, current_revision(session.get(Item, item_id)), "12"
+        )
     assert canon_state(engine_with_item, item_id, "12") == CANON_UNBOUND
 
     with session_scope(engine_with_item) as session:
         group = session.query(CharacteristicGroup).one()
-        bind(session, session.get(Item, item_id), group.positions[1], "12")
+        bind(session, current_revision(session.get(Item, item_id)), group.positions[1], "12")
     assert canon_state(engine_with_item, item_id, "12") == "g2"
 
 
@@ -853,7 +859,7 @@ def test_create_item_from_the_deviation_form_maps_it_too(
     assert len(calls) == 1
     with session_scope(engine_with_item) as session:
         created = session.query(Item).filter_by(item_number="C1-08420B").one()
-        assert [c.local_number for c in created.characteristics] == ["31"]
+        assert [c.local_number for c in rev(created).characteristics] == ["31"]
     # Заведённая деталь выбрана в форме: регистрировать отклонение можно сразу.
     assert dialog.item.currentText() == "C1-08420B"
 

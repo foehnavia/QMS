@@ -128,11 +128,11 @@ def test_switching_the_finding_redraws_the_precedents(engine) -> None:
 
     card.findings.setCurrentCell(0, 0)  # размер 12
     assert card.same_dimension.rowCount() == 1
-    assert _text(card.same_dimension.item(0, 3)) == "W-OLD-12"
+    assert _text(card.same_dimension.item(0, 4)) == "W-OLD-12"
 
     card.findings.setCurrentCell(1, 0)  # размер 19
     assert card.same_dimension.rowCount() == 2
-    assert {_text(card.same_dimension.item(r, 3)) for r in range(2)} == {
+    assert {_text(card.same_dimension.item(r, 4)) for r in range(2)} == {
         "W-OLD-19",
         "W-OLD-19-BIS",
     }
@@ -165,7 +165,7 @@ def test_l1a_section_excludes_the_current_deviation(engine) -> None:
     card = CardDialog(engine, deviation_id)
 
     assert card.same_dimension.rowCount() == 1
-    assert _text(card.same_dimension.item(0, 3)) == "W-PAST"
+    assert _text(card.same_dimension.item(0, 4)) == "W-PAST"
     assert "same characteristic no. 12 (1)" in _text(card.same_dimension_title)
 
 
@@ -256,7 +256,7 @@ def test_undecided_precedents_are_not_shown(engine) -> None:
     card = CardDialog(engine, deviation_id)
 
     assert card.same_dimension.rowCount() == 1
-    assert _text(card.same_dimension.item(0, 3)) == "W-DECIDED"
+    assert _text(card.same_dimension.item(0, 4)) == "W-DECIDED"
     assert "already carry a decision" in card.status.text()
 
 
@@ -530,13 +530,13 @@ def test_precedent_row_carries_the_whole_deviation(engine) -> None:
 
     assert _text(card.same_dimension.item(row, 0)) == past_number
     assert _text(card.same_dimension.item(row, 2)) == "C1-08375A"
-    assert _text(card.same_dimension.item(row, 3)) == "W26007336"
+    assert _text(card.same_dimension.item(row, 4)) == "W26007336"
     # Колонка списка несёт **короткую** метку; полная формулировка живёт в
     # диалоге решения и в шапке карточки (дизайн-система, макет S13).
-    assert card.same_dimension.item(row, 6).text() == "Repair"
-    assert "доработка по месту" in card.same_dimension.item(row, 7).text()
+    assert card.same_dimension.item(row, 7).text() == "Repair"
+    assert "доработка по месту" in card.same_dimension.item(row, 8).text()
     # Обоснование целиком — в подсказке, чтобы длинный текст не рвал вёрстку.
-    assert card.same_dimension.item(row, 7).toolTip().startswith("доработка")
+    assert card.same_dimension.item(row, 8).toolTip().startswith("доработка")
 
 
 def test_navigation_has_no_card_section(engine) -> None:

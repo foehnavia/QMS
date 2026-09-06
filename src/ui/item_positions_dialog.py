@@ -18,6 +18,7 @@ from sqlalchemy import Engine
 
 from db.models import Item
 from db.session import session_scope
+from domain.revisions import current_revision
 from domain.precedents import canon_labels
 
 from . import kit
@@ -102,7 +103,10 @@ class ItemPositionsDialog(QDialog):
             item = session.get(Item, self._item_id)
             self.setWindowTitle(f"Item positions — {item.item_number}")
             characteristics = sorted(
-                item.characteristics, key=lambda c: dimension_sort_key(c.local_number)
+                # Размеры действующей ревизии: номера принадлежат чертежу,
+                # и список «позиции детали» без ревизии смешал бы выпуски.
+                current_revision(item).characteristics,
+                key=lambda c: dimension_sort_key(c.local_number),
             )
             labels = canon_labels(session, characteristics)
             # Каждая ячейка — атомарный токен и **ровно один** изолят на него

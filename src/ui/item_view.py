@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QDialog, QMessageBox, QTableWidgetItem, QWidget
 from sqlalchemy import Engine
 
 from db.session import session_scope
+from domain.revisions import current_revision
 from domain.items import groups_of, list_items
 
 from . import kit
@@ -104,7 +105,10 @@ class ItemView(QWidget):
                     item.item_type.name if item.item_type else "",
                     item.connection_type.name,
                     item.size.name,
-                    str(len(item.characteristics)),
+                    # Размеры считаются по действующей ревизии: столбец
+                    # отвечает на «сколько их сейчас», а не «за всю историю
+                    # выпусков» (QMS-017).
+                    str(len(current_revision(item).characteristics)),
                     # Составная ячейка: имена групп — самостоятельные токены
                     # (ревью Р-1). Обычный join оставлял запятые нейтральными,
                     # и при ивритском имени порядок групп читался неверно.

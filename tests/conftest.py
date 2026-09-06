@@ -187,16 +187,24 @@ def count_queries(engine: Engine) -> Iterator[list[str]]:
 # бы на первой же правке.
 
 
-def fill_item_form_and_accept(number: str = "C1-08375A", group: str | None = "CG-A"):
+def fill_item_form_and_accept(
+    number: str = "C1-08375A", group: str | None = "CG-A", revision: str = "A"
+):
     """Подмена `exec` формы детали: оператор заполнил поля и нажал «Create item».
 
     Форма сама сохраняет деталь и отдаёт наружу `created_item_id` /
     `created_group_id` — то, с чем дальше открывается привязка.
+
+    **Ревизию подмена заполняет обязательно** (QMS-017): домен отбивает пустое
+    обозначение, форма показывает ошибку модальным окном, а модальное окно под
+    offscreen не падает, а **вешает прогон** (`CLAUDE.md` §9). Пропуск этого поля
+    стоил бы не красного теста, а зависшего прогона без единой строки вывода.
     """
     from PySide6.QtWidgets import QDialog
 
     def fake_exec(self):
         self.number_edit.setText(number)
+        self.revision_edit.setText(revision)
         if group is not None:
             self.group.setCurrentText(group)
         self.save()

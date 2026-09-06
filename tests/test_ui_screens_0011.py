@@ -16,9 +16,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QPushButton
 
 import ui.kit
-from conftest import (, rev
+from conftest import (
     fill_item_form_and_accept,
     make_item,
+    rev,
     stub_mapping_dialog,
 )
 from db.models import Direction
@@ -732,6 +733,9 @@ def test_the_item_form_edits_an_existing_item(engine, no_modals) -> None:
     assert not dialog.group_row.isVisibleTo(dialog)
 
     dialog.number_edit.setText("C1-08375B")
+    # Ревизия обязательна: без неё домен отбивает сохранение, форма
+    # показывает модальное окно, и прогон под offscreen виснет (§9).
+    dialog.revision_edit.setText("A")
     dialog.save()
 
     with session_scope(engine) as session:
@@ -761,6 +765,9 @@ def test_a_duplicate_item_number_is_refused_by_the_form(engine, no_modals) -> No
 
     dialog = ItemDialog(engine, item_id)
     dialog.number_edit.setText("C1-08420B")
+    # Ревизия обязательна: без неё домен отбивает сохранение, форма
+    # показывает модальное окно, и прогон под offscreen виснет (§9).
+    dialog.revision_edit.setText("A")
     dialog.save()
 
     assert no_modals and "already exists" in str(no_modals[0])

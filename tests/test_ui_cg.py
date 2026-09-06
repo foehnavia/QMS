@@ -26,6 +26,7 @@ from db.models import CharacteristicGroup, GPosition, Item
 from db.session import session_scope
 from domain.groups import GPositionSpec, create_group, set_drawing
 from domain.mappings import bind, binding_state, mark_absent
+from domain.revisions import current_revision
 from ui.cg_dialog import CgDialog
 from ui.common import position_index, strip_iso
 from ui.cg_editor import CgEditor
@@ -657,7 +658,9 @@ def test_mapping_dialog_binds_from_the_row(group_engine, quiet) -> None:
     assert dialog.table.item(0, 1).text() == "linked"
     with session_scope(group_engine) as session:
         states = binding_state(
-            session, session.get(Item, item_id), session.get(CharacteristicGroup, cg_id)
+            session,
+            current_revision(session.get(Item, item_id)),
+            session.get(CharacteristicGroup, cg_id),
         )
         assert states[0].state == "linked" and states[0].local_number == "12"
 
@@ -872,7 +875,10 @@ def test_mapping_reads_the_group_once(group_engine) -> None:
         MappingDialog(group_engine, item_id, _cg_id(group_engine))
 
     selects = [text for text in statements if text.lstrip().upper().startswith("SELECT")]
-    assert len(selects) <= 6, selects
+    # Семь, а не шесть: ревизия детали — отдельная строка, и привязка теперь
+    # разрешается через неё (QMS-017). Потолок поднят на один запрос
+    # осознанно; ровно на столько и вырос путь.
+    assert len(selects) <= 7, selects
 
 
 # --- наряд 0020: «Done» проверяет, окна разворачиваются ------------------------------

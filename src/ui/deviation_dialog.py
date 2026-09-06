@@ -40,7 +40,15 @@ from PySide6.QtWidgets import (
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import selectinload
 
-from db.models import Deviation, Finding, Inspection, Item, RefDeviationType, RefZone
+from db.models import (
+    Deviation,
+    Finding,
+    Inspection,
+    Item,
+    ItemRevision,
+    RefDeviationType,
+    RefZone,
+)
 from db.session import session_scope
 from domain.characteristics import get_or_create_characteristic
 from domain.deviations import register, update_registration
@@ -52,6 +60,7 @@ from domain.findings import (
 )
 from domain.inspections import remove_inspection
 from domain.items import list_items
+from domain.revisions import list_revisions
 from domain.precedents import CANON_NEW, canon_labels_for_item
 
 from . import kit
@@ -66,7 +75,7 @@ from .common import (
 )
 from .finding_dialog import FindingDialog, FindingRow
 from .inspection_dialog import InspectionDialog
-from .item_dialog import ItemDialog, complete_new_item, open_mapping
+from .item_dialog import ItemDialog, _combo, complete_new_item, open_mapping
 from .kit import tokens
 from .mapping_dialog import MappingDialog
 from .pickers import choose_cg_for_item
@@ -125,6 +134,13 @@ INSPECTION_WIDTHS = (20, kit.FIT_LABEL, 30, 13, 40)
 #: `None`; у поля с отбором пустое состояние показывает сама строка ввода.
 NO_ITEM = "— pick an item —"
 
+#: Ревизия выбирается до находок: номер размера читается против чертежа.
+REVISION_HINT = (
+    "Pick the drawing revision the parts were made to. Local numbers below are "
+    "read against it; parts of a previous issue keep arriving for two to three "
+    "months after a change."
+)
+
 
 class DeviationDialog(QDialog):
     """Регистрация и правка отклонения. Решение вносится отдельным действием."""
@@ -153,11 +169,23 @@ class DeviationDialog(QDialog):
         self.new_item = kit.secondary("Create item…")
         self.new_item.clicked.connect(self.create_item)
         self.item.keyChanged.connect(self._refresh_actions)
+        # Ревизии принадлежат детали: сменилась деталь — список обязан
+        # перечитаться, иначе на экране остались бы чужие обозначения.
+        self.item.keyChanged.connect(lambda *_: self.reload_revisions())
 
         item_row = QHBoxLayout()
         item_row.setSpacing(tokens.GAP_CONTROL)
         item_row.addWidget(self.item, 1)
         item_row.addWidget(self.new_item)
+
+        # Ревизия выбирается **до** находок: локальный номер читается против
+        # чертежа, и выбрать чертёж после номеров значило бы вводить их вслепую
+        # (QMS-017). По умолчанию действующая — массовый случай; перевод на
+        # прежнюю остаётся явным действием оператора, потому что детали прежнего
+        # выпуска приходят из цеха ещё два-три месяца после смены.
+        self.revision = _combo()
+        self.revision.currentIndexChanged.connect(self._revision_changed)
+        self.revision_hint = kit.hint(REVISION_HINT)
 
         self.wo = QLineEdit()
         self.wo.setPlaceholderText('פק"ע — e.g. W26007336')
@@ -194,6 +222,7 @@ class DeviationDialog(QDialog):
 
         header = kit.stretching_form()
         header.addRow("Item:", item_row)
+        header.addRow("Revision:", self.revision)
         header.addRow("WO:", self.wo)
         header.addRow("Machine:", self.machine)
         # Подпись количества — как в списке (`Dev. qty`): это средний из трёх
@@ -265,6 +294,7 @@ class DeviationDialog(QDialog):
 
         layout = kit.dialog_layout(self)
         layout.addLayout(header)
+        layout.addWidget(self.revision_hint)
         layout.addWidget(findings_box, 1)
         layout.addWidget(inspections_box)
         layout.addWidget(self.status)
@@ -306,12 +336,19 @@ class DeviationDialog(QDialog):
             self.item.setCurrentText(preselect)
         elif keep is not None:
             self.item.select_key(keep)
+        # `set_rows` сигналов не поднимает, поэтому ревизии перечитываются
+        # здесь явно: иначе после заведения детали список остался бы пустым.
+        self.reload_revisions()
 
     def reload(self) -> None:
         """Прочитать существующее отклонение в форму."""
         with session_scope(self._engine) as session:
             deviation = session.get(Deviation, self._deviation_id)
             self.item.select_key(deviation.item_id)
+            self.reload_revisions()
+            index = self.revision.findData(deviation.revision_id)
+            if index >= 0:
+                self.revision.setCurrentIndex(index)
             # Деталь после регистрации неизменна: размеры находок принадлежат
             # ей, перенос осиротил бы их (`Characteristic.md`).
             self.item.setEnabled(False)
@@ -353,6 +390,52 @@ class DeviationDialog(QDialog):
         self._refresh_inspections()
         self._refresh_actions()
 
+    def reload_revisions(self, keep: str | None = None) -> None:
+        """Перечитать ревизии выбранной детали; по умолчанию — действующая.
+
+        Зовётся при смене детали и после заведения новой. `keep` держит выбор
+        оператора там, где деталь не менялась: перезагрузка справочника не имеет
+        права молча вернуть его на действующую.
+        """
+        item_id = self.item.currentData()
+        rows: list[tuple[int, str]] = []
+        current_id = None
+        with session_scope(self._engine) as session:
+            item = session.get(Item, item_id) if item_id is not None else None
+            if item is not None:
+                for revision in list_revisions(item):
+                    label = revision.designation + (
+                        " (current)" if revision.is_current else ""
+                    )
+                    rows.append((revision.revision_id, label))
+                    if revision.is_current:
+                        current_id = revision.revision_id
+
+        self.revision.blockSignals(True)
+        self.revision.clear()
+        for revision_id, label in rows:
+            self.revision.addItem(label, revision_id)
+        wanted = None
+        if keep is not None:
+            wanted = self.revision.findText(keep, Qt.MatchFlag.MatchStartsWith)
+        if wanted is None or wanted < 0:
+            wanted = self.revision.findData(current_id)
+        self.revision.setCurrentIndex(max(wanted, 0))
+        self.revision.blockSignals(False)
+        self.revision.setEnabled(bool(rows))
+
+    def _revision_changed(self) -> None:
+        """Смена ревизии **ничего не пересчитывает** (ратификация 11).
+
+        Введённые локальные номера остаются как введены; меняется только то,
+        против чего они читаются. Не перецеплять, не сбрасывать, не спрашивать —
+        оператор набрал номера с бланка, и подставлять вместо них чужие значит
+        терять его работу. Номер, которого в выбранной ревизии нет, честно
+        получает пометку «not in this revision» — и оператор видит её **до**
+        сохранения, потому что такой размер попадёт под автосоздание.
+        """
+        self._refresh_findings()
+
     def _refresh_findings(self) -> None:
         item_id = self.item.currentData()
         with session_scope(self._engine) as session:
@@ -362,9 +445,12 @@ class DeviationDialog(QDialog):
             }
             # Пакетно, а не построчно: прежний `canon_state` открывал сессию на
             # каждую находку (`docs/specs/deviation-entry.md` §8, N+1).
-            item = session.get(Item, item_id) if item_id is not None else None
+            revision_id = self.revision.currentData()
+            revision = (
+                session.get(ItemRevision, revision_id) if revision_id is not None else None
+            )
             canon = canon_labels_for_item(
-                session, item, [row.local_number for row in self._rows]
+                session, revision, [row.local_number for row in self._rows]
             )
 
         self.findings.setRowCount(len(self._rows))
@@ -636,8 +722,9 @@ class DeviationDialog(QDialog):
                     attachment=self.attachment.toPlainText(),
                 )
 
+                revision = session.get(ItemRevision, self.revision.currentData())
                 if self._deviation_id is None:
-                    deviation = register(session, item=item, **header)
+                    deviation = register(session, item=item, revision=revision, **header)
                 else:
                     deviation = session.get(Deviation, self._deviation_id)
                     update_registration(session, deviation, **header)
@@ -681,7 +768,7 @@ class DeviationDialog(QDialog):
                 # Размера у детали может ещё не быть — домен создаёт его без
                 # формы (`_overview.md` §6), находку строит `make_finding`.
                 characteristic, _ = get_or_create_characteristic(
-                    session, deviation.item, row.local_number
+                    session, deviation.revision, row.local_number
                 )
                 finding = make_finding(
                     session,
