@@ -212,7 +212,7 @@ def _assemble(items, source_hash, body_stamp):
     return "".join(parts).rstrip() + "\n"
 
 
-def check(model_dir, mirror_path, stream=sys.stdout):
+def check(model_dir, mirror_path, stream=None):
     """Report the mirror's state: OK / CORRUPT / STALE / UNVERIFIED.
 
     Two questions, asked in this order (QMS-019):
@@ -232,6 +232,8 @@ def check(model_dir, mirror_path, stream=sys.stdout):
     Printed output stays **ASCII-only**: the work machine's console is cp1255 and a stray
     dash would come out mangled at best (INFRASTRUCTURE section 8).
     """
+    # `sys.stdout` резолвится при вызове, а не в подписи (см. worktree_check).
+    stream = sys.stdout if stream is None else stream
     items = collect(model_dir)
     if not items:
         print("build_mirror --check: no canon files found", file=stream)
