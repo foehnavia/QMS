@@ -3,7 +3,7 @@ part_of: MIS-QMS/docs/model
 entity: Search
 order: 100
 canon: true
-rev: "1.02"
+rev: "1.03"
 updated: 2026-09-06
 ---
 
@@ -44,6 +44,35 @@ updated: 2026-09-06
   (Item ↔ finding ↔ deviation ↔ inspection), with any logic (AND/OR, ranges, nesting).
   **Read-only**; a separate stage (**1.5**) with high priority, right after the base
   skeleton (`staging.md`).
+
+## Revisions in the output (QMS-017)
+
+Dimensions belong to a part revision (`Characteristic.md`), so a match may cross the
+boundary between two issues of the same drawing. Such a match is **shown, never
+filtered out** — the engineer decides what an older issue is worth — but it is **always
+marked**, at two levels, because the two paths of Level 1 are not equally safe across
+revisions.
+
+| Path | What carries the meaning | Across revisions |
+|---|---|---|
+| canon: `(CG, g-index)` | the g-position — a canonical identity that survives re-numbering | resolved through the **mapping of the finding's own revision**, so it stays correct on its own |
+| direct: `(Item, local#)` | the local number alone | **the number may mean a different feature** in the other revision |
+
+- **Row marking — "same part, different revision".** Whenever the precedent's revision
+  differs from the current one, the row says so plainly. This is what the engineer needs
+  in order to judge comparability at all: a tolerance moved between issues means an
+  earlier "approved" was granted against limits that are no longer in force.
+- **Dimension marking — a warning sign (`!`) on a non-CG dimension.** For a dimension
+  with no canon there is nothing behind the number: the match rests on the local number
+  and nothing else, and a re-issue may have moved it. The stronger mark belongs here and
+  nowhere else.
+- Parts of the previous issue keep arriving from the shop for two to three months after
+  a change, so cross-revision precedents are not a rare curiosity — they are the normal
+  state during that window.
+- **A precedent whose local number moved between revisions is not found automatically**
+  in stage 1 (`Item.md`, Revision): the numbers no longer meet, and cross-revision
+  re-linking is deliberately deferred. It is raised by hand — the previous revision, and
+  the group the part used to hold, stay fully readable for exactly that purpose.
 
 ## Notes
 

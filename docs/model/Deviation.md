@@ -3,8 +3,8 @@ part_of: MIS-QMS/docs/model
 entity: Deviation
 order: 50
 canon: true
-rev: "1.00"
-updated: 2026-08-10
+rev: "1.01"
+updated: 2026-09-06
 ---
 
 # Deviation
@@ -16,6 +16,8 @@ updated: 2026-08-10
 ## Attributes
 
 - `item` (FK → `Item.md`)
+- `revision` (FK → the Item's revision, `Item.md`) — which issue of the drawing this
+  deviation was written against; see Revision below
 - `WO` (string, `פק"ע`) — see WO below
 - `machine` (optional)
 - `quantity` — parts per this deviation (see Quantity levels)
@@ -31,6 +33,24 @@ updated: 2026-08-10
 
 - findings `1..N` (`Finding.md`)
 - inspections `0..N` (`Inspection.md`)
+
+## Revision (QMS-017)
+
+- The revision is chosen **first** — part, then revision, then findings. It is
+  pre-filled with the part's **current** revision; moving it to a previous one is a
+  separate, deliberate action, needed because parts of the previous issue keep arriving
+  from the shop for two to three months after a change.
+- The revision decides **which set of dimensions the form offers**, since dimensions
+  belong to the part revision (`Characteristic.md`).
+- **Changing the revision while entering recalculates nothing.** The local numbers were
+  read off the inspection record and stay as typed; what changes is the revision they are
+  read against. A wrong revision made the findings wrong; correcting it makes them right
+  — no re-pointing, no clearing. (The hazard of silently re-interpreting what is already
+  recorded belongs to **history**, not to a form still being filled.)
+- A number that does not exist in the newly chosen revision falls under the standing
+  rule — an unknown number is auto-created as a non-CG dimension — and is shown marked
+  "not in this revision", so the operator sees what he is about to create.
+- **Invariant:** a deviation and all its findings live in one revision.
 
 ## Integrity
 

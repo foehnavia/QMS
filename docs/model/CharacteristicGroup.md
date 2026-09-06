@@ -3,8 +3,8 @@ part_of: MIS-QMS/docs/model
 entity: CharacteristicGroup
 order: 40
 canon: true
-rev: "1.00"
-updated: 2026-09-02
+rev: "1.01"
+updated: 2026-09-06
 ---
 
 # CharacteristicGroup (CG) / g-position — the canonical layer · and Mapping
@@ -21,6 +21,10 @@ updated: 2026-09-02
   created (see `docs/decisions.md`, R3).
 - A CG has a name (e.g. `Implant_Con_375_C1`) and a set of canonical positions
   `g1…gN`.
+- **The group exists only inside this database.** No such document is issued anywhere:
+  it is our own construct for linking parts that share an assembly while numbering the
+  same zone differently on their own drawings. Hence a group has **no revision of its
+  own** — only a part's drawing revises (`Item.md`) (QMS-017).
 - **Nominal and tolerance belong to the CG, not to the part.** Inside a group `g1` is
   one and the same physical dimension with one and the same tolerance for every part of
   the group — that is what the group is for. What stays local to a part is **only its
@@ -28,7 +32,9 @@ updated: 2026-09-02
   its parts (`decisions.md`, QMS-016).
 - **The drawing itself belongs to the CG** (stored inside the database; PNG/JPEG,
   ≤5 MB) and is stored **as issued**: the engineering department releases it already
-  ballooned — the callouts carry `G1…GN` instead of numbers. The application therefore
+  ballooned — the callouts carry `G1…GN` instead of numbers. It is the drawing of the
+  **assembly shared by the group's parts**, not the drawing of any one part; a part's own
+  drawing, with its own revision, is not stored here. The application therefore
   **does not place balloons of its own**: it shows the drawing as a visual reference and
   keeps the positions in a **table** (index · nominal · tolerance `+` · tolerance `−`).
   Having the operator re-place balloons over the picture was both duplicated work and the
@@ -63,9 +69,10 @@ updated: 2026-09-02
   materialises into a list of mappings. No interval is stored, nothing is recomputed on
   read: after the rule above, gaps are legal, and "g1—g24" would otherwise either change
   meaning retroactively or falsely claim that 1…24 all exist (`decisions.md`, QMS-016).
-- No versioning in stage 1. A second-level CG (linking constructively similar parts)
-  is out of scope for now — it only imposes keeping the Item↔CG link many-to-many
-  (`Item.md`).
+- **No versioning of a group** — not as a deferral but as a decision (QMS-017): a group
+  is never re-valued in place; when its values move, a **clone** is made (see below).
+  A second-level CG (linking constructively similar parts) is out of scope for now — it
+  only imposes keeping the Item↔CG link many-to-many (`Item.md`).
 
 ### State and g-positions
 
@@ -75,22 +82,65 @@ updated: 2026-09-02
 - There is no composite `(characteristic, state)` key; a mapping points to **one**
   g-position. Unmapped (non-CG) state dimensions stay two separate dimensions.
 
+## Three kinds of event, and what each of them moves (QMS-017)
+
+They are easy to confuse and they cost very differently.
+
+| Event | Where it happens | What it moves |
+|---|---|---|
+| **The part's drawing is re-issued** (`A` → `B`) | the real world | a new revision of the part, cloned from the previous one (`Item.md`). Group links and mappings are re-stated **inside the new revision**; nothing already recorded changes |
+| **The canon grows** — a position is added to a group | this database only | nothing in the real world; no part changes revision. The added position needs an answer from the group's **current** revisions (see below) |
+| **The values move** — a tolerance or a nominal is re-issued for a family | the real world, via re-issued drawings | the group can no longer keep its promise for those parts → the group is **cloned** and the new revisions bind to the clone |
+
+**Cloning a group.** The clone keeps the same `g1…gN` layout and takes the new values;
+the mappings of the parts moving into their new revision are copied **by local number**,
+so the common case — numbering intact, tolerance moved — costs one action for a whole
+family instead of re-mapping a hundred parts by hand. Only a number that actually moved
+is touched. Values are never edited in place: editing them would make old deviations read
+against a tolerance that did not exist at their time.
+
+**Adding a position rather than splitting the group.** When one part gains a dimension
+the others do not have, the position is added **to the existing group** and the other
+parts hold it under code 99. Splitting a group over a single extra dimension is the worse
+trade: the whole value of grouping is that the more parts share a group, the more
+precedents each of them gets.
+
+- The new position needs an answer (a mapping, or code 99) **only from the revisions that
+  are current**. Past revisions are left **unanswered** — that is the honest state, since
+  the position was not in the canon when they were written, and stamping code 99 on them
+  retroactively would assert a check nobody performed. Search is unaffected: a part with
+  no answer and a part with code 99 are equally absent from a `(cg, g_index)` join.
+
+**A group is never deactivated.** Parts of the previous issue keep arriving from the shop
+for two to three months after a change, and past deviations stay searchable for good.
+A group whose parts have all moved on is still a source — one the engineer raises by hand
+when the automatic path finds nothing.
+
+- **Marking, not deactivation:** a group is shown as a previous generation when **no part
+  holds it in its current revision**. The state is **derived, not stored** — it needs no
+  flag, no timer and no maintenance, and it cannot be forgotten in either direction.
+
 ## Mapping
 
-- Links **(item, local#) → one canonical g-position** (single-field FK).
+- Links **(item revision, local#) → one canonical g-position** (single-field FK). The
+  mapping carries no revision of its own: it hangs off the dimension and inherits the
+  revision from it (`Characteristic.md`).
 - Built **manually and incrementally**, assigned by a human. **Created early — before
   the deviation is registered** (buttons "Create mapping / link" sit in the deviation
   entry form, next to "Create Item"). See `_overview.md` §5–6.
 - **Optional**: non-CG dimensions (the mass case) live without a canon.
-- **One balloon = one local dimension = one link**, enforced both ways: a g-position
-  takes a single dimension of a given part, and a dimension is linked to a single
-  g-position. Re-linking a taken dimension is never silent — clear it first.
+- **One balloon = one local dimension = one link**, enforced both ways within one
+  revision: a g-position takes a single dimension of a given part revision, and a
+  dimension is linked to a single g-position. Re-linking a taken dimension is never
+  silent — clear it first.
 - Code **99** = "the part does not have this position" (a technical stub; a `g:99`
   pair explicitly records "the position was considered, it is absent"). Not a search
-  key. **Physically it is the pair (item, g-position)** in its own table
+  key. **Physically it is the pair (item revision, g-position)** in its own table
   (`item_position_absent`), not a flag on the mapping row: the flag could not record
   *which* position was missing (`decisions.md`, S1 №6 revised — rev 0.2, QMS-013).
   Search by `(cg, g_index)` never returns such a part — there is nothing to join.
+  **Code 99 is meaningful only where there is a group:** for a part revision with no CG
+  link it has nothing to say and is not written.
 
 > **Canon note (R2).** Retroactive mapping is treated as a data-loss risk and is
 > **not** the default (this reverses session 06's "lazy resolve"; see

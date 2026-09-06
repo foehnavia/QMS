@@ -72,7 +72,8 @@ Brief descriptions; full field-level detail is in each entity's own file.
 | Object | Plain description | Detail |
 |---|---|---|
 | **Item** | A manufactured product with its own catalog number (item number). The central object. | `Item.md` |
-| **Characteristic (dimension)** | One controlled dimension of a specific part. Exists only together with its part; matching numbers across parts are coincidental. | `Characteristic.md` |
+| **Revision** | An issue of the part's drawing (`A`, `B`, …). A child record of the Item — never a twin part. Its dimensions, its group links and its code-99 rows belong to it, not to the Item. | `Item.md` |
+| **Characteristic (dimension)** | One controlled dimension of a specific part in a specific revision. Exists only together with its part and its revision; matching numbers across parts are coincidental. | `Characteristic.md` |
 | **g-position (canonical layer)** | A reference "dimension slot" shared by a group of similar parts (a CharacteristicGroup). Lets deviations be compared across parts by the same constructive location. | `CharacteristicGroup.md` |
 | **Mapping** | A manual correspondence "this dimension of this part = this canonical g-position". | `CharacteristicGroup.md` |
 | **Deviation** | A recorded non-conformance found on a batch of parts. A self-standing record with its own decision, quantity, date. | `Deviation.md` |
@@ -100,10 +101,17 @@ Brief descriptions; full field-level detail is in each entity's own file.
 ## 6. Save flow and canon resolution
 
 - **Input binding:** the system first binds the input to what exists — is there an
-  Item, does it have the needed dimensions. No dimension (non-CG) → the characteristic
-  is **auto-created** on the Item (no form). No Item at all → an Item form plus a
-  one-off seeding of CG dimensions (a missing CG may be created on the fly).
-- **Findings** land on the Item's characteristics (FK on `(item, #)`); measurement
+  Item, **which revision of it**, does that revision have the needed dimensions. No
+  dimension (non-CG) → the characteristic is **auto-created** in that revision (no form).
+  No Item at all → an Item form (revision entered by hand) plus a one-off seeding of CG
+  dimensions (a missing CG may be created on the fly).
+- **Revision first, then findings.** It is pre-filled with the part's current revision;
+  moving it to a previous one is a deliberate action, needed while parts of the previous
+  issue are still arriving from the shop. Changing it during entry **recalculates
+  nothing** — the local numbers stay as typed, only the revision they are read against
+  changes (`Deviation.md`).
+- **Findings** land on the characteristics of that revision (FK on `(item, revision, #)`);
+  measurement
   fields (`direction`, `value`, `dimension_point`, `comment`, Affected zone, Deviation
   type) sit on the finding. Integrity is at the deviation level.
 - **Canon binding is done early — before registration** (`CharacteristicGroup.md` →
@@ -138,14 +146,17 @@ trust, so a human is the final filter. *Branches:* direction from the max/min wo
 (number sign is secondary); a sample (`X מתוך Y`) → quantity 9999; qualitative signs
 (`GO`, pin) → the comment field for now. (Detail: `Import-Workflow.md`.)
 
-**Step 4 — Binding to the part and its dimensions.**
-Before saving, the system binds the input to what exists; findings land on the Item's
-characteristics; measurement data sits on the finding. *Why:* to keep integrity — a
-deviation is stored and served whole, never split by dimension. *Branches:* part &
-dimension exist → bind; part exists, dimension missing (non-CG) → the characteristic is
-auto-created without a form; no part → a new-part form plus seeding of CG dimensions
-(and, if the needed CG is missing, it can be created here). (Detail: `Item.md`,
-`Characteristic.md`.)
+**Step 4 — Binding to the part, its revision and its dimensions.**
+Before saving, the system binds the input to what exists; the revision is chosen first
+(current by default), findings land on the characteristics of that revision; measurement
+data sits on the finding. *Why:* to keep integrity — a deviation is stored and served
+whole, never split by dimension — and to keep the record honest about which issue of the
+drawing it was written against. *Branches:* part, revision & dimension exist → bind; part
+exists, dimension missing (non-CG) → the characteristic is auto-created without a form;
+the drawing has been re-issued → a new revision is **cloned** from the previous one and
+only the changed numbers are edited; no part → a new-part form (revision entered by hand)
+plus seeding of CG dimensions (and, if the needed CG is missing, it can be created here).
+(Detail: `Item.md`, `Characteristic.md`.)
 
 **Step 5 — Canon binding, before registration.**
 The dimension is linked to a g-position via mapping, using the "Create mapping / link"
@@ -153,8 +164,10 @@ buttons in the entry form (next to "Create Item"). The normal order is: map firs
 register. *Why:* the canon enables cross-part comparison and the immediate prior-
 deviation overview (Step 6); deferring the link tends to lose it. *Branches:* mapping
 exists → the g-position is shown (a read); no mapping → it is created here; the part has
-no such position → code 99; **exception — an urgent WO:** register the dimension
-unlinked and map later (exception, not the rule). (Detail: `CharacteristicGroup.md`.)
+no such position → code 99; the group's values have been re-issued for a whole family →
+the group is **cloned** and the new revisions bind to the clone; **exception — an urgent
+WO:** register the dimension unlinked and map later (exception, not the rule). (Detail:
+`CharacteristicGroup.md`.)
 
 **Step 6 — Deviation card — the key deliverable.**
 On entry, the card opens with an automatic overview of past deviations with a matching
@@ -199,6 +212,14 @@ incident approved before the batch reaches QC gets its own document. (Detail:
   data structure** — only free text in `explanation` or the inspection.
 - Search by (Item + dimension) matches on the finding, but the **unit of output is always
   the whole deviation**.
+- **What is recorded is never re-interpreted.** A group is not re-valued in place and a
+  past revision is not re-stamped: when something moves, the previous state is kept and a
+  **clone** carries the change. The two clonings — a new revision of a part, a new
+  generation of a group — are one mechanism: copy the whole, edit only the difference.
+- **Nothing is hidden for being old.** A precedent from another revision, and a group no
+  part holds any more, stay visible and searchable; they are **marked**, not filtered
+  out. The engineer at the screen is part of the system: what the automatic path cannot
+  join, a person who remembers can still raise by hand (`Search.md`).
 
 ---
 
