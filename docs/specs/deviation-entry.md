@@ -3,8 +3,8 @@ part_of: MIS-QMS/docs/specs
 spec: deviation-entry
 status: as-built
 task: QMS-014
-amended_by: QMS-015, QMS-016
-updated: 2026-08-19
+amended_by: QMS-015, QMS-016, QMS-017
+updated: 2026-09-06
 ---
 
 # Deviation entry — findings, decision, inspection — as-built spec (S4 / QMS-014)
@@ -153,3 +153,28 @@ the findings just created. Removal still goes through `remove_finding`, so both 
 `../model/Deviation.md` · `../model/Finding.md` · `../model/Inspection.md` ·
 `../model/_overview.md` §6–§7 · `../architecture.md` §4–§5 · `../decisions.md` ·
 `cg-editor-and-mapping.md` · `../worklog/0004-deviation-findings-inspection.md`
+
+---
+
+## Amendment — drawing revision (QMS-017, naryad `0024`, as-built 2026-09-06)
+
+**The revision is picked before the findings, not after them.** The header carries a
+`Revision` combo right below `Item`; it lists that item's revisions in issue order and
+preselects the current one, labelled `B (current)`. The order is not cosmetic: a local
+number is read **against a drawing**, so choosing the drawing after typing the numbers
+would mean typing them blind.
+
+- **Default is the current revision, moving to a previous one is a deliberate act.**
+  Parts of the previous issue keep arriving from the shop for two to three months after a
+  change, so the previous revision must stay reachable — but never by accident.
+- **Changing the revision recalculates nothing** (ratification 11). The local numbers the
+  operator typed stay exactly as typed; only what they are read against changes. Nothing
+  is re-pointed, reset, or asked about. A number that does not exist in the chosen
+  revision reads as `not created yet` in the `Canon` column — and the operator sees that
+  **before** saving, because such a dimension will be auto-created inside the deviation's
+  revision.
+- **Auto-creation of a non-canon dimension happens inside the deviation's revision.** The
+  same number in another revision is a different dimension, not the same one.
+- Guard: a deviation and **all** of its findings live in one revision — a domain check of
+  the same kind as "the finding belongs to the deviation's item" (S2), tightened from the
+  item to the revision.

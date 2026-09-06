@@ -3,9 +3,9 @@ part_of: MIS-QMS/docs/specs
 spec: cg-editor-and-mapping
 status: as-built
 task: QMS-013
-amended_by: QMS-016
+amended_by: QMS-016, QMS-017
 rewritten: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-06
 ---
 
 # CG editor & mapping dialog — as-built spec (S3 / QMS-013, rewritten after QMS-016)
@@ -114,3 +114,26 @@ before re-mapping, a warning about references, a conflict registry — is **Q-15
 
 `../model/CharacteristicGroup.md` · `../model/Item.md` · `../architecture.md` §4–§5 ·
 `../decisions.md` · `../worklog/0003-cg-mapping.md` · `0014` · `0015` · `0016` · `0018` · `0020`
+
+---
+
+## Amendment — mapping belongs to a revision (QMS-017, naryad `0024`, as-built 2026-09-06)
+
+Mapping and code-99 rows are owned by the **revision**, not by the item. The dialog works
+inside the item's **current** revision: both entries into it — creating an item and
+"Add revision…" — leave current exactly the revision the operator is editing, and past
+revisions are not edited at all.
+
+- **"Add revision…"** (items screen) asks for the designation as issued, clones the
+  current revision — local numbers, mappings, code-99 rows — makes the clone current, and
+  opens this dialog **already filled**. The operator edits only what changed. This is what
+  keeps the rare "all numbers moved" re-issue from costing more than the common "one
+  tolerance moved" one.
+- **The clone changes nothing in the previous revision.** Values are copied, not rows: the
+  new dimensions get their own ids, so findings already recorded against the previous
+  revision stay where they are. Verified row by row, not by counting.
+- **A g-position added to a group asks for an answer only from current revisions**
+  (ratification 7). Past revisions stay unanswered for good — their drawing is issued and
+  will not change. "Unanswered" is the **absence of a row**, not a third state.
+- The `mapping` table gained no revision column and needed none: it hangs off a dimension,
+  and the dimension carries the revision (ratification 3).

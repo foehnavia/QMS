@@ -3,8 +3,8 @@ part_of: MIS-QMS/docs/specs
 spec: deviation-card
 status: as-built
 task: QMS-015
-amended_by: QMS-016
-updated: 2026-09-03
+amended_by: QMS-016, QMS-017
+updated: 2026-09-06
 ---
 
 # Deviation card & precedent search L1/L2 — as-built spec (S5 / QMS-015)
@@ -159,3 +159,28 @@ into the vault is Cowork's step — Claude Code never writes to the vault (INFRA
 `../model/DeviationCard.md` · `../model/Search.md` · `../model/CharacteristicGroup.md` ·
 `deviation-entry.md` · `cg-editor-and-mapping.md` · `../decisions.md` ·
 `../worklog/0005-deviation-card-search.md` · `../_INDEX.md` (mirror & sync)
+
+---
+
+## Amendment — revisions in the output (QMS-017, naryad `0024`, as-built 2026-09-06)
+
+The precedent table gained a `Revision` column (position 4, right after `Item`) and two
+marks. **Neither mark ever drops a row** — a match reached through a revision is marked,
+never filtered out: filtering would hide exactly the precedent the card is opened for.
+
+- **"Same item, another revision"** — the revision cell is set in bold and carries a
+  tooltip naming the revision. Shown whenever the match's revision differs from the one
+  the card is read from.
+- **`!` on a non-canon dimension** — rendered as `! · 41` in the `Characteristic` cell,
+  with a tooltip: the match rests on the local number alone, and the number belongs to the
+  drawing. A canon-bound dimension carries no mark: it is resolved through the mapping of
+  its own revision and is right by construction.
+- `Revision` is **not** a numeric column: a designation is an identifier, not a magnitude —
+  nothing to compare down the column, and the left edge keeps it under its heading.
+
+**What the canon buys, measured on the run.** The direct path (L1a) searches by local
+number across every revision of the item; when a number moved between revisions it finds
+nothing, and that consequence is accepted (lazy re-linking is out of stage 1). The canon
+path (L1b) resolves through the mapping of the finding's **own** revision, so it keeps
+finding the precedent across the very re-issue that moved the number — verified on the
+acceptance run, screenshot `19d-card-revision-marks.png`.
