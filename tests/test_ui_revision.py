@@ -206,3 +206,28 @@ def test_changing_the_revision_keeps_the_numbers_the_operator_typed(engine) -> N
 
     assert [row.local_number for row in dialog._rows] == before
     assert _text(dialog.findings.item(0, 0)) == "12"
+
+
+def test_the_items_table_puts_each_value_under_its_own_heading(engine) -> None:
+    """Значение стоит под своим заголовком, а не просто в строке нужной длины.
+
+    Поймано снимком, не тестом: колонка `Revision` показывала тип детали, а
+    обозначение уехало в `Size class`. Порядок значений и порядок колонок не
+    связывает ничто, кроме позиции, и разъезжаются они молча — прежние тесты
+    остались зелёными, потому что сверяли индексы, а не то, что в них лежит
+    (`CLAUDE.md` §9а, находка №7 того же класса).
+    """
+    from ui.item_view import COLUMNS, ItemView
+
+    with session_scope(engine) as session:
+        item, source = _stock(session)
+        clone_revision(session, item, source, designation="B")
+
+    view = ItemView(engine)
+    heading = {name: index for index, name in enumerate(COLUMNS)}
+    row = 0
+
+    assert _text(view.table.item(row, heading["Item number"])) == "C1-08375A"
+    assert _text(view.table.item(row, heading["Revision"])) == "B"
+    assert _text(view.table.item(row, heading["Size class"])) == "General"
+    assert _text(view.table.item(row, heading["Characteristics"])) == "2"

@@ -45,6 +45,7 @@ from db.models import (  # noqa: E402
     RefZone,
 )
 from db.session import create_db_engine, session_scope  # noqa: E402
+from domain.revisions import clone_revision, current_revision
 from domain.characteristics import get_or_create_characteristic  # noqa: E402
 from domain.deviations import register, set_decision  # noqa: E402
 from domain.findings import make_finding  # noqa: E402
@@ -200,6 +201,7 @@ def build_database():
             item_type=ref(session, RefItemType, "implant"),
             connection_type=ref(session, RefConnectionType, "C1"),
             size=ref(session, RefSize, "NP"),
+            revision="A",
         )
         other = create_item(
             session,
@@ -207,10 +209,14 @@ def build_database():
             item_type=ref(session, RefItemType, "implant"),
             connection_type=ref(session, RefConnectionType, "C1"),
             size=ref(session, RefSize, "SP"),
+            revision="A",
         )
-        bind(session, item, group.positions[0], "12")
-        bind(session, item, group.positions[1], "19")
-        bind(session, other, group.positions[0], "77")
+        # Привязка и размеры принадлежат ревизии (QMS-017).
+        item_rev = current_revision(item)
+        other_rev = current_revision(other)
+        bind(session, item_rev, group.positions[0], "12")
+        bind(session, item_rev, group.positions[1], "19")
+        bind(session, other_rev, group.positions[0], "77")
 
         # Регистр значений приводится при сохранении (находка №6), поэтому
         # ищем без учёта регистра — как это делает и `ref`.
@@ -226,7 +232,7 @@ def build_database():
             date=TODAY - timedelta(days=21),
             machine="CNC-7",
         )
-        characteristic, _ = get_or_create_characteristic(session, other, "77")
+        characteristic, _ = get_or_create_characteristic(session, other_rev, "77")
         make_finding(
             session,
             past,
@@ -255,7 +261,7 @@ def build_database():
             ncr="NCR-118",
         )
         for number, value in (("12", 0.08), ("19", 0.03)):
-            characteristic, _ = get_or_create_characteristic(session, item, number)
+            characteristic, _ = get_or_create_characteristic(session, item_rev, number)
             finding = make_finding(
                 session,
                 current,
@@ -413,6 +419,87 @@ def shoot(widget: QWidget, name: str) -> None:
     print(f"  {name}.png")
 
 
+def build_revision_scenario(engine, ids) -> dict:
+    """Довести демо-базу до состояния «вторая ревизия и прецедент через неё».
+
+    Клонируем ревизию детали `C1-08375A`, двигаем один номер (12 → 13) — это
+    массовый случай перевыпуска, — и регистрируем по новой ревизии отклонение
+    на том же канонном месте. В карточке этого отклонения обязаны быть обе
+    пометки: строка прошлой ревизии и знак `!` на не-канонном размере.
+    """
+    from datetime import timedelta  # noqa: PLC0415
+
+    from db.models import Item  # noqa: PLC0415
+    from domain.characteristics import get_or_create_characteristic  # noqa: PLC0415
+    from domain.deviations import register, set_decision  # noqa: PLC0415
+    from domain.findings import make_finding  # noqa: PLC0415
+    from domain.revisions import characteristic_by_number  # noqa: PLC0415
+
+    with session_scope(engine) as session:
+        item = session.get(Item, ids["item_id"])
+        source = current_revision(item)
+
+        # Решённое отклонение на **не-канонном** размере прежней ревизии: без него
+        # знак `!` показать не на чем — у не-канонного размера прецедент берётся
+        # прямым путём, а прямой путь показывает только решённое.
+        legacy = register(
+            session,
+            item=item,
+            revision=source,
+            wo="W26007188",
+            quantity=8,
+            date=TODAY - timedelta(days=40),
+            machine="CNC-2",
+        )
+        old_noncanon, _ = get_or_create_characteristic(session, source, "41")
+        make_finding(
+            session,
+            legacy,
+            old_noncanon,
+            direction=Direction.PLUS,
+            value=0.06,
+        )
+        set_decision(
+            session,
+            legacy,
+            decision="repair",
+            explanation="Reworked in place; the shoulder was filed back to print.",
+        )
+
+        clone = clone_revision(session, item, source, designation="B")
+
+        moved = characteristic_by_number(clone, "12")
+        moved.local_number = "13"
+        # Размер 41 приехал клоном: за ним нет g-позиции, и в выдаче он обязан
+        # получить знак `!` — совпадение держится на одном номере.
+        session.flush()
+
+        fresh = register(
+            session,
+            item=item,
+            revision=clone,
+            wo="W26007412",
+            quantity=12,
+            date=TODAY - timedelta(days=2),
+            machine="CNC-4",
+        )
+        make_finding(
+            session,
+            fresh,
+            characteristic_by_number(clone, "13"),
+            direction=Direction.MINUS,
+            value=0.04,
+        )
+        make_finding(
+            session,
+            fresh,
+            characteristic_by_number(clone, "41"),
+            direction=Direction.PLUS,
+            value=0.03,
+        )
+        return {"new_deviation_id": fresh.deviation_id, "clone_id": clone.revision_id}
+
+
 def main() -> int:
     # Приложение поднимаем **до** базы: демонстрационный чертёж рисует
     # `QPainter`, а он без `QApplication` не живёт.
@@ -479,6 +566,33 @@ def main() -> int:
     tall_card.resize(kit.tokens.DIALOG_FULL, CARD_TALL)
     shoot(tall_card, "11b-dialog-card-tall")
     shoot(ItemPositionsDialog(engine, ids["item_id"]), "12-dialog-item-positions")
+
+    # --- 19. Ревизия чертежа: сценарий приёмки наряда 0024 (QMS-017) ---
+    #
+    # Снимается ровно тот путь, который просит критерий 4: деталь с ревизией →
+    # отклонение по ней → клон ревизии с правкой одного номера → отклонение по
+    # новой → карточка, где видны обе пометки. Состояние строится здесь, а не в
+    # `build_database`: остальные снимки не обязаны нести вторую ревизию.
+    revision_ids = build_revision_scenario(engine, ids)
+
+    item_form = ItemDialog(engine)
+    item_form.number_edit.setText("C1-08512C")
+    item_form.revision_edit.setText("C")
+    shoot(item_form, "19-dialog-item-revision")
+
+    window.select_section(2)
+    shoot(window, "19b-items-with-revision-column")
+
+    form = DeviationDialog(engine)
+    form.item.setCurrentText("C1-08375A")
+    shoot(form, "19c-dialog-deviation-revision-picker")
+
+    card = CardDialog(engine, revision_ids["new_deviation_id"])
+    # Вторая находка — не-канонный размер 41: на ней видны **обе** пометки разом,
+    # строка прошлой ревизии и знак `!`.
+    card.findings.setCurrentCell(1, 0)
+    card.resize(kit.tokens.DIALOG_FULL, CARD_TALL)
+    shoot(card, "19d-card-revision-marks")
 
     # --- 15. модальное сообщение об ошибке ---
     # Собираем, но не показываем: показанный модальный диалог ждёт ответа и

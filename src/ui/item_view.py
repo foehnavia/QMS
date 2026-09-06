@@ -13,11 +13,18 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QDialog, QMessageBox, QTableWidgetItem, QWidget
+from PySide6.QtWidgets import (
+    QDialog,
+    QInputDialog,
+    QMessageBox,
+    QTableWidgetItem,
+    QWidget,
+)
 from sqlalchemy import Engine
 
+from db.models import Item
 from db.session import session_scope
-from domain.revisions import current_revision
+from domain.revisions import clone_revision, current_revision
 from domain.items import groups_of, list_items
 
 from . import kit
@@ -30,14 +37,24 @@ from .pickers import choose_cg_for_item
 #: Ширины поимённо (§7.3 наряда 0020): max(заголовок, самое длинное реальное
 #: значение) × 1.25, у текстовых — рекорд плюс добавочное слово. Знакоместо
 #: считается по самому широкому знаку шрифта канона, а не по цифре.
-COLUMNS = ("Item number", "Item type", "Connection", "Size class", "Characteristics", "Groups")
-#: `kit.FIT_LABEL` — счётчик (§8.3, класс 2): ширина равна заголовку,
-#: запаса нет — не растёт ни содержимое, ни подпись.
-WIDTHS = (18, 24, 13, 13, kit.FIT_LABEL, 40)
+COLUMNS = (
+    "Item number",
+    "Revision",
+    "Item type",
+    "Connection",
+    "Size class",
+    "Characteristics",
+    "Groups",
+)
+#: `kit.FIT_LABEL` — счётчик и обозначение ревизии (§8.3, класс 2): ширина равна
+#: заголовку, запаса нет — не растёт ни содержимое, ни подпись.
+WIDTHS = (18, kit.FIT_LABEL, 24, 13, 13, kit.FIT_LABEL, 40)
 
 #: Число размеров — колонка счётчика: направление ей задаём явно, а выравнивание
-#: остаётся левым — счётчик не сравнивают по величине (канон §6).
-NUMERIC_COLUMNS = (4,)
+#: остаётся левым — счётчик не сравнивают по величине (канон §6). Ревизия сюда
+#: **не входит**: обозначение приходит как выпущено и бывает не только
+#: латинско-цифровым, поэтому направление у него по содержимому.
+NUMERIC_COLUMNS = (5,)
 
 EMPTY_TITLE = "No items yet"
 EMPTY_BODY = (
@@ -72,10 +89,12 @@ class ItemView(QWidget):
         self.positions_button = kit.secondary("Positions…")
         self.edit_button = kit.secondary("Edit item")
         self.map_button = kit.secondary("Mapping…")
+        self.revision_button = kit.secondary("Add revision…")
         self.add_button.clicked.connect(self.add_item)
         self.positions_button.clicked.connect(self.open_positions)
         self.edit_button.clicked.connect(self.edit_item)
         self.map_button.clicked.connect(self.map_item)
+        self.revision_button.clicked.connect(self.add_revision)
 
         layout = kit.screen_layout(self)
         self.header = kit.section_header(
@@ -88,6 +107,7 @@ class ItemView(QWidget):
                 self.positions_button,
                 self.edit_button,
                 self.map_button,
+                self.revision_button,
             )
         )
         layout.addWidget(self.table, 1)
@@ -102,6 +122,13 @@ class ItemView(QWidget):
                 (
                     item.item_id,
                     item.item_number,
+                    # Действующая ревизия — сразу за номером, как в заголовке.
+                    # Порядок значений обязан совпадать с порядком колонок: их
+                    # ничто не связывает, кроме позиции, и разъехались они
+                    # молча — тесты остались зелёными, потому что сверяли
+                    # индексы, а не то, что в них лежит. Поймал снимок
+                    # (`CLAUDE.md` §9а, находка №7 того же класса).
+                    iso(current_revision(item).designation),
                     item.item_type.name if item.item_type else "",
                     item.connection_type.name,
                     item.size.name,
@@ -128,7 +155,7 @@ class ItemView(QWidget):
         self.table.setVisible(bool(rows))
         self.empty.setVisible(not rows)
 
-        without_group = sum(1 for row in rows if not row[6])
+        without_group = sum(1 for row in rows if not row[7])
         self._summary = strip_iso(
             joined(
                 f"{len(rows)} items",
@@ -209,6 +236,59 @@ class ItemView(QWidget):
             return
         if ItemDialog.run(self._engine, item_id, self):
             self.reload()
+
+    def add_revision(self) -> None:
+        """Новая ревизия чертежа — клоном прежней, с предзаполненной привязкой.
+
+        Ключевое требование пользователя (наряд 0024 §3): ревизия, где сдвинулся
+        один допуск, и ревизия, где переехали все номера, обязаны стоить **одного
+        и того же действия**. Поэтому форма открывается уже заполненной значениями
+        прежней ревизии — локальные номера, привязки, строки 99, — и оператор
+        правит только изменившееся.
+
+        Порядок именно такой: сперва клон, потом привязка. Клон — операция
+        добавления, прежняя ревизия не меняется ничем, поэтому отменять по ходу
+        нечего, а диалог привязки пишет по действию (ратификация S3) и работает
+        уже в новой, действующей ревизии.
+        """
+        item_id = self._selected_item_id()
+        if item_id is None:
+            return
+
+        with session_scope(self._engine) as session:
+            item = session.get(Item, item_id)
+            source = current_revision(item)
+            previous = source.designation if source else ""
+            item_number = item.item_number
+
+        designation, accepted = QInputDialog.getText(
+            self,
+            "Add revision",
+            f"New drawing revision of {item_number}\n"
+            f"(current: {previous}). Enter it as issued:",
+        )
+        if not accepted:
+            return
+
+        try:
+            with session_scope(self._engine) as session:
+                item = session.get(Item, item_id)
+                clone_revision(
+                    session,
+                    item,
+                    current_revision(item),
+                    designation=designation,
+                )
+                groups = groups_of(item)
+                cg_id = groups[0].cg_id if len(groups) == 1 else None
+        except Exception as error:
+            kit.show_error(self, error, title="Revision not added")
+            return
+
+        # Деталь вне канона правится через «Positions…»: привязывать нечего.
+        if cg_id is not None:
+            open_mapping(self._engine, self, item_id, cg_id)
+        self.reload()
 
     def map_item(self) -> None:
         """Привязка размеров выбранной детали к канону — тот же диалог, что и в CG."""

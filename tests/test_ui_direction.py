@@ -337,7 +337,8 @@ def test_the_groups_column_isolates_every_group_name(seeded_session) -> None:
         bind(session, rev(item), latin.positions[0], "19")
 
     view = ItemView(engine)
-    cell = view.table.item(0, 5).text()
+    # Колонка групп сдвинулась на единицу: перед ней встала Revision (QMS-017).
+    cell = view.table.item(0, 6).text()
 
     # Порядок задаёт домен (`groups_of`), проверяем не его, а изоляцию токенов:
     # каждое имя обёрнуто отдельно, склеенного текста в ячейке нет.
