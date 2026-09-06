@@ -21,7 +21,14 @@ from typing import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from db.models import CharacteristicGroup, GPosition, ItemPositionAbsent, Mapping
+from db.models import (
+    Characteristic,
+    CharacteristicGroup,
+    GPosition,
+    ItemPositionAbsent,
+    ItemRevision,
+    Mapping,
+)
 
 from .errors import DuplicateValue, ValidationError, ValueInUse
 
@@ -194,6 +201,69 @@ def update_position(
     position.tol_minus = tol_minus
     session.flush()
     return position
+
+
+def revisions_of_group(session: Session, group: CharacteristicGroup) -> list[ItemRevision]:
+    """Ревизии, привязанные к группе хоть одной позицией — поверх всех выпусков."""
+    return list(
+        session.scalars(
+            select(ItemRevision)
+            .join(Characteristic, Characteristic.revision_id == ItemRevision.revision_id)
+            .join(Mapping, Mapping.characteristic_id == Characteristic.characteristic_id)
+            .join(GPosition, GPosition.g_position_id == Mapping.g_position_id)
+            .where(GPosition.cg_id == group.cg_id)
+            .distinct()
+        )
+    )
+
+
+def revisions_awaiting_answer(
+    session: Session, group: CharacteristicGroup
+) -> list[ItemRevision]:
+    """Действующие ревизии группы, у которых какая-то позиция осталась без ответа.
+
+    Добавленная в группу g-позиция требует ответа — привязки или кода 99 — **только
+    от действующих ревизий** (QMS-017, ратификация 7). Прошлые остаются без ответа
+    навсегда: их чертёж выпущен и больше не меняется, а вопрос «есть ли эта позиция
+    на чертеже `A`» после выхода `B` никто не задаёт и задавать не будет.
+
+    Третьего состояния не заводится: «без ответа» — это **отсутствие строки**, а не
+    значение. Заведи его — и пришлось бы отвечать, чем «ещё не спросили» отличается
+    от «спросили и не ответили», а на чертеже такого различия нет.
+    """
+    positions = {position.g_position_id for position in group.positions}
+    if not positions:
+        return []
+
+    awaiting = []
+    for revision in revisions_of_group(session, group):
+        if not revision.is_current:
+            continue
+        answered = {
+            mapping.g_position_id
+            for characteristic in revision.characteristics
+            if (mapping := characteristic.mapping) is not None
+        } | {absence.g_position_id for absence in revision.absent_positions}
+        if positions - answered:
+            awaiting.append(revision)
+    return awaiting
+
+
+def has_no_current_items(session: Session, group: CharacteristicGroup) -> bool:
+    """Признак «нет деталей в действующей ревизии» — вычисляемый, не колонка.
+
+    Группа может опустеть незаметно: все детали перевыпущены, и ни одна новая
+    ревизия к этой группе не привязана. Признак **выводится запросом** и флагом не
+    хранится (ратификация 8) — хранимый пришлось бы поддерживать при каждом клоне,
+    каждой привязке и каждой смене действующей ревизии, то есть в трёх местах,
+    расходящихся молча.
+
+    Показ этого признака в интерфейсе в наряд `0024` не входит (объявлено §«не
+    входит»); данных для него достаточно в любой момент.
+    """
+    return not any(
+        revision.is_current for revision in revisions_of_group(session, group)
+    )
 
 
 def position_usage(session: Session, position: GPosition) -> int:

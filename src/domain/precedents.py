@@ -46,6 +46,7 @@ from db.models import (
     GPosition,
     Inspection,
     Item,
+    ItemRevision,
     Mapping,
     RefDeviationType,
     RefZone,
@@ -77,6 +78,8 @@ class PrecedentRow:
     date: date_type
     item_id: int
     item_number: str
+    revision_id: int
+    revision: str
     wo: str
     quantity: int
     local_number: str
@@ -91,6 +94,20 @@ class PrecedentRow:
     decision_date: datetime | None
     inspection_count: int
     match: Match
+    #: Совпадение найдено в другой ревизии, чем та, из которой смотрят.
+    #: Отсеивать такие строки нельзя никогда — только помечать (`Search.md`).
+    other_revision: bool = False
+
+    @property
+    def is_canon_bound(self) -> bool:
+        """За номером стоит g-позиция.
+
+        Не-канонный размер выдача помечает знаком `!`: совпадение держится на
+        одном локальном номере, а номер принадлежит чертежу — в другой ревизии
+        за ним может стоять другой размер. У канонного размера пометки нет: он
+        разрешается через маппинг своей ревизии и верен сам собой.
+        """
+        return self.g_label is not None
 
 
 def _inspection_counts():
@@ -117,6 +134,8 @@ def _base_query():
             Deviation.date,
             Item.item_id,
             Item.item_number,
+            ItemRevision.revision_id,
+            ItemRevision.designation.label("revision"),
             Deviation.wo,
             Deviation.quantity,
             Characteristic.local_number,
@@ -138,6 +157,9 @@ def _base_query():
         .join(Deviation, Finding.deviation_id == Deviation.deviation_id)
         .join(Item, Deviation.item_id == Item.item_id)
         .join(Characteristic, Finding.characteristic_id == Characteristic.characteristic_id)
+        # Ревизия берётся у **размера**, а не у отклонения: инвариант держит их
+        # равными, но источник истины один — тот, которому размер принадлежит.
+        .join(ItemRevision, Characteristic.revision_id == ItemRevision.revision_id)
         .outerjoin(Mapping, Mapping.characteristic_id == Characteristic.characteristic_id)
         .outerjoin(GPosition, Mapping.g_position_id == GPosition.g_position_id)
         .outerjoin(CharacteristicGroup, GPosition.cg_id == CharacteristicGroup.cg_id)
@@ -153,7 +175,7 @@ def _base_query():
     return query, inspections
 
 
-def _row(record, match: Match) -> PrecedentRow:
+def _row(record, match: Match, *, reference_revision_id: int | None = None) -> PrecedentRow:
     g_label = (
         f"{record.cg_name} · g{record.g_index}"
         if record.cg_name is not None and record.g_index is not None
@@ -164,6 +186,8 @@ def _row(record, match: Match) -> PrecedentRow:
         dev_number=record.dev_number,
         date=record.date,
         item_id=record.item_id,
+        revision_id=record.revision_id,
+        revision=record.revision,
         item_number=record.item_number,
         wo=record.wo,
         quantity=record.quantity,
@@ -178,6 +202,10 @@ def _row(record, match: Match) -> PrecedentRow:
         explanation=record.explanation,
         decision_date=record.decision_date,
         inspection_count=record.inspections,
+        other_revision=(
+            reference_revision_id is not None
+            and record.revision_id != reference_revision_id
+        ),
         match=match,
     )
 
@@ -206,14 +234,29 @@ def precedents_same_dimension(
     *,
     exclude_deviation: Deviation | None = None,
 ) -> list[PrecedentRow]:
-    """L1a — та же деталь, тот же номер размера.
+    """L1a — та же деталь, тот же номер размера, **по всем её ревизиям**.
 
-    Самое сильное совпадение: тот же физический размер той же детали.
+    Самое сильное совпадение: тот же физический размер той же детали. Прямой
+    путь ищет по номеру, а номер принадлежит чертежу — поэтому поиск идёт по
+    всем ревизиям детали, а каждая строка выдачи несёт ревизию своего
+    совпадения (QMS-017). Совпадение из другой ревизии **не отсеивается
+    никогда** — только помечается: отсев прятал бы ровно тот прецедент, ради
+    которого карточку и открывают.
+
+    Оборотная сторона названа в каноне и принята: если локальный номер между
+    ревизиями переехал, прецедент по нему не найдётся — его поднимают руками.
+    Ленивая перепривязка (решение 9) в Этап 1 не входит.
     """
     query, _ = _base_query()
-    query = query.where(Finding.characteristic_id == characteristic.characteristic_id)
+    query = (
+        query.where(ItemRevision.item_id == characteristic.revision.item_id)
+        .where(Characteristic.local_number == characteristic.local_number)
+    )
     query = _exclude(query, exclude_deviation=exclude_deviation)
-    return [_row(record, "dimension") for record in session.execute(_fresh_first(query))]
+    return [
+        _row(record, "dimension", reference_revision_id=characteristic.revision_id)
+        for record in session.execute(_fresh_first(query))
+    ]
 
 
 def precedents_same_position(
@@ -231,6 +274,12 @@ def precedents_same_position(
     Своя деталь исключена — она уже показана в L1a, и дублировать её значит
     дважды предъявить один прецедент. Если размер к канону не привязан, выдача
     пуста **без ошибки**: это штатное состояние, о котором UI говорит словами.
+
+    Канонный путь разрешается через маппинг **той ревизии, которой принадлежит
+    размер** (QMS-017): маппинг висит на размере, размер — на ревизии, поэтому
+    своей колонки ревизии маппингу не понадобилось. Совпадения приходят из
+    любых ревизий чужих деталей — g-позиция и есть то общее место, которое
+    переживает перевыпуск чертежа.
     """
     mapping = characteristic.mapping
     if mapping is None:
@@ -239,10 +288,13 @@ def precedents_same_position(
     query, _ = _base_query()
     query = (
         query.where(Mapping.g_position_id == mapping.g_position_id)
-        .where(Characteristic.item_id != characteristic.item_id)
+        .where(ItemRevision.item_id != characteristic.revision.item_id)
     )
     query = _exclude(query, exclude_deviation=exclude_deviation)
-    return [_row(record, "position") for record in session.execute(_fresh_first(query))]
+    return [
+        _row(record, "position", reference_revision_id=characteristic.revision_id)
+        for record in session.execute(_fresh_first(query))
+    ]
 
 
 # --- L2 — описательный поиск: снят (наряд 0022) ----------------------------------
@@ -285,23 +337,28 @@ def canon_labels(
 
 
 def canon_labels_for_item(
-    session: Session, item: Item, local_numbers: Sequence[str]
+    session: Session, revision, local_numbers: Sequence[str]
 ) -> dict[str, str]:
-    """То же по номерам размеров детали — для формы, где размера может ещё не быть.
+    """То же по номерам размеров **ревизии** — для формы, где размера может ещё не быть.
 
-    Два запроса независимо от числа строк: сперва характеристики детали, затем
+    Два запроса независимо от числа строк: сперва характеристики ревизии, затем
     их состояние канона. Ключ — номер размера, значение — одно из трёх
     достижимых состояний.
+
+    Читается **в пределах выбранной ревизии** (QMS-017): номер, которого в ней
+    нет, честно получает `not created yet` — на этом ответе форма отклонения и
+    строит пометку «not in this revision». Смена ревизии в форме поэтому ничего
+    не пересчитывает: меняется не номер, а то, против чего он читается.
     """
     wanted = {(number or "").strip() for number in local_numbers if (number or "").strip()}
-    if item is None or not wanted:
+    if revision is None or not wanted:
         return {}
 
     existing = {
         characteristic.local_number: characteristic
         for characteristic in session.scalars(
             select(Characteristic)
-            .where(Characteristic.item_id == item.item_id)
+            .where(Characteristic.revision_id == revision.revision_id)
             .where(Characteristic.local_number.in_(wanted))
         )
     }

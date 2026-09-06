@@ -23,7 +23,8 @@ from sqlalchemy.orm import Session
 from db.ids import next_dev_number
 from db.models import DECISION_DEV, Deviation, Finding, Inspection, Item
 
-from .errors import ValidationError
+from .errors import InvariantViolation, ValidationError
+from .revisions import current_revision
 
 #: Значение `quantity`, которым импорт (S6) помечает выборку `X מתוך Y`.
 #: В ручном вводе — обычное число, отдельного флага не заводим (заметка А).
@@ -57,6 +58,7 @@ def register(
     session: Session,
     *,
     item: Item,
+    revision=None,
     wo: str,
     quantity: int,
     date: date_type,
@@ -69,9 +71,27 @@ def register(
     Находки добавляются отдельно (`findings.make_finding`); инвариант «находок
     `1..N`» держит форма ввода — в домене отклонение рождается пустым, иначе
     регистрацию нельзя было бы разложить на два шага.
+
+    **Ревизия обязательна** (QMS-017): размеры принадлежат ревизии, и отклонение
+    без неё не смогло бы назвать ни одной находки. Пропуск аргумента означает
+    «действующая» — это не молчаливый дефолт, а массовый случай: деталь пришла с
+    актуального чертежа. Перевод на прежнюю ревизию — явное действие оператора:
+    детали прежнего выпуска приходят из цеха ещё два-три месяца после смены.
     """
     if item is None:
         raise ValidationError("Item is required: a deviation without an item cannot be addressed.")
+
+    if revision is None:
+        revision = current_revision(item)
+    if revision is None:
+        raise ValidationError(
+            f"Item \u201c{item.item_number}\u201d has no current drawing revision."
+        )
+    if revision.item_id != item.item_id:
+        raise InvariantViolation(
+            f"Revision \u201c{revision.designation}\u201d belongs to another item \u2014 "
+            "a deviation cannot point at a revision of a different part."
+        )
 
     wo = (wo or "").strip()
     if not wo:
@@ -92,6 +112,7 @@ def register(
     deviation = Deviation(
         dev_number=next_dev_number(session),
         item=item,
+        revision=revision,
         wo=wo,
         machine=_clean(machine),
         quantity=quantity,
@@ -100,6 +121,45 @@ def register(
         attachment=_clean(attachment),
     )
     session.add(deviation)
+    session.flush()
+    return deviation
+
+
+def check_findings_revision(deviation: Deviation) -> None:
+    """Отклонение и все его находки — в одной ревизии (QMS-017).
+
+    Тот же род гарда, что «находка принадлежит детали отклонения» (S2), и
+    заводится по той же причине: размер несёт ревизию через свою запись, и
+    расхождение здесь означало бы отклонение, часть находок которого прочитана
+    по другому чертежу. Молча это не воспроизводится ничем, кроме ошибки в коде,
+    поэтому проверка доменная, а не сообщение оператору.
+    """
+    for finding in deviation.findings:
+        characteristic = finding.characteristic
+        if characteristic is None:
+            continue
+        if characteristic.revision_id != deviation.revision_id:
+            raise InvariantViolation(
+                f"Finding on characteristic no. {characteristic.local_number} belongs to "
+                f"another revision than deviation {deviation.dev_number}."
+            )
+
+
+def set_revision(session: Session, deviation: Deviation, revision) -> Deviation:
+    """Перевести отклонение на другую ревизию той же детали.
+
+    Ничего не пересчитывает: введённые находки остаются как есть, меняется
+    только ревизия, против которой они читаются (ратификация 11). Если находки
+    уже записаны, перевод отбивается инвариантом — сначала правятся находки.
+    """
+    if revision is None:
+        raise ValidationError("A deviation must always name a drawing revision.")
+    if revision.item_id != deviation.item_id:
+        raise InvariantViolation(
+            f"Revision \u201c{revision.designation}\u201d belongs to another item."
+        )
+    deviation.revision = revision
+    check_findings_revision(deviation)
     session.flush()
     return deviation
 

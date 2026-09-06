@@ -47,6 +47,17 @@ from .inspections import (
     update_inspection,
 )
 from .items import create_item, discard_item, groups_of, list_items
+from .revisions import (
+    characteristic_by_number,
+    clone_revision,
+    create_revision,
+    current_revision,
+    list_revisions,
+    previous_revision,
+    rename_revision,
+    revisions_with_number,
+    set_current,
+)
 from .mappings import (
     PositionState,
     binding_state,
@@ -90,7 +101,16 @@ __all__ = [
     "create_group",
     "create_inspection",
     "create_item",
+    "characteristic_by_number",
+    "clone_revision",
+    "create_revision",
+    "current_revision",
     "discard_item",
+    "list_revisions",
+    "previous_revision",
+    "rename_revision",
+    "revisions_with_number",
+    "set_current",
     "delete_deviation",
     "delete_value",
     "ensure_value",

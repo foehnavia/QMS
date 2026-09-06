@@ -21,11 +21,24 @@ from .errors import InvariantViolation, ValidationError, ValueInUse
 
 
 def ensure_finding_target(deviation: Deviation, characteristic: Characteristic) -> None:
-    """Проверить, что размер принадлежит детали отклонения."""
-    if characteristic.item_id != deviation.item_id:
+    """Проверить, что размер принадлежит **ревизии** отклонения.
+
+    Гард ужесточён с детали до ревизии (QMS-017): совпадения детали больше не
+    достаточно. Размер `12` ревизии `A` и размер `12` ревизии `B` — две разные
+    записи одной детали, и находка, севшая не на ту, читалась бы по чужому
+    чертежу. Проверка ревизии проверяет и деталь: ревизия принадлежит одной
+    детали, поэтому отдельного сравнения `item_id` не нужно.
+    """
+    if characteristic.revision_id != deviation.revision_id:
+        if characteristic.revision.item_id != deviation.item_id:
+            raise InvariantViolation(
+                f"Characteristic no. {characteristic.local_number} belongs to another item — "
+                f"it cannot carry a finding of deviation {deviation.dev_number}."
+            )
         raise InvariantViolation(
-            f"Characteristic no. {characteristic.local_number} belongs to another item — "
-            f"it cannot carry a finding of deviation {deviation.dev_number}."
+            f"Characteristic no. {characteristic.local_number} belongs to revision "
+            f"“{characteristic.revision.designation}”, while deviation "
+            f"{deviation.dev_number} is raised against “{deviation.revision.designation}”."
         )
 
 

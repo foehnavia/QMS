@@ -15,9 +15,10 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from db.models import Item
+from db.models import CharacteristicGroup, Item
 
 from .errors import DuplicateValue, ValidationError, ValueInUse
+from .revisions import create_revision, current_revision, list_revisions
 
 
 def list_items(session: Session) -> list[Item]:
@@ -30,9 +31,20 @@ def create_item(
     item_number: str,
     connection_type,
     size,
+    revision: str,
     item_type=None,
 ) -> Item:
-    """Создать деталь. `connection_type`/`size` обязательны (дефолт — `General`)."""
+    """Создать деталь вместе с её первой ревизией чертежа.
+
+    `connection_type`/`size` обязательны (дефолт — `General`). Обозначение ревизии
+    обязательно и **молчаливого дефолта не имеет** (QMS-017, ратификация 4):
+    подставленная «A» выглядела бы как факт с чертежа, а на деле была бы догадкой
+    системы — и разошлась бы с бланком в первый же раз, когда деталь заводят по
+    чертежу ревизии `C`.
+
+    Деталь без ревизии не существует: размеры принадлежат ревизии, значит без неё
+    их некуда записать.
+    """
     item_number = (item_number or "").strip()
     if not item_number:
         raise ValidationError("Item number is required.")
@@ -49,6 +61,7 @@ def create_item(
     )
     session.add(item)
     session.flush()
+    create_revision(session, item, designation=revision)
     return item
 
 
@@ -108,9 +121,10 @@ def discard_item(session: Session, item: Item) -> None:
     наряд не разрешает). Поэтому «не заводить деталь» достигается не отложенной
     записью, а удалением записанного за этот сеанс.
 
-    Каскады модели снимают всё связанное: размеры детали, их маппинги и отметки
-    «нет у детали» (`Item.characteristics` и `Item.absent_positions` —
-    `delete-orphan`, `Characteristic.mapping` — тоже).
+    Каскады модели снимают всё связанное: ревизии детали, а через них размеры,
+    маппинги и отметки «нет у детали» (`Item.revisions`,
+    `ItemRevision.characteristics` и `.absent_positions` — `delete-orphan`,
+    `Characteristic.mapping` — тоже).
 
     **Гард на чужие записи.** Функция откатывает только что созданное и не
     смеет тронуть деталь, на которую уже сослалась работа цеха: отклонение или
@@ -123,22 +137,35 @@ def discard_item(session: Session, item: Item) -> None:
             f"Item “{item.item_number}” has {len(item.deviations)} deviation(s) — "
             "it is not a freshly created item and will not be discarded."
         )
-    for characteristic in item.characteristics:
-        if characteristic.findings:
-            raise ValueInUse(
-                f"Characteristic no. {characteristic.local_number} of item "
-                f"“{item.item_number}” is referenced by findings — "
-                "the item will not be discarded."
-            )
+    for revision in item.revisions:
+        for characteristic in revision.characteristics:
+            if characteristic.findings:
+                raise ValueInUse(
+                    f"Characteristic no. {characteristic.local_number} of item "
+                    f"“{item.item_number}” (revision {revision.designation}) is "
+                    "referenced by findings — the item will not be discarded."
+                )
 
     session.delete(item)
     session.flush()
 
 
-def groups_of(item: Item) -> list[CharacteristicGroup]:
-    """Группы детали — выводятся из маппингов её размеров, не из своей таблицы."""
+def groups_of(item_or_revision) -> list[CharacteristicGroup]:
+    """Группы — выводятся из маппингов размеров, не из своей таблицы.
+
+    Принимает **ревизию** либо деталь. Деталь разрешается в её действующую
+    ревизию: связь `Item↔CG` теперь выводится по ревизии (QMS-017), а вопрос
+    «в каких группах эта деталь» без уточнения ревизии означает «сейчас».
+    Материализация связи отдельной таблицей — за пределами Этапа 1 (решение 12).
+    """
+    revision = item_or_revision
+    if isinstance(item_or_revision, Item):
+        revision = current_revision(item_or_revision)
+        if revision is None:
+            return []
+
     groups: dict[int, CharacteristicGroup] = {}
-    for characteristic in item.characteristics:
+    for characteristic in revision.characteristics:
         mapping = characteristic.mapping
         if mapping is not None and mapping.g_position is not None:
             group = mapping.g_position.cg

@@ -30,6 +30,7 @@ from db.models import (
     GPosition,
     Item,
     ItemPositionAbsent,
+    ItemRevision,
     Mapping,
 )
 
@@ -66,30 +67,40 @@ def _drop_mapping(session: Session, mapping: Mapping) -> None:
 
 
 def _drop_absence(session: Session, absence: ItemPositionAbsent) -> None:
-    absence.item.absent_positions.remove(absence)
+    absence.revision.absent_positions.remove(absence)
     session.flush()
 
 
-def _mapping_for(session: Session, item: Item, position: GPosition) -> Mapping | None:
+def _mapping_for(
+    session: Session, revision: ItemRevision, position: GPosition
+) -> Mapping | None:
     return session.scalar(
         select(Mapping)
         .join(Characteristic, Mapping.characteristic_id == Characteristic.characteristic_id)
-        .where(Characteristic.item_id == item.item_id)
+        .where(Characteristic.revision_id == revision.revision_id)
         .where(Mapping.g_position_id == position.g_position_id)
     )
 
 
-def _absence_for(session: Session, item: Item, position: GPosition) -> ItemPositionAbsent | None:
+def _absence_for(
+    session: Session, revision: ItemRevision, position: GPosition
+) -> ItemPositionAbsent | None:
     return session.scalar(
         select(ItemPositionAbsent)
-        .where(ItemPositionAbsent.item_id == item.item_id)
+        .where(ItemPositionAbsent.revision_id == revision.revision_id)
         .where(ItemPositionAbsent.g_position_id == position.g_position_id)
     )
 
 
-def bind(session: Session, item: Item, position: GPosition, local_number: str) -> Mapping:
-    """Привязать размер детали к g-позиции; характеристику создаст при отсутствии."""
-    characteristic, _ = get_or_create_characteristic(session, item, local_number)
+def bind(
+    session: Session, revision: ItemRevision, position: GPosition, local_number: str
+) -> Mapping:
+    """Привязать размер ревизии к g-позиции; характеристику создаст при отсутствии.
+
+    Привязка принадлежит ревизии, а не детали (QMS-017): один и тот же номер в
+    двух ревизиях — два разных размера, и каждый отвечает своей g-позиции.
+    """
+    characteristic, _ = get_or_create_characteristic(session, revision, local_number)
 
     existing = characteristic.mapping
     if existing is not None:
@@ -100,7 +111,7 @@ def bind(session: Session, item: Item, position: GPosition, local_number: str) -
             f"g{existing.g_position.g_index}. Clear that mapping first."
         )
 
-    occupied = _mapping_for(session, item, position)
+    occupied = _mapping_for(session, revision, position)
     if occupied is not None:
         raise DuplicateValue(
             f"Position g{position.g_index} already carries characteristic "
@@ -108,7 +119,7 @@ def bind(session: Session, item: Item, position: GPosition, local_number: str) -
         )
 
     # Привязка отменяет прежнее «у детали этой позиции нет».
-    absence = _absence_for(session, item, position)
+    absence = _absence_for(session, revision, position)
     if absence is not None:
         _drop_absence(session, absence)
 
@@ -118,39 +129,45 @@ def bind(session: Session, item: Item, position: GPosition, local_number: str) -
     return mapping
 
 
-def mark_absent(session: Session, item: Item, position: GPosition) -> ItemPositionAbsent:
-    """Код 99 — «позицию рассмотрели, у детали её нет». Идемпотентно."""
-    mapping = _mapping_for(session, item, position)
+def mark_absent(
+    session: Session, revision: ItemRevision, position: GPosition
+) -> ItemPositionAbsent:
+    """Код 99 — «позицию рассмотрели, у детали её нет». Идемпотентно.
+
+    В пределах ревизии: позиции, которой нет на чертеже `A`, ничто не мешает
+    появиться на `B` — это один из трёх родов события перевыпуска.
+    """
+    mapping = _mapping_for(session, revision, position)
     if mapping is not None:
         # Характеристику не трогаем: размер у детали может существовать сам по себе.
         _drop_mapping(session, mapping)
 
-    absence = _absence_for(session, item, position)
+    absence = _absence_for(session, revision, position)
     if absence is None:
-        absence = ItemPositionAbsent(item=item, g_position=position)
+        absence = ItemPositionAbsent(revision=revision, g_position=position)
         session.add(absence)
         session.flush()
     return absence
 
 
-def clear(session: Session, item: Item, position: GPosition) -> None:
+def clear(session: Session, revision: ItemRevision, position: GPosition) -> None:
     """Вернуть пару в состояние «не рассматривали».
 
     Характеристику детали **не удаляем**: размер существует независимо от того,
     привязан он к канону или нет.
     """
-    mapping = _mapping_for(session, item, position)
+    mapping = _mapping_for(session, revision, position)
     if mapping is not None:
         _drop_mapping(session, mapping)
-    absence = _absence_for(session, item, position)
+    absence = _absence_for(session, revision, position)
     if absence is not None:
         _drop_absence(session, absence)
 
 
 def binding_state(
-    session: Session, item: Item, group: CharacteristicGroup
+    session: Session, revision: ItemRevision, group: CharacteristicGroup
 ) -> list[PositionState]:
-    """Состояние каждой g-позиции группы для этой детали (порядок — по `g_index`)."""
+    """Состояние каждой g-позиции группы **в этой ревизии** (порядок — по `g_index`)."""
     positions = sorted(group.positions, key=lambda position: position.g_index)
 
     linked = {
@@ -158,13 +175,15 @@ def binding_state(
         for mapping in session.scalars(
             select(Mapping)
             .join(Characteristic, Mapping.characteristic_id == Characteristic.characteristic_id)
-            .where(Characteristic.item_id == item.item_id)
+            .where(Characteristic.revision_id == revision.revision_id)
         )
     }
     absent = {
         absence.g_position_id
         for absence in session.scalars(
-            select(ItemPositionAbsent).where(ItemPositionAbsent.item_id == item.item_id)
+            select(ItemPositionAbsent).where(
+                ItemPositionAbsent.revision_id == revision.revision_id
+            )
         )
     }
 
@@ -200,9 +219,11 @@ def items_by_position(session: Session, position: GPosition) -> list[Item]:
     return list(
         session.scalars(
             select(Item)
-            .join(Characteristic, Characteristic.item_id == Item.item_id)
+            .join(ItemRevision, ItemRevision.item_id == Item.item_id)
+            .join(Characteristic, Characteristic.revision_id == ItemRevision.revision_id)
             .join(Mapping, Mapping.characteristic_id == Characteristic.characteristic_id)
             .where(Mapping.g_position_id == position.g_position_id)
+            .distinct()
             .order_by(Item.item_number)
         )
     )
