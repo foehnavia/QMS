@@ -8,7 +8,7 @@ from datetime import date
 import pytest
 from sqlalchemy.orm import Session
 
-from conftest import make_item, reopen
+from conftest import make_item, reopen, rev
 from db.ids import next_dev_number, next_insp_number
 from db.models import Characteristic, Deviation, Direction, Finding, Inspection, RefInspectionType
 from seed.reference import ref
@@ -23,6 +23,7 @@ def _deviation(session: Session, item, number: str, day: date) -> Deviation:
     dev = Deviation(
         dev_number=number,
         item=item,
+        revision=rev(item),
         wo="W26007336",
         quantity=1,
         date=day,
@@ -81,7 +82,7 @@ def test_counters_are_per_day(seeded_session: Session) -> None:
 
 def test_inspection_numbers_are_sequential(seeded_session: Session) -> None:
     item = make_item(seeded_session, "IT-001")
-    char = Characteristic(item=item, local_number="12")
+    char = Characteristic(revision=rev(item), local_number="12")
     seeded_session.add(char)
     seeded_session.flush()
     day = date(2026, 8, 11)

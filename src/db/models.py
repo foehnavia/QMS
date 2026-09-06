@@ -1,7 +1,7 @@
-"""Модели MIS-QMS — 15 таблиц физической схемы (`docs/architecture.md` §5, rev 0.2).
+"""Модели MIS-QMS — 16 таблиц физической схемы (`docs/architecture.md` §5, rev 0.3).
 
-Core (9): item · characteristic · characteristic_group · g_position · mapping ·
-item_position_absent · deviation · finding · inspection.
+Core (10): item · item_revision · characteristic · characteristic_group ·
+g_position · mapping · item_position_absent · deviation · finding · inspection.
 Reference (6): ref_item_type · ref_connection_type · ref_size · ref_zone ·
 ref_deviation_type · ref_inspection_type.
 
@@ -9,7 +9,8 @@ ref_deviation_type · ref_inspection_type.
 человекочитаемый бизнес-номер (`db.ids`).
 
 Наряд 0001 / QMS-011 (rev 0.1) · наряд 0003 / QMS-013 (rev 0.2: чертёж и
-координаты баллонов в канон-слое, код 99 отдельной таблицей).
+координаты баллонов в канон-слое, код 99 отдельной таблицей) · наряд 0024 /
+QMS-017 (rev 0.3: ревизия чертежа владеет размерами и кодом 99).
 """
 
 from __future__ import annotations
@@ -503,6 +504,7 @@ class Inspection(Base):
 #: Полный перечень таблиц схемы rev 0.2 — сверяется тестом критерия приёмки.
 ALL_TABLES = (
     "item",
+    "item_revision",
     "characteristic",
     "characteristic_group",
     "g_position",

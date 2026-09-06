@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.orm import Session
 
-from conftest import reopen
+from conftest import reopen, rev
 from db.models import GENERAL, Item, RefConnectionType, RefItemType, RefSize
 from domain.errors import DuplicateValue, ValidationError, ValueInUse
 from domain.groups import GPositionSpec, create_group, list_groups
@@ -35,7 +35,7 @@ def _bind_all(session: Session, item: Item, group, numbers: dict[int, str]) -> l
     """
     created = []
     for position in sorted(group.positions, key=lambda p: p.g_index):
-        mapping = bind(session, item, position, numbers[position.g_index])
+        mapping = bind(session, rev(item), position, numbers[position.g_index])
         created.append(mapping.characteristic)
     return created
 
@@ -47,6 +47,7 @@ def _new_item(session: Session, number: str = "C1-08375A") -> Item:
         item_type=ref(session, RefItemType, "implant"),
         connection_type=ref(session, RefConnectionType, "C1"),
         size=ref(session, RefSize, "NP"),
+        revision="A",
     )
 
 
@@ -68,6 +69,7 @@ def test_item_defaults_to_general(seeded_session: Session) -> None:
         item_number="MT-SRH19A",
         connection_type=ref(seeded_session, RefConnectionType, GENERAL),
         size=ref(seeded_session, RefSize, GENERAL),
+        revision="A",
     )
     seeded_session.commit()
 
@@ -91,7 +93,8 @@ def test_blank_item_number_is_rejected(seeded_session: Session) -> None:
             item_number="   ",
             connection_type=ref(seeded_session, RefConnectionType, GENERAL),
             size=ref(seeded_session, RefSize, GENERAL),
-        )
+        revision="A",
+    )
 
 
 # --- Сид CG-размеров (критерий 3, заметка Б) ------------------------------------
@@ -134,6 +137,7 @@ def test_cg_membership_is_derived_not_stored(seeded_session: Session) -> None:
         item_number="NO-CG",
         connection_type=ref(seeded_session, RefConnectionType, GENERAL),
         size=ref(seeded_session, RefSize, GENERAL),
+        revision="A",
     )) == []
 
 
@@ -151,8 +155,8 @@ def test_discarding_a_new_item_leaves_no_trace(seeded_session: Session) -> None:
 
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-A", POSITIONS)
-    bind(seeded_session, item, group.positions[0], "12")
-    mark_absent(seeded_session, item, group.positions[1])
+    bind(seeded_session, rev(item), group.positions[0], "12")
+    mark_absent(seeded_session, rev(item), group.positions[1])
     seeded_session.commit()
 
     discard_item(seeded_session, item)
@@ -171,15 +175,15 @@ def test_discarding_does_not_touch_a_neighbour(seeded_session: Session) -> None:
     group = create_group(seeded_session, "CG-A", POSITIONS)
     doomed = _new_item(seeded_session, "C1-08375A")
     neighbour = _new_item(seeded_session, "C1-08420B")
-    bind(seeded_session, doomed, group.positions[0], "12")
-    bind(seeded_session, neighbour, group.positions[0], "77")
+    bind(seeded_session, rev(doomed), group.positions[0], "12")
+    bind(seeded_session, rev(neighbour), group.positions[0], "77")
     seeded_session.commit()
 
     discard_item(seeded_session, doomed)
     seeded_session.commit()
 
     assert [item.item_number for item in seeded_session.query(Item)] == ["C1-08420B"]
-    assert [char.local_number for char in neighbour.characteristics] == ["77"]
+    assert [char.local_number for char in rev(neighbour).characteristics] == ["77"]
 
 
 def test_an_item_with_deviations_is_not_discarded(seeded_session: Session) -> None:
@@ -194,7 +198,7 @@ def test_an_item_with_deviations_is_not_discarded(seeded_session: Session) -> No
 
     item = _new_item(seeded_session)
     group = create_group(seeded_session, "CG-A", POSITIONS)
-    bind(seeded_session, item, group.positions[0], "12")
+    bind(seeded_session, rev(item), group.positions[0], "12")
     register(seeded_session, item=item, wo="W26007336", quantity=3, date=date.today())
     seeded_session.commit()
 
@@ -257,8 +261,8 @@ def test_seeded_item_survives_a_reopen(migrated_url: str, seeded_session: Sessio
 
     with reopen(migrated_url) as fresh:
         stored = fresh.query(Item).filter_by(item_number="C1-08375A").one()
-        assert sorted(c.local_number for c in stored.characteristics) == ["12", "19", "32"]
-        assert all(c.mapping.g_position is not None for c in stored.characteristics)
+        assert sorted(c.local_number for c in rev(stored).characteristics) == ["12", "19", "32"]
+        assert all(c.mapping.g_position is not None for c in rev(stored).characteristics)
         assert [g.name for g in groups_of(stored)] == ["CG-A"]
 
 
@@ -300,8 +304,8 @@ def test_renaming_keeps_the_dimensions(seeded_session: Session) -> None:
         size=ref(seeded_session, RefSize, "NP"),
     )
 
-    assert sorted(c.local_number for c in item.characteristics) == ["12", "19", "32"]
-    assert all(c.mapping.g_position is not None for c in item.characteristics)
+    assert sorted(c.local_number for c in rev(item).characteristics) == ["12", "19", "32"]
+    assert all(c.mapping.g_position is not None for c in rev(item).characteristics)
     assert [g.name for g in groups_of(item)] == ["CG-A"]
 
 

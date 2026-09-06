@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session
 
-from conftest import make_item
+from conftest import make_item, rev
 from db.models import Deviation, Direction, Finding, Inspection, Item, RefInspectionType
 from domain.characteristics import get_or_create_characteristic
 from domain.deviations import (
@@ -204,8 +204,8 @@ def test_decision_can_set_and_clear_the_ncr_explicitly(seeded_session: Session) 
 def test_list_counts_findings_and_inspections(seeded_session: Session) -> None:
     item = _item(seeded_session)
     deviation = _register(seeded_session, item)
-    char, _ = get_or_create_characteristic(seeded_session, item, "12")
-    other, _ = get_or_create_characteristic(seeded_session, item, "19")
+    char, _ = get_or_create_characteristic(seeded_session, rev(item), "12")
+    other, _ = get_or_create_characteristic(seeded_session, rev(item), "19")
     finding = make_finding(seeded_session, deviation, char, direction=Direction.PLUS)
     make_finding(seeded_session, deviation, other, direction=Direction.MINUS)
     create_inspection(
@@ -252,7 +252,7 @@ def test_list_can_be_narrowed_to_one_item(seeded_session: Session) -> None:
 def test_deleting_a_deviation_takes_findings_and_inspections(seeded_session: Session) -> None:
     item = _item(seeded_session)
     deviation = _register(seeded_session, item)
-    char, _ = get_or_create_characteristic(seeded_session, item, "12")
+    char, _ = get_or_create_characteristic(seeded_session, rev(item), "12")
     finding = make_finding(seeded_session, deviation, char, direction=Direction.PLUS)
     create_inspection(
         seeded_session,
@@ -270,4 +270,4 @@ def test_deleting_a_deviation_takes_findings_and_inspections(seeded_session: Ses
     assert seeded_session.query(Finding).count() == 0
     assert seeded_session.query(Inspection).count() == 0
     # Размер детали переживает удаление: он существует независимо от отклонения.
-    assert seeded_session.query(Item).one().characteristics[0].local_number == "12"
+    assert seeded_session.query(Item).one().revisions[0].characteristics[0].local_number == "12"

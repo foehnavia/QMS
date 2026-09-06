@@ -23,16 +23,17 @@ from sqlalchemy.orm import Session
 
 from db.ids import next_dev_number, next_insp_number
 from db.models import (
-    GENERAL,
     Characteristic,
     CharacteristicGroup,
     Deviation,
     Direction,
     Finding,
+    GENERAL,
     GPosition,
     Inspection,
     Item,
     ItemPositionAbsent,
+    ItemRevision,
     Mapping,
     RefConnectionType,
     RefDeviationType,
@@ -67,10 +68,16 @@ def build_synthetic(session: Session) -> dict[str, object]:
         connection_type=ref(session, RefConnectionType, "C1"),
         size=ref(session, RefSize, "NP"),
     )
-    ch_a12 = Characteristic(item=item_a, local_number="12")
-    ch_a19 = Characteristic(item=item_a, local_number="19")
-    ch_a32 = Characteristic(item=item_a, local_number="32")
     session.add(item_a)
+    session.flush()
+    # Ревизия A — деталь без ревизии не место, куда можно записать размер (QMS-017).
+    rev_a = ItemRevision(item=item_a, designation="A", seq=1, is_current=True)
+    session.add(rev_a)
+    session.flush()
+    ch_a12 = Characteristic(revision=rev_a, local_number="12")
+    ch_a19 = Characteristic(revision=rev_a, local_number="19")
+    ch_a32 = Characteristic(revision=rev_a, local_number="32")
+    session.add_all([ch_a12, ch_a19, ch_a32])
     session.flush()
 
     # Маппинг создаётся до регистрации отклонения (R2).
@@ -79,7 +86,7 @@ def build_synthetic(session: Session) -> dict[str, object]:
             Mapping(characteristic=ch_a12, g_position=g1),
             Mapping(characteristic=ch_a19, g_position=g2),
             # Код 99: позицию g3 рассмотрели — у этой детали её нет.
-            ItemPositionAbsent(item=item_a, g_position=g3),
+            ItemPositionAbsent(revision=rev_a, g_position=g3),
         ]
     )
     # Размер 32 — не-CG: у детали он есть, канонической позиции ему не нашлось.
@@ -91,9 +98,14 @@ def build_synthetic(session: Session) -> dict[str, object]:
         connection_type=ref(session, RefConnectionType, GENERAL),
         size=ref(session, RefSize, GENERAL),
     )
-    ch_b07 = Characteristic(item=item_b, local_number="7")
-    ch_b21 = Characteristic(item=item_b, local_number="21")
     session.add(item_b)
+    session.flush()
+    rev_b = ItemRevision(item=item_b, designation="A", seq=1, is_current=True)
+    session.add(rev_b)
+    session.flush()
+    ch_b07 = Characteristic(revision=rev_b, local_number="7")
+    ch_b21 = Characteristic(revision=rev_b, local_number="21")
+    session.add_all([ch_b07, ch_b21])
     session.flush()
 
     zone_thread = ref(session, RefZone, "thread")
@@ -106,6 +118,7 @@ def build_synthetic(session: Session) -> dict[str, object]:
     dev1 = Deviation(
         dev_number=next_dev_number(session),
         item=item_a,
+        revision=rev_a,
         wo="W26007336",
         machine="CNC-07",
         quantity=120,
@@ -138,6 +151,7 @@ def build_synthetic(session: Session) -> dict[str, object]:
     dev2 = Deviation(
         dev_number=next_dev_number(session),
         item=item_a,
+        revision=rev_a,
         wo="W26007336",
         machine="CNC-07",
         quantity=18,
@@ -163,6 +177,7 @@ def build_synthetic(session: Session) -> dict[str, object]:
     dev3 = Deviation(
         dev_number=next_dev_number(session),
         item=item_b,
+        revision=rev_b,
         wo="W26007412",
         quantity=9999,  # выборка `X מתוך Y` — уровень WO
         date=date(2026, 8, 3),
@@ -186,6 +201,7 @@ def build_synthetic(session: Session) -> dict[str, object]:
     dev4 = Deviation(
         dev_number=next_dev_number(session),
         item=item_b,
+        revision=rev_b,
         wo="W26007412",
         machine="CNC-02",
         quantity=45,

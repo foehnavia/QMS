@@ -21,7 +21,7 @@ from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import QDialog, QDialogButtonBox
 
-from conftest import make_item, make_png
+from conftest import make_item, make_png, rev
 from db.models import CharacteristicGroup, GPosition, Item
 from db.session import session_scope
 from domain.groups import GPositionSpec, create_group, set_drawing
@@ -372,7 +372,7 @@ def test_editor_refuses_to_remove_a_used_position(group_engine, quiet) -> None:
     with session_scope(group_engine) as session:
         item = session.query(Item).one()
         group = session.query(CharacteristicGroup).one()
-        bind(session, item, group.positions[0], "12")
+        bind(session, rev(item), group.positions[0], "12")
 
     editor = CgEditor(group_engine, _cg_id(group_engine))
     editor.table.setCurrentCell(0, 0)
@@ -631,9 +631,9 @@ def test_mapping_dialog_enables_save_when_every_position_is_decided(group_engine
     item_id, cg_id = _item_id(group_engine), _cg_id(group_engine)
     with session_scope(group_engine) as session:
         item, group = session.get(Item, item_id), session.get(CharacteristicGroup, cg_id)
-        bind(session, item, group.positions[0], "12")
-        bind(session, item, group.positions[1], "19")
-        mark_absent(session, item, group.positions[2])
+        bind(session, rev(item), group.positions[0], "12")
+        bind(session, rev(item), group.positions[1], "19")
+        mark_absent(session, rev(item), group.positions[2])
 
     dialog = MappingDialog(group_engine, item_id, cg_id)
 

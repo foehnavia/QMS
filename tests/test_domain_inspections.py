@@ -7,7 +7,7 @@ from datetime import date
 import pytest
 from sqlalchemy.orm import Session
 
-from conftest import make_item
+from conftest import make_item, rev
 from db.models import Deviation, Direction, Inspection, Item, RefInspectionType
 from domain.characteristics import get_or_create_characteristic
 from domain.deviations import register, set_decision
@@ -35,7 +35,7 @@ def _type(session: Session, name: str | None = None) -> RefInspectionType:
 
 def _finding(session: Session, item: Item, local_number: str = "12", wo: str = "W1"):
     deviation = register(session, item=item, wo=wo, quantity=3, date=TODAY)
-    characteristic, _ = get_or_create_characteristic(session, item, local_number)
+    characteristic, _ = get_or_create_characteristic(session, rev(item), local_number)
     return make_finding(session, deviation, characteristic, direction=Direction.PLUS)
 
 
@@ -253,7 +253,7 @@ def test_mirror_search_gathers_inspections_across_deviations(seeded_session: Ses
     """Пара (Item, размер) — сквозная: выдача не ограничена одним отклонением."""
     item = make_item(seeded_session, "IT-001")
     kind = _type(seeded_session)
-    characteristic, _ = get_or_create_characteristic(seeded_session, item, "12")
+    characteristic, _ = get_or_create_characteristic(seeded_session, rev(item), "12")
 
     for index, wo in enumerate(("W1", "W2")):
         deviation = register(seeded_session, item=item, wo=wo, quantity=1, date=TODAY)

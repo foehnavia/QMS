@@ -12,6 +12,15 @@ from db.models import ALL_TABLES, REFERENCE_MODELS
 from db.session import create_db_engine, make_session_factory
 
 
+def _head_revision() -> str:
+    """Последняя ревизия цепочки Alembic — та, до которой доводит стартап."""
+    from alembic.script import ScriptDirectory
+
+    from conftest import alembic_config
+
+    return ScriptDirectory.from_config(alembic_config("sqlite://")).get_current_head()
+
+
 def _revision(engine) -> str | None:
     with engine.connect() as connection:
         return MigrationContext.configure(connection).get_current_revision()
@@ -35,7 +44,9 @@ def test_stale_revision_is_upgraded(db_url: str) -> None:
 
     prepare_database(engine)
 
-    assert _revision(engine) == "rev02"
+    # Хвост цепочки, а не прибитая ревизия: тест про то, что стартап догоняет
+    # схему до head, и падать при каждой новой миграции он не обязан.
+    assert _revision(engine) == _head_revision()
     engine.dispose()
 
 

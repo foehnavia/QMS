@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.orm import Session
 
-from conftest import make_item
+from conftest import make_item, rev
 from db.models import (
     GENERAL,
     REFERENCE_MODELS,
@@ -90,11 +90,12 @@ def test_value_used_by_a_finding_cannot_be_deleted(seeded_session: Session) -> N
     from datetime import date
 
     item = make_item(seeded_session, "IT-001")
-    char = Characteristic(item=item, local_number="12")
+    char = Characteristic(revision=rev(item), local_number="12")
     seeded_session.add(char)
     dev = Deviation(
         dev_number="DEV-260811-0001",
         item=item,
+        revision=rev(item),
         wo="W1",
         quantity=1,
         date=date(2026, 8, 11),

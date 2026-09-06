@@ -14,7 +14,7 @@ import ui.kit
 from PySide6.QtCore import QDate
 from PySide6.QtWidgets import QDialogButtonBox
 
-from conftest import make_item
+from conftest import make_item, rev
 from db.models import (
     CharacteristicGroup,
     Deviation,
@@ -153,7 +153,7 @@ def test_a_dimension_the_item_lacks_is_created_on_save(engine_with_item) -> None
 
     with session_scope(engine_with_item) as session:
         item = session.query(Item).one()
-        assert [c.local_number for c in item.characteristics] == ["77"]
+        assert [c.local_number for c in rev(item).characteristics] == ["77"]
 
 
 def test_the_ui_path_keeps_the_finding_on_the_deviation_item(engine_with_item) -> None:
@@ -163,7 +163,7 @@ def test_the_ui_path_keeps_the_finding_on_the_deviation_item(engine_with_item) -
         foreign = session.query(Item).filter_by(item_number="IT-FOREIGN").one()
         from domain.characteristics import get_or_create_characteristic
 
-        get_or_create_characteristic(session, foreign, "12")
+        get_or_create_characteristic(session, rev(foreign), "12")
 
     dialog = DeviationDialog(engine_with_item)
     _fill_header(dialog)
@@ -266,7 +266,7 @@ def test_canon_column_follows_the_mapping_without_reopening_the_form(
         with session_scope(engine) as session:
             item = session.get(Item, item_id)
             group = session.query(CharacteristicGroup).one()
-            bind(session, item, group.positions[0], "12")
+            bind(session, rev(item), group.positions[0], "12")
         return True
 
     # Ранняя привязка идёт общим помощником (§3.2 наряда 0020) — подменяем
@@ -652,10 +652,10 @@ def _finding_id(engine, local_number: str = "12", extra: str | None = None) -> i
     with session_scope(engine) as session:
         item = session.query(Item).filter_by(item_number="C1-08375A").one()
         deviation = register(session, item=item, wo="W26007336", quantity=5, date=TODAY)
-        characteristic, _ = get_or_create_characteristic(session, item, local_number)
+        characteristic, _ = get_or_create_characteristic(session, rev(item), local_number)
         finding = make_finding(session, deviation, characteristic, direction=Direction.PLUS)
         if extra:
-            second, _ = get_or_create_characteristic(session, item, extra)
+            second, _ = get_or_create_characteristic(session, rev(item), extra)
             make_finding(session, deviation, second, direction=Direction.MINUS)
         return finding.finding_id
 
@@ -735,7 +735,7 @@ def test_all_findings_can_be_replaced_in_one_edit(engine_with_item, monkeypatch)
         # Размер существует независимо от канона и от находок — опечаточный
         # №12 остаётся у детали, его чистит администратор, а не форма.
         item = session.query(Item).filter_by(item_number="C1-08375A").one()
-        assert sorted(c.local_number for c in item.characteristics) == ["12", "15"]
+        assert sorted(c.local_number for c in rev(item).characteristics) == ["12", "15"]
 
 
 def test_replacing_findings_keeps_the_inspection_guard(engine_with_item, monkeypatch) -> None:
@@ -837,8 +837,8 @@ def test_create_item_from_the_deviation_form_maps_it_too(
             positions = sorted(
                 session.get(CharacteristicGroup, cg_id).positions, key=lambda p: p.g_index
             )
-            bind(session, item, positions[0], "31")
-            mark_absent(session, item, positions[1])
+            bind(session, rev(item), positions[0], "31")
+            mark_absent(session, rev(item), positions[1])
 
     import ui.deviation_dialog as module
 

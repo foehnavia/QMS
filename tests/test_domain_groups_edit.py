@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.orm import Session
 
-from conftest import make_item, make_png, reopen
+from conftest import make_item, make_png, reopen, rev
 from db.models import CharacteristicGroup, GPosition
 from domain.errors import DuplicateValue, ValidationError, ValueInUse
 from domain.groups import (
@@ -239,7 +239,7 @@ def test_free_position_is_removed(seeded_session: Session) -> None:
 def test_position_used_by_a_binding_is_protected(seeded_session: Session) -> None:
     group = _group(seeded_session)
     item = make_item(seeded_session, "IT-001")
-    bind(seeded_session, item, group.positions[0], "12")
+    bind(seeded_session, rev(item), group.positions[0], "12")
 
     assert position_usage(seeded_session, group.positions[0]) == 1
     with pytest.raises(ValueInUse) as excinfo:
@@ -251,7 +251,7 @@ def test_position_used_by_an_absence_is_protected(seeded_session: Session) -> No
     """Отметка «нет у детали» держит позицию так же, как привязка."""
     group = _group(seeded_session)
     item = make_item(seeded_session, "IT-001")
-    mark_absent(seeded_session, item, group.positions[1])
+    mark_absent(seeded_session, rev(item), group.positions[1])
 
     assert position_usage(seeded_session, group.positions[1]) == 1
     with pytest.raises(ValueInUse):

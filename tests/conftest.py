@@ -20,7 +20,7 @@ from alembic.config import Config
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
-from db.models import GENERAL, Item, RefConnectionType, RefSize
+from db.models import GENERAL, Item, ItemRevision, RefConnectionType, RefSize
 from db.session import create_db_engine, make_session_factory
 from seed.reference import ref, seed_reference
 
@@ -124,8 +124,18 @@ def make_png(width: int = 16, height: int = 12, color: tuple[int, int, int] = (2
     )
 
 
-def make_item(session: Session, item_number: str) -> Item:
-    """Деталь на `General`-дефолтах — минимум для тестов связей."""
+def make_item(session: Session, item_number: str, *, revision: str = "A") -> Item:
+    """Деталь на `General`-дефолтах вместе с первой ревизией чертежа.
+
+    Ревизия заводится здесь, а не в каждом тесте, по той же причине, по которой
+    её заводит `items.create_item`: размеры принадлежат ревизии, и деталь без
+    неё — не место, куда их можно записать (QMS-017).
+
+    Обозначение по умолчанию есть **только у фикстуры**. В домене молчаливого
+    дефолта нет и быть не должно (ратификация 4): там обозначение приходит с
+    чертежа. Здесь оно не означает ничего, кроме «тесту всё равно», а тест,
+    которому не всё равно, передаёт своё.
+    """
     item = Item(
         item_number=item_number,
         connection_type=ref(session, RefConnectionType, GENERAL),
@@ -133,7 +143,19 @@ def make_item(session: Session, item_number: str) -> Item:
     )
     session.add(item)
     session.flush()
+    session.add(ItemRevision(item=item, designation=revision, seq=1, is_current=True))
+    session.flush()
     return item
+
+
+def rev(item: Item) -> ItemRevision:
+    """Действующая ревизия детали — то, чем теперь адресуются размеры.
+
+    Короткое имя намеренно: в тестах связей эта величина встречается в каждой
+    второй строке, и `current_revision(item)` читался бы там громче, чем предмет
+    проверки.
+    """
+    return next(revision for revision in item.revisions if revision.is_current)
 
 
 @contextmanager

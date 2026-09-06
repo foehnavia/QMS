@@ -322,7 +322,7 @@ def test_the_groups_column_isolates_every_group_name(seeded_session) -> None:
     запятые нейтральными, порядок доставался базе ячейки, и оператор читал
     принадлежность детали неверно.
     """
-    from conftest import make_item
+    from conftest import make_item, rev
     from db.session import session_scope
     from domain.groups import GPositionSpec, create_group
     from domain.mappings import bind
@@ -333,8 +333,8 @@ def test_the_groups_column_isolates_every_group_name(seeded_session) -> None:
         hebrew = create_group(session, "קבוצת הברגה", (GPositionSpec(1, 3.75),))
         latin = create_group(session, "Implant_Con_375_C1", (GPositionSpec(1, 2.0),))
         item = make_item(session, "C1-08375A")
-        bind(session, item, hebrew.positions[0], "12")
-        bind(session, item, latin.positions[0], "19")
+        bind(session, rev(item), hebrew.positions[0], "12")
+        bind(session, rev(item), latin.positions[0], "19")
 
     view = ItemView(engine)
     cell = view.table.item(0, 5).text()

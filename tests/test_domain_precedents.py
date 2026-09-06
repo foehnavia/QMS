@@ -7,7 +7,7 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy.orm import Session
 
-from conftest import make_item
+from conftest import make_item, rev
 from db.models import Direction, Item, RefDeviationType, RefZone
 from domain.characteristics import get_or_create_characteristic
 from domain.deviations import register, set_decision
@@ -54,7 +54,7 @@ def _case(
 ):
     """Отклонение с одной находкой; по умолчанию — уже решённое."""
     deviation = register(session, item=item, wo=wo, quantity=5, date=on)
-    characteristic, _ = get_or_create_characteristic(session, item, local_number)
+    characteristic, _ = get_or_create_characteristic(session, rev(item), local_number)
     finding = make_finding(
         session,
         deviation,
@@ -105,7 +105,7 @@ def test_same_dimension_is_fresh_first(seeded_session: Session) -> None:
     seeded_session.commit()
 
     rows = precedents_same_dimension(
-        seeded_session, seeded_session.query(Item).one().characteristics[0]
+        seeded_session, seeded_session.query(Item).one().revisions[0].characteristics[0]
     )
 
     assert [row.wo for row in rows] == ["NEW", "OLD"]
@@ -132,8 +132,8 @@ def _bound_pair(session: Session):
     group = create_group(session, "CG-A", POSITIONS)
     first = make_item(session, "IT-001")
     second = make_item(session, "IT-002")
-    bind(session, first, group.positions[0], "12")
-    bind(session, second, group.positions[0], "77")
+    bind(session, rev(first), group.positions[0], "12")
+    bind(session, rev(second), group.positions[0], "77")
     return group, first, second
 
 
@@ -167,7 +167,7 @@ def test_same_position_skips_items_marked_absent(seeded_session: Session) -> Non
     """Код 99 — не поисковый ключ: такая деталь в выдачу по позиции не входит."""
     group, first, second = _bound_pair(seeded_session)
     # У второй детали позицию рассмотрели и пометили «нет у детали».
-    mark_absent(seeded_session, second, group.positions[0])
+    mark_absent(seeded_session, rev(second), group.positions[0])
     _case(seeded_session, second, "77", wo="W-ABSENT")
     _dev, _f, characteristic = _case(seeded_session, first, "12")
     seeded_session.commit()
@@ -261,8 +261,8 @@ def test_row_carries_the_whole_deviation_not_just_the_finding(
 
 def test_canon_labels_batches_the_whole_set(seeded_session: Session) -> None:
     group, first, _second = _bound_pair(seeded_session)
-    unbound, _ = get_or_create_characteristic(seeded_session, first, "19")
-    bound = next(c for c in first.characteristics if c.local_number == "12")
+    unbound, _ = get_or_create_characteristic(seeded_session, rev(first), "19")
+    bound = next(c for c in rev(first).characteristics if c.local_number == "12")
     seeded_session.commit()
 
     labels = canon_labels(seeded_session, [bound, unbound])
@@ -277,10 +277,10 @@ def test_canon_labels_is_empty_for_an_empty_set(seeded_session: Session) -> None
 
 def test_canon_labels_for_item_covers_all_three_states(seeded_session: Session) -> None:
     group, first, _second = _bound_pair(seeded_session)
-    get_or_create_characteristic(seeded_session, first, "19")
+    get_or_create_characteristic(seeded_session, rev(first), "19")
     seeded_session.commit()
 
-    labels = canon_labels_for_item(seeded_session, first, ["12", "19", "999"])
+    labels = canon_labels_for_item(seeded_session, rev(first), ["12", "19", "999"])
 
     assert labels == {"12": "g1", "19": CANON_UNBOUND, "999": CANON_NEW}
 
@@ -289,7 +289,7 @@ def test_canon_labels_for_item_ignores_blank_numbers(seeded_session: Session) ->
     item = make_item(seeded_session, "IT-001")
     seeded_session.commit()
 
-    assert canon_labels_for_item(seeded_session, item, ["", "   "]) == {}
+    assert canon_labels_for_item(seeded_session, rev(item), ["", "   "]) == {}
 
 
 def test_precedent_list_does_not_grow_queries_with_rows(seeded_session: Session) -> None:
@@ -310,8 +310,8 @@ def test_precedent_list_does_not_grow_queries_with_rows(seeded_session: Session)
     seeded_session.commit()
 
     engine = seeded_session.get_bind()
-    small = next(c for c in item.characteristics if c.local_number == "12")
-    large = next(c for c in item.characteristics if c.local_number == "19")
+    small = next(c for c in rev(item).characteristics if c.local_number == "12")
+    large = next(c for c in rev(item).characteristics if c.local_number == "19")
     small.characteristic_id, large.characteristic_id  # прогрев, не проверка
 
     with count_queries(engine) as few:
@@ -329,10 +329,10 @@ def test_canon_labels_does_not_grow_queries_with_the_set(seeded_session: Session
 
     group, first, _second = _bound_pair(seeded_session)
     for index in range(20):
-        get_or_create_characteristic(seeded_session, first, f"{index:03d}")
+        get_or_create_characteristic(seeded_session, rev(first), f"{index:03d}")
     seeded_session.commit()
 
-    characteristics = list(first.characteristics)
+    characteristics = list(rev(first).characteristics)
     [c.characteristic_id for c in characteristics]  # прогрев
     engine = seeded_session.get_bind()
 
@@ -354,15 +354,15 @@ def test_canon_labels_for_item_is_two_queries_regardless_of_size(
     group, first, _second = _bound_pair(seeded_session)
     numbers = [f"{index:03d}" for index in range(20)]
     for number in numbers:
-        get_or_create_characteristic(seeded_session, first, number)
+        get_or_create_characteristic(seeded_session, rev(first), number)
     seeded_session.commit()
     first.item_id  # прогрев
     engine = seeded_session.get_bind()
 
     with count_queries(engine) as few:
-        canon_labels_for_item(seeded_session, first, numbers[:2])
+        canon_labels_for_item(seeded_session, rev(first), numbers[:2])
     with count_queries(engine) as many:
-        labels = canon_labels_for_item(seeded_session, first, numbers)
+        labels = canon_labels_for_item(seeded_session, rev(first), numbers)
 
     assert len(labels) == 20
     assert len(few) == len(many) == 2, f"запросов: {len(few)} против {len(many)}"

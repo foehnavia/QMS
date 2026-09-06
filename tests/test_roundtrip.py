@@ -6,7 +6,7 @@ import re
 
 from sqlalchemy import select
 
-from conftest import reopen
+from conftest import reopen, rev
 from db.models import (
     Characteristic,
     Deviation,
@@ -43,7 +43,7 @@ def test_full_graph_survives_a_reopen(migrated_url: str) -> None:
         )
 
         # item -> characteristic -> mapping -> g_position -> cg
-        by_number = {c.local_number: c for c in item.characteristics}
+        by_number = {c.local_number: c for c in rev(item).characteristics}
         assert set(by_number) == {"12", "19", "32"}
         mapped = by_number["12"].mapping
         assert mapped.g_position.g_index == 1
@@ -52,7 +52,7 @@ def test_full_graph_survives_a_reopen(migrated_url: str) -> None:
         assert len(mapped.g_position.cg.positions) == 3
         # код 99 — пара (деталь, позиция) в отдельной таблице
         assert by_number["32"].mapping is None  # не-CG размер живёт без канона
-        absent = item.absent_positions
+        absent = rev(item).absent_positions
         assert [row.g_position.g_index for row in absent] == [3]
 
         # deviation -> finding -> characteristic / zone / deviation_type
@@ -99,8 +99,8 @@ def test_synthetic_covers_the_required_invariants(migrated_url: str) -> None:
 
         # деталь вне CG — размеры без маппинга (массовый случай)
         item_b = session.scalar(select(Item).where(Item.item_number == "MT-SRH19A"))
-        assert item_b.characteristics
-        assert all(c.mapping is None for c in item_b.characteristics)
+        assert rev(item_b).characteristics
+        assert all(c.mapping is None for c in rev(item_b).characteristics)
 
         # у одного отклонения несколько findings с разными направлениями
         multi = [d for d in session.query(Deviation) if len(d.findings) > 1]

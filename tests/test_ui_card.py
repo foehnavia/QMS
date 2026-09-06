@@ -8,7 +8,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog
 
-from conftest import count_queries, make_item
+from conftest import count_queries, make_item, rev
 from db.models import (
     CharacteristicGroup,
     Deviation,
@@ -73,7 +73,7 @@ def _case(
     value: float | None = 0.08,
 ):
     deviation = register(session, item=item, wo=wo, quantity=5, date=on or TODAY)
-    characteristic, _ = get_or_create_characteristic(session, item, local_number)
+    characteristic, _ = get_or_create_characteristic(session, rev(item), local_number)
     finding = make_finding(
         session,
         deviation,
@@ -120,7 +120,7 @@ def test_switching_the_finding_redraws_the_precedents(engine) -> None:
         _case(session, item, "19", wo="W-OLD-19-BIS")
         deviation = register(session, item=item, wo="W-NOW", quantity=1, date=TODAY)
         for number in ("12", "19"):
-            characteristic, _ = get_or_create_characteristic(session, item, number)
+            characteristic, _ = get_or_create_characteristic(session, rev(item), number)
             make_finding(session, deviation, characteristic, direction=Direction.PLUS)
         deviation_id = deviation.deviation_id
 
@@ -174,8 +174,8 @@ def test_l1b_section_shows_another_item_on_the_same_position(engine) -> None:
         group = create_group(session, "CG-A", POSITIONS)
         mine = make_item(session, "IT-001")
         other = make_item(session, "IT-002")
-        bind(session, mine, group.positions[0], "12")
-        bind(session, other, group.positions[0], "77")
+        bind(session, rev(mine), group.positions[0], "12")
+        bind(session, rev(other), group.positions[0], "77")
         _case(session, other, "77", wo="W-OTHER")
         deviation_id, _ = _case(session, mine, "12", wo="W-NOW", decision=None)
 
@@ -210,7 +210,7 @@ def test_binding_from_the_card_revives_the_position_section(engine, monkeypatch)
     with session_scope(engine) as session:
         group = create_group(session, "CG-A", POSITIONS)
         other = make_item(session, "IT-002")
-        bind(session, other, group.positions[0], "77")
+        bind(session, rev(other), group.positions[0], "77")
         _case(session, other, "77", wo="W-OTHER")
         mine = make_item(session, "IT-001")
         deviation_id, _ = _case(session, mine, "12", wo="W-NOW", decision=None)
@@ -225,7 +225,7 @@ def test_binding_from_the_card_revives_the_position_section(engine, monkeypatch)
         with session_scope(engine_) as session:
             item = session.get(Item, item_id)
             group = session.get(CharacteristicGroup, cg_id_)
-            bind(session, item, group.positions[0], "12")
+            bind(session, rev(item), group.positions[0], "12")
         return True
 
     # Привязка из карточки идёт тем же помощником, что и три остальных входа
@@ -365,8 +365,7 @@ def test_card_render_does_not_grow_queries_with_rows(engine) -> None:
             item = make_item(session, item_number)
             deviation = register(session, item=item, wo="W1", quantity=1, date=TODAY)
             for index in range(findings):
-                characteristic, _ = get_or_create_characteristic(
-                    session, item, f"{index:03d}"
+                characteristic, _ = get_or_create_characteristic(session, rev(item), f"{index:03d}"
                 )
                 make_finding(session, deviation, characteristic, direction=Direction.PLUS)
             return deviation.deviation_id
@@ -394,8 +393,7 @@ def test_deviation_form_render_does_not_grow_queries_with_rows(engine) -> None:
             item = make_item(session, item_number)
             deviation = register(session, item=item, wo="W1", quantity=1, date=TODAY)
             for index in range(findings):
-                characteristic, _ = get_or_create_characteristic(
-                    session, item, f"{index:03d}"
+                characteristic, _ = get_or_create_characteristic(session, rev(item), f"{index:03d}"
                 )
                 make_finding(session, deviation, characteristic, direction=Direction.PLUS)
             return deviation.deviation_id
@@ -575,8 +573,8 @@ def _two_sections(engine) -> tuple[int, int, int]:
         group = create_group(session, "CG-A", POSITIONS)
         mine = make_item(session, "IT-001")
         other = make_item(session, "IT-002")
-        bind(session, mine, group.positions[0], "12")
-        bind(session, other, group.positions[0], "77")
+        bind(session, rev(mine), group.positions[0], "12")
+        bind(session, rev(other), group.positions[0], "77")
         past_id, _ = _case(session, mine, "12", wo="W-SAME-DIM")
         position_id, _ = _case(session, other, "77", wo="W-SAME-POS")
         current_id, _ = _case(session, mine, "12", wo="W-NOW", decision=None)
@@ -639,7 +637,7 @@ def test_switching_the_finding_drops_a_stale_selection(engine, monkeypatch) -> N
         _case(session, item, "12", wo="W-OLD-12")
         deviation = register(session, item=item, wo="W-NOW", quantity=1, date=TODAY)
         for number in ("12", "19"):
-            characteristic, _ = get_or_create_characteristic(session, item, number)
+            characteristic, _ = get_or_create_characteristic(session, rev(item), number)
             make_finding(session, deviation, characteristic, direction=Direction.PLUS)
         current_id = deviation.deviation_id
 
@@ -664,7 +662,7 @@ def test_findings_are_ordered_numerically(engine) -> None:
         item = make_item(session, "C1-08375A")
         deviation = register(session, item=item, wo="W1", quantity=1, date=TODAY)
         for number in ("10", "9", "2"):
-            characteristic, _ = get_or_create_characteristic(session, item, number)
+            characteristic, _ = get_or_create_characteristic(session, rev(item), number)
             make_finding(session, deviation, characteristic, direction=Direction.PLUS)
         current_id = deviation.deviation_id
 

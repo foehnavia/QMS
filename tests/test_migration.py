@@ -12,7 +12,8 @@ from db.session import create_db_engine
 
 def test_upgrade_head_creates_all_tables(migrated_url: str) -> None:
     tables = set(inspect(create_db_engine(migrated_url)).get_table_names())
-    assert len(ALL_TABLES) == 15
+    # 16 = 15 таблиц схемы 0.2 + `item_revision` (QMS-017, миграция rev03).
+    assert len(ALL_TABLES) == 16
     assert set(ALL_TABLES) <= tables
     # Кроме схемы модели в БД только служебная таблица версий Alembic.
     assert tables - set(ALL_TABLES) == {"alembic_version"}

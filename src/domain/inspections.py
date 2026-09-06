@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from db.ids import next_insp_number
-from db.models import DECISION_INSP, Characteristic, Finding, Inspection, Item
+from db.models import DECISION_INSP, Characteristic, Finding, Inspection, Item, ItemRevision
 
 from .errors import ValidationError
 
@@ -96,10 +96,14 @@ def inspections_for(
 ) -> list[Inspection]:
     """Зеркальный поиск: все исследования по паре (Item, размер).
 
-    Фильтруем по **обеим** половинам пары, хотя размер уже принадлежит детали:
-    номер размера уникален только внутри детали (`Characteristic.md`), и «дим 12»
-    двух разных деталей — разные размеры. Явная деталь в условии делает это
-    видимым в коде и возвращает пусто, если пару собрали из чужих половин.
+    Фильтруем по **обеим** половинам пары, хотя размер уже принадлежит ревизии,
+    а та — детали: номер размера уникален только внутри ревизии
+    (`Characteristic.md`), и «дим 12» двух разных деталей — разные размеры.
+    Явная деталь в условии делает это видимым в коде и возвращает пусто, если
+    пару собрали из чужих половин.
+
+    Деталь проверяется **через ревизию размера** (QMS-017): своей колонки
+    детали у размера больше нет, и путь к ней ровно один.
     """
     return list(
         session.scalars(
@@ -109,7 +113,8 @@ def inspections_for(
                 Characteristic,
                 Finding.characteristic_id == Characteristic.characteristic_id,
             )
-            .where(Characteristic.item_id == item.item_id)
+            .join(ItemRevision, Characteristic.revision_id == ItemRevision.revision_id)
+            .where(ItemRevision.item_id == item.item_id)
             .where(Characteristic.characteristic_id == characteristic.characteristic_id)
             .order_by(Inspection.insp_number)
         )

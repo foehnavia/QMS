@@ -163,7 +163,7 @@ def test_the_item_form_saves_without_any_numbers_and_names_the_group(
         item = list_items(session)[0]
         assert dialog.created_item_id == item.item_id
         # Размеров ещё нет: их заведёт привязка, а не форма.
-        assert item.characteristics == []
+        assert rev(item).characteristics == []
 
 
 def test_without_a_group_the_form_creates_the_item_alone(seeded_engine) -> None:
@@ -195,7 +195,8 @@ def test_item_view_reloads(seeded_engine) -> None:
             item_number="MT-SRH19A",
             connection_type=[v for v in list_values(session, RefConnectionType) if v.name == "General"][0],
             size=[v for v in list_values(session, RefSize) if v.name == "General"][0],
-        )
+        revision="A",
+    )
 
     view.reload()
     assert view.table.rowCount() == 1
@@ -266,7 +267,7 @@ def filled_engine(seeded_engine):
     """
     from datetime import date
 
-    from conftest import make_item
+    from conftest import make_item, rev
     from db.session import session_scope
     from domain.deviations import register
     from domain.groups import GPositionSpec, create_group

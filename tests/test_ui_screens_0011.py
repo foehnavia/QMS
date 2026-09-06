@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QPushButton
 
 import ui.kit
-from conftest import (
+from conftest import (, rev
     fill_item_form_and_accept,
     make_item,
     stub_mapping_dialog,
@@ -68,8 +68,8 @@ def _bound_item(engine, *, local_number: str = "12"):
     with session_scope(engine) as session:
         group = create_group(session, "Implant_Con_375_C1", POSITIONS)
         item = make_item(session, "C1-08375A")
-        characteristic, _ = get_or_create_characteristic(session, item, local_number)
-        bind(session, item, group.positions[0], local_number)
+        characteristic, _ = get_or_create_characteristic(session, rev(item), local_number)
+        bind(session, rev(item), group.positions[0], local_number)
         return item.item_id
 
 
@@ -94,7 +94,7 @@ def test_the_explanation_reaches_the_list(engine, no_modals) -> None:
         deviation = register(
             session, item=item, wo="W26007336", quantity=12, date=_today()
         )
-        characteristic, _ = get_or_create_characteristic(session, item, "12")
+        characteristic, _ = get_or_create_characteristic(session, rev(item), "12")
         make_finding(session, deviation, characteristic, direction=Direction.PLUS, value=0.08)
         set_decision(session, deviation, decision="approved", explanation=text)
 
@@ -114,7 +114,7 @@ def test_the_decision_cell_carries_its_code_for_the_pill(engine, no_modals) -> N
         deviation = register(
             session, item=item, wo="W26007336", quantity=12, date=_today()
         )
-        characteristic, _ = get_or_create_characteristic(session, item, "12")
+        characteristic, _ = get_or_create_characteristic(session, rev(item), "12")
         make_finding(session, deviation, characteristic, direction=Direction.PLUS, value=0.08)
         set_decision(session, deviation, decision="sorting", explanation="")
 
@@ -154,7 +154,7 @@ def test_the_three_kinds_of_cell_behave_by_the_canon(engine, no_modals) -> None:
         deviation = register(
             session, item=item, wo="W26007336", quantity=12, date=_today()
         )
-        characteristic, _ = get_or_create_characteristic(session, item, "12")
+        characteristic, _ = get_or_create_characteristic(session, rev(item), "12")
         make_finding(session, deviation, characteristic, direction=Direction.PLUS, value=0.08)
         set_decision(session, deviation, decision="approved", explanation=hebrew)
 
@@ -377,11 +377,11 @@ def _deviation_with_a_precedent(engine) -> tuple[int, int]:
         group = create_group(session, "Implant_Con_375_C1", POSITIONS)
 
         past_item = make_item(session, "C1-08420B")
-        bind(session, past_item, group.positions[0], "77")
+        bind(session, rev(past_item), group.positions[0], "77")
         past = register(
             session, item=past_item, wo="W26007201", quantity=40, date=_today()
         )
-        past_characteristic, _ = get_or_create_characteristic(session, past_item, "77")
+        past_characteristic, _ = get_or_create_characteristic(session, rev(past_item), "77")
         make_finding(
             session,
             past,
@@ -394,11 +394,11 @@ def _deviation_with_a_precedent(engine) -> tuple[int, int]:
         )
 
         item = make_item(session, "C1-08375A")
-        bind(session, item, group.positions[0], "12")
+        bind(session, rev(item), group.positions[0], "12")
         current = register(
             session, item=item, wo="W26007336", quantity=12, date=_today()
         )
-        characteristic, _ = get_or_create_characteristic(session, item, "12")
+        characteristic, _ = get_or_create_characteristic(session, rev(item), "12")
         make_finding(
             session, current, characteristic, direction=Direction.PLUS, value=0.08
         )
@@ -412,7 +412,7 @@ def _decided_deviation(engine) -> int:
         deviation = register(
             session, item=item, wo="W26007336", quantity=12, date=_today()
         )
-        characteristic, _ = get_or_create_characteristic(session, item, "12")
+        characteristic, _ = get_or_create_characteristic(session, rev(item), "12")
         make_finding(
             session, deviation, characteristic, direction=Direction.PLUS, value=0.08
         )
@@ -455,7 +455,7 @@ def test_new_item_with_a_group_opens_the_mapping_at_once(group_engine, monkeypat
         with session_scope(engine) as session:
             item = session.get(Item, item_id)
             for position in session.get(CharacteristicGroup, cg_id).positions:
-                mark_absent(session, item, position)
+                mark_absent(session, rev(item), position)
 
     monkeypatch.setattr(view_module.ItemDialog, "exec", fill_item_form_and_accept())
     calls = stub_mapping_dialog(monkeypatch, operator_closes_every_position)
@@ -487,9 +487,9 @@ def test_a_completed_mapping_creates_the_item_with_its_dimensions(
             positions = sorted(
                 session.get(CharacteristicGroup, cg_id).positions, key=lambda p: p.g_index
             )
-            bind(session, item, positions[0], "12")
-            bind(session, item, positions[1], "19")
-            mark_absent(session, item, positions[2])
+            bind(session, rev(item), positions[0], "12")
+            bind(session, rev(item), positions[1], "19")
+            mark_absent(session, rev(item), positions[2])
 
     monkeypatch.setattr(view_module.ItemDialog, "exec", fill_item_form_and_accept())
     stub_mapping_dialog(monkeypatch, operator_maps)
@@ -499,7 +499,7 @@ def test_a_completed_mapping_creates_the_item_with_its_dimensions(
 
     with session_scope(group_engine) as session:
         item = session.query(Item).one()
-        assert sorted(c.local_number for c in item.characteristics) == ["12", "19"]
+        assert sorted(c.local_number for c in rev(item).characteristics) == ["12", "19"]
         assert [g.name for g in groups_of(item)] == ["CG-A"]
     # И группа видна в колонке `Groups` — экран перечитан.
     from ui.item_view import COLUMNS as ItemViewColumns
@@ -527,8 +527,8 @@ def test_refusing_the_mapping_leaves_no_trace(group_engine, monkeypatch) -> None
             positions = sorted(
                 session.get(CharacteristicGroup, cg_id).positions, key=lambda p: p.g_index
             )
-            bind(session, item, positions[0], "12")
-            mark_absent(session, item, positions[1])
+            bind(session, rev(item), positions[0], "12")
+            mark_absent(session, rev(item), positions[1])
             # Третья позиция остаётся нерешённой — привязка неполна.
 
     monkeypatch.setattr(view_module.ItemDialog, "exec", fill_item_form_and_accept())
@@ -576,9 +576,9 @@ def test_answering_no_returns_to_the_mapping(group_engine, monkeypatch) -> None:
             positions = sorted(
                 session.get(CharacteristicGroup, cg_id).positions, key=lambda p: p.g_index
             )
-            bind(session, item, positions[0], "12")
-            mark_absent(session, item, positions[1])
-            mark_absent(session, item, positions[2])
+            bind(session, rev(item), positions[0], "12")
+            mark_absent(session, rev(item), positions[1])
+            mark_absent(session, rev(item), positions[2])
 
     monkeypatch.setattr(view_module.ItemDialog, "exec", fill_item_form_and_accept())
     calls = stub_mapping_dialog(monkeypatch, operator_finishes_on_the_second_go)
@@ -646,7 +646,7 @@ def test_an_existing_item_is_warned_but_never_rolled_back(engine, monkeypatch) -
     with session_scope(engine) as session:
         item = session.get(Item, item_id)
         assert item is not None, "существующую деталь откатывать нельзя"
-        assert [c.local_number for c in item.characteristics] == ["12"]
+        assert [c.local_number for c in rev(item).characteristics] == ["12"]
 
 
 def test_the_warning_names_the_unfinished_positions(engine) -> None:
@@ -738,7 +738,7 @@ def test_the_item_form_edits_an_existing_item(engine, no_modals) -> None:
         item = session.get(Item, item_id)
         assert item.item_number == "C1-08375B"
         # Правка имени не трогает размеры — они ссылаются на `item_id`.
-        assert [c.local_number for c in item.characteristics] == ["12"]
+        assert [c.local_number for c in rev(item).characteristics] == ["12"]
     assert no_modals == []
 
 
@@ -756,7 +756,8 @@ def test_a_duplicate_item_number_is_refused_by_the_form(engine, no_modals) -> No
             item_number="C1-08420B",
             connection_type=ref(session, RefConnectionType, GENERAL),
             size=ref(session, RefSize, GENERAL),
-        )
+        revision="A",
+    )
 
     dialog = ItemDialog(engine, item_id)
     dialog.number_edit.setText("C1-08420B")
@@ -828,7 +829,7 @@ def _finding_of(engine) -> int:
         deviation = register(
             session, item=item, wo="W26007336", quantity=12, date=_today()
         )
-        characteristic, _ = get_or_create_characteristic(session, item, "12")
+        characteristic, _ = get_or_create_characteristic(session, rev(item), "12")
         finding = make_finding(
             session, deviation, characteristic, direction=Direction.PLUS, value=0.08
         )
@@ -859,7 +860,7 @@ def test_the_stored_verdict_values_did_not_change(engine, no_modals) -> None:
         deviation = register(
             session, item=item, wo="W26007336", quantity=12, date=_today()
         )
-        characteristic, _ = get_or_create_characteristic(session, item, "12")
+        characteristic, _ = get_or_create_characteristic(session, rev(item), "12")
         finding = make_finding(
             session, deviation, characteristic, direction=Direction.PLUS, value=0.08
         )

@@ -9,7 +9,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from conftest import make_item
+from conftest import make_item, rev
 from db.models import (
     Characteristic,
     CharacteristicGroup,
@@ -20,6 +20,7 @@ from db.models import (
     Inspection,
     Item,
     ItemPositionAbsent,
+    ItemRevision,
     Mapping,
     RefInspectionType,
 )
@@ -30,6 +31,7 @@ def _deviation(session: Session, item: Item, dev_number: str) -> Deviation:
     dev = Deviation(
         dev_number=dev_number,
         item=item,
+        revision=rev(item),
         wo="W26007336",
         quantity=10,
         date=date(2026, 8, 1),
@@ -71,7 +73,7 @@ def test_duplicate_dev_number_fails(seeded_session: Session) -> None:
 
 def test_duplicate_insp_number_fails(seeded_session: Session) -> None:
     item = make_item(seeded_session, "IT-001")
-    char = Characteristic(item=item, local_number="12")
+    char = Characteristic(revision=rev(item), local_number="12")
     seeded_session.add(char)
     dev = _deviation(seeded_session, item, "DEV-260801-0001")
     finding = Finding(deviation=dev, characteristic=char, direction=Direction.MINUS)
@@ -96,7 +98,7 @@ def test_duplicate_insp_number_fails(seeded_session: Session) -> None:
 
 def test_second_mapping_on_same_characteristic_fails(seeded_session: Session) -> None:
     item = make_item(seeded_session, "IT-001")
-    char = Characteristic(item=item, local_number="12")
+    char = Characteristic(revision=rev(item), local_number="12")
     cg = CharacteristicGroup(name="CG-A")
     cg.positions = [
         GPosition(g_index=1, nominal=1.0, tol_plus=0.1, tol_minus=-0.1),
@@ -117,20 +119,46 @@ def test_second_mapping_on_same_characteristic_fails(seeded_session: Session) ->
 def test_duplicate_local_number_within_item_fails(seeded_session: Session) -> None:
     item = make_item(seeded_session, "IT-001")
     seeded_session.add_all(
-        [Characteristic(item=item, local_number="12"), Characteristic(item=item, local_number="12")]
+        [Characteristic(revision=rev(item), local_number="12"), Characteristic(revision=rev(item), local_number="12")]
     )
     with pytest.raises(IntegrityError):
         seeded_session.flush()
 
 
 def test_same_local_number_on_different_items_is_allowed(seeded_session: Session) -> None:
-    """Номер размера уникален только внутри детали (`Characteristic.md`)."""
+    """Номер размера уникален только внутри **ревизии** (`Characteristic.md`)."""
     first = make_item(seeded_session, "IT-001")
     second = make_item(seeded_session, "IT-002")
+    # Ревизии достаются до создания размеров: обращение к `item.revisions` с
+    # неприсоединённым `Characteristic` в руках дёргает autoflush на середине
+    # сборки, и SQLAlchemy справедливо ругается на объект вне сессии.
+    first_revision, second_revision = rev(first), rev(second)
     seeded_session.add_all(
         [
-            Characteristic(item=first, local_number="12"),
-            Characteristic(item=second, local_number="12"),
+            Characteristic(revision=first_revision, local_number="12"),
+            Characteristic(revision=second_revision, local_number="12"),
+        ]
+    )
+    seeded_session.flush()
+
+
+def test_same_local_number_in_two_revisions_is_allowed(seeded_session: Session) -> None:
+    """Один номер в двух ревизиях одной детали — законно и обычно (QMS-017).
+
+    Массовый случай перевыпуска: номера не тронуты, сдвинут допуск. Ключ поэтому
+    и стал `(revision, local#)`, а не `(item, local#)` — иначе клон ревизии падал
+    бы на первом же размере.
+    """
+    item = make_item(seeded_session, "IT-001")
+    first = rev(item)
+    second = ItemRevision(item=item, designation="B", seq=2, is_current=False)
+    seeded_session.add(second)
+    seeded_session.flush()
+
+    seeded_session.add_all(
+        [
+            Characteristic(revision=first, local_number="12"),
+            Characteristic(revision=second, local_number="12"),
         ]
     )
     seeded_session.flush()
@@ -143,6 +171,7 @@ def test_unknown_decision_dev_is_rejected(seeded_session: Session, value: str) -
         Deviation(
             dev_number="DEV-260801-0001",
             item=item,
+            revision=rev(item),
             wo="W1",
             quantity=1,
             date=date(2026, 8, 1),
@@ -156,7 +185,7 @@ def test_unknown_decision_dev_is_rejected(seeded_session: Session, value: str) -
 
 def test_unknown_direction_is_rejected(seeded_session: Session) -> None:
     item = make_item(seeded_session, "IT-001")
-    char = Characteristic(item=item, local_number="12")
+    char = Characteristic(revision=rev(item), local_number="12")
     seeded_session.add(char)
     dev = _deviation(seeded_session, item, "DEV-260801-0001")
     seeded_session.add(Finding(deviation=dev, characteristic=char, direction="~"))
@@ -180,10 +209,10 @@ def test_absent_row_records_which_position_is_missing(seeded_session: Session) -
     item = make_item(seeded_session, "IT-001")
     cg = _group(seeded_session)
 
-    seeded_session.add(ItemPositionAbsent(item=item, g_position=cg.positions[1]))
+    seeded_session.add(ItemPositionAbsent(revision=rev(item), g_position=cg.positions[1]))
     seeded_session.flush()
 
-    assert item.absent_positions[0].g_position.g_index == 2
+    assert rev(item).absent_positions[0].g_position.g_index == 2
 
 
 def test_absent_pair_is_unique(seeded_session: Session) -> None:
@@ -192,8 +221,8 @@ def test_absent_pair_is_unique(seeded_session: Session) -> None:
 
     seeded_session.add_all(
         [
-            ItemPositionAbsent(item=item, g_position=cg.positions[0]),
-            ItemPositionAbsent(item=item, g_position=cg.positions[0]),
+            ItemPositionAbsent(revision=rev(item), g_position=cg.positions[0]),
+            ItemPositionAbsent(revision=rev(item), g_position=cg.positions[0]),
         ]
     )
     with pytest.raises(IntegrityError):
@@ -202,7 +231,7 @@ def test_absent_pair_is_unique(seeded_session: Session) -> None:
 
 def test_absent_row_needs_an_existing_position(seeded_session: Session) -> None:
     item = make_item(seeded_session, "IT-001")
-    seeded_session.add(ItemPositionAbsent(item_id=item.item_id, g_position_id=424242))
+    seeded_session.add(ItemPositionAbsent(revision_id=rev(item).revision_id, g_position_id=424242))
     with pytest.raises(IntegrityError):
         seeded_session.flush()
 
@@ -210,7 +239,7 @@ def test_absent_row_needs_an_existing_position(seeded_session: Session) -> None:
 def test_mapping_requires_a_position(seeded_session: Session) -> None:
     """Строка `mapping` теперь означает ровно одно — «размер привязан»."""
     item = make_item(seeded_session, "IT-001")
-    char = Characteristic(item=item, local_number="12")
+    char = Characteristic(revision=rev(item), local_number="12")
     seeded_session.add(char)
     seeded_session.flush()
 
@@ -244,7 +273,7 @@ def test_state_depending_is_a_dormant_self_fk(seeded_session: Session, engine) -
     assert self_fk, "state_depending_id должен быть self-FK на characteristic"
 
     item = make_item(seeded_session, "IT-001")
-    char = Characteristic(item=item, local_number="12")
+    char = Characteristic(revision=rev(item), local_number="12")
     seeded_session.add(char)
     seeded_session.flush()
     assert char.state_depending_id is None
