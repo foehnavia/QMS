@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import ast
 import io
 import shutil
 from pathlib import Path
@@ -422,6 +423,48 @@ def test_a_mirror_without_a_body_hash_reads_unverified(canon: Path, tmp_path: Pa
     assert code == 1
     assert "VERDICT: UNVERIFIED" in output
     assert "regenerating" in output
+
+
+def test_a_mirror_truncated_inside_the_banner_reads_corrupt(canon: Path, tmp_path: Path) -> None:
+    """Нечитаемая шапка — порча, а не старая сборка.
+
+    `parse_front_matter` на несовпавшем выражении отдаёт пустые метаданные, и «шапку
+    не разобрать» становилось неотличимо от «зеркала прежней сборки»: разрушенный
+    файл советовал себя перештамповать вместо того, чтобы звать разбираться.
+    Различает их то, что генератор шапку пишет **всегда**.
+    """
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    full = mirror.read_text(encoding="utf-8")
+    mirror.write_text(full[:300], encoding="utf-8")
+    assert len(full) > 300
+
+    code, output = _verdict(canon, mirror)
+
+    assert code == 3
+    assert "VERDICT: CORRUPT" in output
+    assert "VERDICT: UNVERIFIED" not in output
+    assert "no readable YAML front matter" in output
+
+
+def test_printed_strings_are_ascii_only() -> None:
+    """Вывод сторожа — ASCII, потому что консоль рабочей машины cp1255.
+
+    Правило держится тестом, а не памятью: до QMS-019 в вердиктах стояло длинное
+    тире, и на машине оно печаталось как `?`. Проверяются строковые константы внутри
+    вызовов `print` — включая куски f-строк, где не-ASCII и завёлся.
+    """
+    source = (REPO_ROOT / "tools" / "build_mirror.py").read_text(encoding="utf-8")
+    offenders = [
+        (piece.lineno, piece.value)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "print"
+        for piece in ast.walk(node)
+        if isinstance(piece, ast.Constant)
+        and isinstance(piece.value, str)
+        and not piece.value.isascii()
+    ]
+
+    assert offenders == []
 
 
 def test_main_returns_three_on_a_corrupt_mirror(canon: Path, tmp_path: Path) -> None:

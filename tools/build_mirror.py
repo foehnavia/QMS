@@ -25,7 +25,9 @@ no longer depends on someone remembering to bump ``rev``: edit any canon file an
   mirror was made from*. Goes red when the canon moves on: verdict ``STALE``.
 - ``body_hash`` — over the **mirror's own body**, everything below the YAML front matter.
   Answers *is this file still the file that was generated*. Goes red when the artefact is
-  damaged in transit while its banner stays intact: verdict ``CORRUPT``.
+  damaged in transit while its banner stays intact: verdict ``CORRUPT``. A banner that no
+  longer parses is ``CORRUPT`` too, and for a reason worth stating: the generator has never
+  written a mirror without front matter, so an unreadable banner is damage, never age.
 
 The second half exists because the first one cannot see damage. On 2026-09-06 the vault
 copy had lived bloated ~3.95x (160 184 B against a generated 40 596 B) for ten days while
@@ -215,7 +217,8 @@ def check(model_dir, mirror_path, stream=sys.stdout):
 
     Two questions, asked in this order (QMS-019):
 
-    1. **Is the file intact?** ``body_hash`` against a fresh hash of the body.
+    1. **Is the file intact?** The banner has to parse at all, and ``body_hash`` has to
+       match a fresh hash of the body.
     2. **Is it current?** ``source_hash`` against the canon as it is now.
 
     The order is the point. A damaged mirror must not be reported as merely "stale":
@@ -239,7 +242,8 @@ def check(model_dir, mirror_path, stream=sys.stdout):
         print(f"build_mirror --check: mirror not found: {mirror_path}", file=stream)
         return 1
 
-    meta, body = parse_front_matter(mirror_path.read_text(encoding="utf-8"))
+    raw = mirror_path.read_text(encoding="utf-8")
+    meta, body = parse_front_matter(raw)
     stamped = meta.get("source_hash", "")
     stamped_body = meta.get("body_hash", "")
 
@@ -250,6 +254,23 @@ def check(model_dir, mirror_path, stream=sys.stdout):
     print(f"mirror hash: {stamped or '(not stamped)'}", file=stream)
 
     # --- 1. Integrity of the file itself --------------------------------------------
+    #
+    # An unreadable banner is damage, not age. The generator has never written a mirror
+    # without front matter, so a file whose banner does not parse cannot be an older
+    # build — while ``parse_front_matter`` reports that case the same way it reports a
+    # missing field: empty metadata. Left undistinguished, a mirror truncated mid-banner
+    # came out as UNVERIFIED, telling the reader to re-stamp a wrecked file instead of
+    # sending them to find out what wrecked it.
+    if FM_RE.match(raw) is None:
+        print(f"body size actual : {len(_normalised(raw).encode('utf-8'))} bytes", file=stream)
+        print(
+            "VERDICT: CORRUPT - mirror has no readable YAML front matter; the generator "
+            "always writes one, so this file was damaged after generation. Carry the "
+            "artefact over again and find out what damaged it.",
+            file=stream,
+        )
+        return 3
+
     if not stamped_body:
         print(
             "VERDICT: UNVERIFIED - mirror carries no body_hash; it predates the "
