@@ -3,8 +3,8 @@ part_of: MIS-QMS/docs/model
 entity: Search
 order: 100
 canon: true
-rev: "1.01"
-updated: 2026-09-03
+rev: "1.02"
+updated: 2026-09-06
 ---
 
 # Search — by levels
@@ -29,12 +29,17 @@ updated: 2026-09-03
     attribute (zone alone, type alone) returns half the database, which is noise, not a
     precedent;
   - the set is composed **for one case**, each time anew;
-  - at this stage the set is **not saved**; saving filter sets and re-running them is a
-    later, separate piece of work;
+  - at this stage the set is **not saved**; saving filter sets and re-running them belongs
+    with the query constructor of stage **1.5**;
   - it is a consumer of the **filter machinery** of the reference screen, not a second
     tab of automatic output.
-  Open: which attributes make up the set, where the result is shown, when saving arrives
-  (`OPEN_QUESTIONS_MIS-QMS` Q-16, tied to Q-14).
+  **Base parameter set** (closed 2026-09-06, Q-16 — base, not final; it will be adjusted in
+  use): from the part — part type, connection type, dimension class; from the finding — zone,
+  deviation type, direction, magnitude range; framing — period, presence of inspections.
+  **Guard: at least two parameters.** The result is shown **on the list screen**, through the
+  same filter machinery — no separate screen; entry is a button from the card that pre-fills
+  the filters from the current finding. **Resolved deviations only by default, with a
+  toggle.** Built together with part 2 of Q-14 (reference-screen mechanics), after S6.
 - **Deep search — query constructor.** Arbitrary queries over any field of all levels
   (Item ↔ finding ↔ deviation ↔ inspection), with any logic (AND/OR, ranges, nesting).
   **Read-only**; a separate stage (**1.5**) with high priority, right after the base

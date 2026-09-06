@@ -3,8 +3,8 @@ part_of: MIS-QMS/docs/model
 entity: _overview
 order: 10
 canon: true
-rev: "1.00"
-updated: 2026-08-10
+rev: "1.01"
+updated: 2026-09-06
 title: MIS-QMS — Production Deviations Database · Concept Overview
 ---
 
@@ -158,11 +158,12 @@ unlinked and map later (exception, not the rule). (Detail: `CharacteristicGroup.
 
 **Step 6 — Deviation card — the key deliverable.**
 On entry, the card opens with an automatic overview of past deviations with a matching
-(Item, dimension) pair or, for canon-bound dimensions, by matching (CG, g-index), plus a
-query constructor for second-level search. *Why:* the engineer immediately sees prior
-occurrences, decisions and justifications — decisions become uniform and precedent-based.
-*Branches:* exact matches exist → lean on prior decisions; none → second-level
-descriptive search (zone, deviation type). (Detail: `DeviationCard.md`, `Search.md`.)
+(Item, dimension) pair or, for canon-bound dimensions, by matching (CG, g-index). *Why:* the
+engineer immediately sees prior occurrences, decisions and justifications — decisions become
+uniform and precedent-based. *Branches:* exact matches exist → lean on prior decisions; none →
+the engineer composes a **descriptive search** (several parameters at once) — a deliberate
+action, **not** an automatic second-level list (revised 2026-09-03, QMS-016, naryad `0022`).
+(Detail: `DeviationCard.md`, `Search.md`.)
 
 **Step 7 — Study and, if needed, an inspection (research).**
 The engineer assesses the impact. A serious, documented, reusable study is recorded as an
