@@ -430,3 +430,107 @@ def test_a_match_inside_the_same_revision_carries_no_marks(
 
     assert rows and rows[0].other_revision is False
     assert rows[0].is_canon_bound is True
+
+
+# --- §1 наряда 0025: кросс-поиск по канону через ревизии своей детали ----------------
+
+
+def test_a_moved_number_is_found_by_the_canon_section(seeded_session: Session) -> None:
+    """Сценарий, на котором дефект найден прогоном: номер переехал 19 → 66.
+
+    До правки прецедент не показывался **нигде**: секция по номеру его не видела
+    (номер другой), канонная выбрасывала свою деталь. Прецедент проваливался
+    между двумя секциями — и это не крайний случай, а обычный перевыпуск.
+    """
+    from domain.precedents import precedents_same_dimension, precedents_same_position
+
+    item = make_item(seeded_session, "C1-10375A")
+    group = _group(seeded_session, indexes=(13,))
+    source = rev(item)
+    bind(seeded_session, source, group.positions[0], "19")
+    _decided(seeded_session, item, source, "19", "W-REV-A")
+
+    clone = clone_revision(seeded_session, item, source, designation="B")
+    moved = characteristic_by_number(clone, "19")
+    moved.local_number = "66"
+    seeded_session.flush()
+
+    assert precedents_same_dimension(seeded_session, moved) == [], "номер переехал"
+
+    rows = precedents_same_position(seeded_session, moved)
+
+    assert [row.wo for row in rows] == ["W-REV-A"]
+    assert rows[0].revision == "A"
+    assert rows[0].other_revision is True, "строка обязана нести пометку другой ревизии"
+    # Канонный размер знака `!` не получает: g-позиция находит его независимо от
+    # нумерации — это и есть единственное значение знака (`Search.md` v1.04).
+    assert rows[0].is_canon_bound is True
+
+
+def test_an_unmoved_number_is_shown_exactly_once(seeded_session: Session) -> None:
+    """Не переезжал — приходит секцией по номеру и в канонную попасть не имеет права.
+
+    Исключается **весь** результат соседней секции, а не один размер: та ищет по
+    номеру во всех ревизиях и отдаёт по размеру на ревизию.
+    """
+    from domain.precedents import precedents_same_dimension, precedents_same_position
+
+    item = make_item(seeded_session, "C1-10375A")
+    group = _group(seeded_session, indexes=(13,))
+    source = rev(item)
+    bind(seeded_session, source, group.positions[0], "19")
+    _decided(seeded_session, item, source, "19", "W-REV-A")
+
+    clone = clone_revision(seeded_session, item, source, designation="B")
+    kept = characteristic_by_number(clone, "19")
+
+    by_number = precedents_same_dimension(seeded_session, kept)
+    by_canon = precedents_same_position(seeded_session, kept)
+
+    assert [row.wo for row in by_number] == ["W-REV-A"]
+    assert [row.wo for row in by_canon] == [], "дубль в канонной секции"
+
+
+def test_another_item_on_the_same_position_still_matches(seeded_session: Session) -> None:
+    """Регрессия: чужая деталь по той же g-позиции — как было."""
+    from domain.precedents import precedents_same_position
+
+    group = _group(seeded_session, indexes=(13,))
+    first = make_item(seeded_session, "C1-10375A")
+    second = make_item(seeded_session, "C1-10420B")
+    bind(seeded_session, rev(first), group.positions[0], "19")
+    bind(seeded_session, rev(second), group.positions[0], "77")
+    _decided(seeded_session, second, rev(second), "77", "W-OTHER")
+
+    rows = precedents_same_position(
+        seeded_session, characteristic_by_number(rev(first), "19")
+    )
+
+    assert [(row.item_number, row.wo) for row in rows] == [("C1-10420B", "W-OTHER")]
+
+
+def test_a_canon_dimension_from_a_past_revision_gets_no_warning_sign(
+    seeded_session: Session,
+) -> None:
+    """Критерий 2: пометка строки — да, знак `!` — нет.
+
+    Такие строки впервые появляются в выдаче только после правки §1, поэтому до
+    неё это правило не было проверено ничем.
+    """
+    from domain.precedents import precedents_same_position
+
+    item = make_item(seeded_session, "C1-10375A")
+    group = _group(seeded_session, indexes=(13,))
+    source = rev(item)
+    bind(seeded_session, source, group.positions[0], "19")
+    _decided(seeded_session, item, source, "19", "W-REV-A")
+
+    clone = clone_revision(seeded_session, item, source, designation="B")
+    moved = characteristic_by_number(clone, "19")
+    moved.local_number = "66"
+    seeded_session.flush()
+
+    row = precedents_same_position(seeded_session, moved)[0]
+
+    assert row.other_revision is True
+    assert row.is_canon_bound is True, "знак ! у канонного размера не ставится никогда"

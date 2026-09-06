@@ -166,7 +166,8 @@ def test_l1a_section_excludes_the_current_deviation(engine) -> None:
 
     assert card.same_dimension.rowCount() == 1
     assert _text(card.same_dimension.item(0, 4)) == "W-PAST"
-    assert "same characteristic no. 12 (1)" in _text(card.same_dimension_title)
+    # Заголовок называет **как совпало**, а не чья деталь (`Search.md` v1.04).
+    assert "By number: no. 12" in _text(card.same_dimension_title)
 
 
 def test_l1b_section_shows_another_item_on_the_same_position(engine) -> None:
@@ -183,7 +184,7 @@ def test_l1b_section_shows_another_item_on_the_same_position(engine) -> None:
 
     assert card.same_position.rowCount() == 1
     assert _text(card.same_position.item(0, 2)) == "IT-002"
-    assert "same position g1 (1)" in _text(card.same_position_title)
+    assert "By canon: position g1" in _text(card.same_position_title)
     assert card.position_hint_box.isHidden() is True
 
 

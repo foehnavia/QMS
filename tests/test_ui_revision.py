@@ -27,6 +27,7 @@ from ui.card_dialog import (
     CardDialog,
 )
 from ui.deviation_dialog import DeviationDialog
+from ui.kit import tokens
 
 pytestmark = pytest.mark.usefixtures("qt_app")
 
@@ -141,7 +142,11 @@ def test_a_non_canon_size_carries_the_warning_sign(engine) -> None:
 
     cell = card.same_dimension.item(0, PRECEDENT_SIZE_COLUMN)
     assert UNBOUND_MARK in _text(cell)
-    assert "rests on the local number alone" in cell.toolTip()
+    assert "nothing behind it but the number" in cell.toolTip()
+    # Знак читается однозначно: красный и полужирный — цвет и начертание берутся
+    # с самой ячейки, то есть с того, чем рисуют.
+    assert cell.font().bold() is True
+    assert cell.foreground().color().name().upper() == tokens.DANGER_TEXT.upper()
 
 
 def test_a_canon_size_in_the_same_revision_carries_no_marks(engine) -> None:

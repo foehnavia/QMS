@@ -266,3 +266,49 @@ def dimension_sort_key(local_number: str) -> tuple:
     """
     parts = re.split(r"(\d+)", (local_number or "").strip())
     return tuple((1, int(part)) if part.isdigit() else (0, part) for part in parts if part)
+
+
+# --- Знак не-канонного размера (QMS-017, доводка; `Search.md` v1.04) ----------------
+
+#: Знак у размера, за номером которого не стоит g-позиция.
+UNBOUND_MARK = "!"
+
+#: Единственное значение знака, одной строкой — она же подсказка на всех экранах.
+#: Второго смысла на втором экране у знака быть не может: он и заведён затем,
+#: чтобы читаться одинаково в прецедентах и в списке отклонений детали.
+UNBOUND_TOOLTIP = (
+    "This number is read against another revision, and there is nothing behind it "
+    "but the number: the dimension is not bound to the canon."
+)
+
+
+def unbound_size_text(local_number: str, g_label: str | None, *, canon_bound: bool) -> str:
+    """Текст ячейки размера: `19 · CG-A · g13` либо `! · 41`.
+
+    Знак — **отдельный токен в своём изоляте**, а не приклеенная к номеру буква
+    (`CLAUDE.md` §9): склеенный, он в RTL-строке уезжает к другому краю номера и
+    начинает читаться как часть значения.
+    """
+    if not canon_bound:
+        return joined(UNBOUND_MARK, local_number)
+    return joined(local_number, g_label)
+
+
+def mark_unbound(cell) -> None:
+    """Покрасить ячейку не-канонного размера: красный и полужирный.
+
+    Красится **вся ячейка**, а не один знак, и это осознанный размен. Раскрасить
+    внутри ячейки два прогона разным стилем можно только своим делегатом, который
+    сам раскладывает текст, — а ровно там, где приложение раскладывало строки
+    руками, у него и жили ошибки направления (QMS-016, пять случаев подряд). Qt,
+    получив ячейку целиком, раскладывает её сам и в RTL не ошибается.
+    """
+    from PySide6.QtGui import QColor  # noqa: PLC0415
+
+    from .kit import tokens  # noqa: PLC0415
+
+    cell.setForeground(QColor(tokens.DANGER_TEXT))
+    font = cell.font()
+    font.setBold(True)
+    cell.setFont(font)
+    cell.setToolTip(UNBOUND_TOOLTIP)

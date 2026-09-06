@@ -50,11 +50,14 @@ from domain.precedents import (
 
 from . import kit
 from .common import (
+    UNBOUND_MARK,
     decision_dev_label,
     dimension_sort_key,
     iso,
     joined,
+    mark_unbound,
     signed_label,
+    unbound_size_text,
 )
 from .kit import tokens
 from .kit.pills import DECISION_ROLE, DecisionPillDelegate
@@ -120,9 +123,9 @@ PRECEDENT_DECISION_COLUMN = 7
 PRECEDENT_REVISION_COLUMN = 3
 PRECEDENT_SIZE_COLUMN = 5
 
-#: Знак у не-канонного размера: за его номером не стоит g-позиция, совпадение
-#: держится на одном локальном номере — а номер принадлежит чертежу.
-UNBOUND_MARK = "!"
+#: Знак у не-канонного размера. Определение и смысл — в `ui.common`: одно значение
+#: на всех экранах требует одного определения, иначе второй экран заведёт второй
+#: смысл (`Search.md` v1.04). Здесь имя оставлено ради прежних точек ввоза.
 
 UNBOUND_TITLE = "Search by canonical position is unavailable"
 UNBOUND_HINT = (
@@ -189,11 +192,9 @@ class PrecedentTable(kit.DataTable):
         for index, row in enumerate(rows):
             # Составная ячейка: номер размера и g-подпись — самостоятельные
             # токены, каждый в своём изоляте (наряд 0007, §4а).
-            size = joined(row.local_number, row.g_label)
-            if not row.is_canon_bound:
-                # Знак **перед** номером и в своём изоляте: он самостоятельный
-                # токен, а не часть номера (`CLAUDE.md` §9, атомарный токен).
-                size = joined(UNBOUND_MARK, row.local_number)
+            size = unbound_size_text(
+                row.local_number, row.g_label, canon_bound=row.is_canon_bound
+            )
             values = [
                 iso(row.dev_number),
                 iso(f"{row.date:%d.%m.%Y}"),
@@ -216,10 +217,7 @@ class PrecedentTable(kit.DataTable):
                     # по какому канону совпало; держим в подсказке.
                     cell.setToolTip(f"{row.local_number} · {row.g_label}")
                 if column == PRECEDENT_SIZE_COLUMN and not row.is_canon_bound:
-                    cell.setToolTip(
-                        "Not bound to the canon: this match rests on the local "
-                        "number alone, and the number belongs to the drawing."
-                    )
+                    mark_unbound(cell)
                 if column == PRECEDENT_REVISION_COLUMN and row.other_revision:
                     # Пометка «та же деталь, другая ревизия» — всегда при
                     # расхождении. Совпадение через ревизию не отсеивается
@@ -551,8 +549,14 @@ class CardDialog(QDialog):
             self.dimension_empty, NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT
         )
         self.dimension_empty.setVisible(not same_dimension)
+        # Заголовки называют **как совпало**, а не чья деталь (`Search.md` v1.04).
+        # Прежний «Other items…» начал бы врать: канонная секция теперь отдаёт и
+        # другие ревизии своей детали.
         self.same_dimension_title.setText(
-            iso(f"Same item, same characteristic no. {local_number} ({len(same_dimension)})")
+            iso(
+                f"By number: no. {local_number}, all revisions of this item "
+                f"({len(same_dimension)})"
+            )
         )
 
         self.same_position.fill(same_position)
@@ -560,9 +564,12 @@ class CardDialog(QDialog):
         self.same_position.setVisible(bound and bool(same_position))
         self.position_empty.setVisible(bound and not same_position)
         self.same_position_title.setText(
-            iso(f"Other items, same position {position_label} ({len(same_position)})")
+            iso(
+                f"By canon: position {position_label} — other items and other "
+                f"revisions ({len(same_position)})"
+            )
             if bound
-            else "Other items, same position"
+            else "By canon: same position"
         )
 
         self.tabs.setTabText(0, f"{EXACT_TAB}  {len(same_dimension) + len(same_position)}")

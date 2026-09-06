@@ -215,13 +215,19 @@ def _fresh_first(query):
     return query.order_by(Deviation.date.desc(), Deviation.dev_number.desc())
 
 
-def _exclude(query, *, exclude_deviation=None, exclude_characteristic=None):
+def _exclude(query, *, exclude_deviation=None, exclude_characteristics=None):
+    """Убрать из выдачи отклонение и размеры, показанные соседней секцией.
+
+    Исключение принимает **набор**, а не один размер, и это не обобщение впрок.
+    Соседняя секция ищет по локальному номеру **во всех ревизиях детали**, значит
+    и показать может несколько размеров — по одному на ревизию. Исключи один —
+    и при неподвижном номере тот же прецедент придёт дважды.
+    """
     if exclude_deviation is not None:
         query = query.where(Deviation.deviation_id != exclude_deviation.deviation_id)
-    if exclude_characteristic is not None:
-        query = query.where(
-            Finding.characteristic_id != exclude_characteristic.characteristic_id
-        )
+    if exclude_characteristics:
+        ids = [item.characteristic_id for item in exclude_characteristics]
+        query = query.where(Finding.characteristic_id.not_in(ids))
     return query
 
 
@@ -259,38 +265,65 @@ def precedents_same_dimension(
     ]
 
 
+def _same_number_everywhere(session: Session, characteristic: Characteristic):
+    """Размеры этой детали под тем же локальным номером — во всех её ревизиях.
+
+    Ровно то, что отдаёт секция по номеру. Держится одной функцией, чтобы
+    «показанное» и «исключённое» не разъехались: разъедутся — на экране появится
+    либо дубль, либо дыра, и оба видны только глазом.
+    """
+    return list(
+        session.scalars(
+            select(Characteristic)
+            .join(ItemRevision, Characteristic.revision_id == ItemRevision.revision_id)
+            .where(ItemRevision.item_id == characteristic.revision.item_id)
+            .where(Characteristic.local_number == characteristic.local_number)
+        )
+    )
+
+
 def precedents_same_position(
     session: Session,
     characteristic: Characteristic,
     *,
     exclude_deviation: Deviation | None = None,
 ) -> list[PrecedentRow]:
-    """L1b — **другие детали**, привязанные к той же g-позиции.
+    """L1b — совпадения по **той же канонической позиции**: чужие детали и
+    другие ревизии своей.
 
-    Ради этого канон и заведён: одинаковое конструктивное место у разных деталей
-    сравнимо, хотя локальные номера размеров у них разные
-    (`CharacteristicGroup.md`).
+    Ради этого канон и заведён: одинаковое конструктивное место сравнимо, хотя
+    локальные номера у деталей разные (`CharacteristicGroup.md`). Если размер к
+    канону не привязан, выдача пуста **без ошибки**: штатное состояние, о котором
+    UI говорит словами.
 
-    Своя деталь исключена — она уже показана в L1a, и дублировать её значит
-    дважды предъявить один прецедент. Если размер к канону не привязан, выдача
-    пуста **без ошибки**: это штатное состояние, о котором UI говорит словами.
+    **Своя деталь больше не выбрасывается** (QMS-017, доводка после прогона).
+    Прежнее исключение `item_id != ...` было верным ровно до ревизий: пока у
+    детали один набор размеров, «та же деталь и та же g-позиция» означало «тот же
+    локальный номер», и соседняя секция такой прецедент уже показывала. Ревизия
+    ломает это следование — одна и та же деталь достаёт ту же g-позицию **другим**
+    номером, — и прецедент проваливался между секциями: по номеру не находился
+    (номер переехал), по канону выбрасывался (деталь своя).
+
+    Секции делятся по **тому, как совпало**, а не по тому, чья деталь. Поэтому
+    исключается не деталь, а ровно то, что показала соседняя секция: размеры этой
+    детали с тем же локальным номером, во всех её ревизиях. Не переезжал номер —
+    прецедент придёт по номеру и сюда не попадёт; переехал — придёт сюда.
 
     Канонный путь разрешается через маппинг **той ревизии, которой принадлежит
-    размер** (QMS-017): маппинг висит на размере, размер — на ревизии, поэтому
-    своей колонки ревизии маппингу не понадобилось. Совпадения приходят из
-    любых ревизий чужих деталей — g-позиция и есть то общее место, которое
-    переживает перевыпуск чертежа.
+    размер**: маппинг висит на размере, размер — на ревизии, поэтому своей колонки
+    ревизии маппингу не понадобилось.
     """
     mapping = characteristic.mapping
     if mapping is None:
         return []
 
     query, _ = _base_query()
-    query = (
-        query.where(Mapping.g_position_id == mapping.g_position_id)
-        .where(ItemRevision.item_id != characteristic.revision.item_id)
+    query = query.where(Mapping.g_position_id == mapping.g_position_id)
+    query = _exclude(
+        query,
+        exclude_deviation=exclude_deviation,
+        exclude_characteristics=_same_number_everywhere(session, characteristic),
     )
-    query = _exclude(query, exclude_deviation=exclude_deviation)
     return [
         _row(record, "position", reference_revision_id=characteristic.revision_id)
         for record in session.execute(_fresh_first(query))
@@ -305,6 +338,10 @@ def precedents_same_position(
 # `exclude_characteristic`, которым пользовался только описательный уровень, —
 # «не показывать размер, уже показанный соседней секцией» понадобится любому
 # поиску с несколькими выдачами, а восстанавливать его дороже, чем сохранить.
+#
+# Понадобился он через четыре наряда: QMS-017 (доводка) снял исключение по детали
+# и заменил его именно этим — исключением показанного соседней секцией. Механизм
+# расширен до набора: секция по номеру отдаёт по размеру на ревизию.
 
 
 # --- Пакетное состояние канона (снятие N+1 из S4) ---------------------------------
