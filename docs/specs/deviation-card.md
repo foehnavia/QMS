@@ -4,7 +4,7 @@ spec: deviation-card
 status: as-built
 task: QMS-015
 amended_by: QMS-016
-updated: 2026-08-19
+updated: 2026-09-03
 ---
 
 # Deviation card & precedent search L1/L2 — as-built spec (S5 / QMS-015)
@@ -62,15 +62,24 @@ has rows*").
   **"Bind to canon…"** button: binding is precisely what makes this search possible,
   so the dead end offers its own exit.
 
-**Descriptive precedents (L2)** — descriptive search by **zone or deviation type**, with a "matched on"
-column (zone / type / both). The condition is deliberately `OR`: L2 earns its keep exactly
-where an exact match is missing, and demanding both labels would switch it off. Rows
-matching both rank first. A finding carrying neither label gets an explanation instead of a
-table — the search rests on those two fields and nothing else.
+**Descriptive precedents (L2) — REMOVED 2026-09-03 (QMS-016, worklog `0022`).**
 
-**The card opens on L2 when L1 is empty** (both sections), so the operator does not stare at
-two empty tables without noticing the second tab. This happens **at open only**: once the
-card is up, switching findings never yanks the operator off the tab chosen by hand.
+The tab remains and carries an explanation instead of a list. What was here — an automatic
+search by **zone OR deviation type** with a "matched on" column and a rank — was found wrong in
+principle during the run: on a part **not bound to any group** the card showed a precedent from
+an unrelated part, matched on one shared zone alone.
+
+The rule, not the code, was at fault. A descriptive precedent is **not an automatic output**: it
+is a search the engineer sets up from **several parameters at once**, for one case, without
+saving the set. One attribute returns half the database. Details: `../model/Search.md`,
+`OPEN_QUESTIONS_MIS-QMS` Q-16 (tied to Q-14).
+
+**Exact precedents (L1) are untouched** — both sections, the "decided only" rule, ranking and
+opening a precedent all stand as described above.
+
+Kept in the code for the future filter machinery, named in the worklog: `_base_query`, `_row`,
+`_fresh_first`, `exclude_characteristic`, the `match` field.
+
 
 ## 4. The unit of output is the whole deviation
 

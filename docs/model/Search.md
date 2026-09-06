@@ -3,8 +3,8 @@ part_of: MIS-QMS/docs/model
 entity: Search
 order: 100
 canon: true
-rev: "1.00"
-updated: 2026-08-10
+rev: "1.01"
+updated: 2026-09-03
 ---
 
 # Search — by levels
@@ -20,11 +20,21 @@ updated: 2026-08-10
   matches other parts at the same constructive location (`CharacteristicGroup.md`). If
   the dimension is not in a CG, search runs on the (Item, dimension) pair. This is the
   level the **deviation card** shows automatically (`DeviationCard.md`).
-- **Level 2 — descriptive.** By **zone** and **deviation type**
-  (`reference/reference-data.md`). Used when there are no exact matches: finds similar
-  cases by meaning (same part zone, same character of deviation — thread burr, angle,
-  inner diameter, etc.). Works for all findings, including those not bound to the
-  canon.
+- **Level 2 — descriptive. Not an automatic output — a search the engineer sets up**
+  (revised 2026-09-03, QMS-016; supersedes the S5 ratification of an automatic
+  "zone OR type" list). The purpose stands: find parts that **cannot be linked by a
+  characteristic group** yet are close enough that an earlier decision means something.
+  The mechanics change:
+  - the engineer composes a set of parameters — **several at once**, never one. A single
+    attribute (zone alone, type alone) returns half the database, which is noise, not a
+    precedent;
+  - the set is composed **for one case**, each time anew;
+  - at this stage the set is **not saved**; saving filter sets and re-running them is a
+    later, separate piece of work;
+  - it is a consumer of the **filter machinery** of the reference screen, not a second
+    tab of automatic output.
+  Open: which attributes make up the set, where the result is shown, when saving arrives
+  (`OPEN_QUESTIONS_MIS-QMS` Q-16, tied to Q-14).
 - **Deep search — query constructor.** Arbitrary queries over any field of all levels
   (Item ↔ finding ↔ deviation ↔ inspection), with any logic (AND/OR, ranges, nesting).
   **Read-only**; a separate stage (**1.5**) with high priority, right after the base
