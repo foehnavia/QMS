@@ -19,16 +19,19 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -223,33 +226,88 @@ class Item(Base):
     item_type: Mapped[Optional[RefItemType]] = relationship(back_populates="items")
     connection_type: Mapped[RefConnectionType] = relationship(back_populates="items")
     size: Mapped[RefSize] = relationship(back_populates="items")
-    characteristics: Mapped[list["Characteristic"]] = relationship(
-        back_populates="item", cascade="all, delete-orphan"
-    )
     deviations: Mapped[list["Deviation"]] = relationship(back_populates="item")
-    absent_positions: Mapped[list["ItemPositionAbsent"]] = relationship(
-        back_populates="item", cascade="all, delete-orphan"
+    revisions: Mapped[list["ItemRevision"]] = relationship(
+        back_populates="item", cascade="all, delete-orphan", order_by="ItemRevision.seq"
     )
 
     def __repr__(self) -> str:  # pragma: no cover - диагностика
         return f"<Item {self.item_number!r}>"
 
 
+class ItemRevision(Base):
+    """Ревизия чертежа детали — владелец размеров и кода 99 (QMS-017).
+
+    Ревизия принадлежит **чертежу**, а не нашим данным: конструкторский отдел
+    перевыпускает чертёж на любое изменение, и новый выпуск несёт следующее
+    обозначение. Номер детали при этом остаётся одной записью — ревизия дочерняя,
+    поэтому перевыпуск не плодит двойников (`Item.md`).
+
+    У группы характеристик своей ревизии нет: группа — наша конструкция, вне этой
+    базы не существует (`CharacteristicGroup.md`).
+    """
+
+    __tablename__ = "item_revision"
+    __table_args__ = (
+        UniqueConstraint("item_id", "designation", name="uq_item_revision_designation"),
+        UniqueConstraint("item_id", "seq", name="uq_item_revision_seq"),
+        # Ровно одна действующая ревизия на деталь. Частичный уникальный индекс, а не
+        # циклический FK `item.current_revision_id`: тот ломает вставку первой ревизии —
+        # деталь ссылалась бы на ревизию, которой ещё нет.
+        Index(
+            "uq_item_revision_current",
+            "item_id",
+            unique=True,
+            sqlite_where=text("is_current = 1"),
+            postgresql_where=text("is_current"),
+        ),
+    )
+
+    revision_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[int] = mapped_column(
+        ForeignKey("item.item_id", ondelete="CASCADE"), nullable=False
+    )
+    # Обозначение **как выпущено** (`A`, `B`, `A1`): строка, не номер, не парсится.
+    designation: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Порядок хранится явно: система обязана уметь назвать «предыдущую», а
+    # алфавитный порядок на обозначении не гарантирован.
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    item: Mapped[Item] = relationship(back_populates="revisions")
+    characteristics: Mapped[list["Characteristic"]] = relationship(
+        back_populates="revision", cascade="all, delete-orphan"
+    )
+    absent_positions: Mapped[list["ItemPositionAbsent"]] = relationship(
+        back_populates="revision", cascade="all, delete-orphan"
+    )
+    deviations: Mapped[list["Deviation"]] = relationship(back_populates="revision")
+
+    def __repr__(self) -> str:  # pragma: no cover - диагностика
+        return f"<ItemRevision item={self.item_id} {self.designation!r}>"
+
+
 class Characteristic(Base):
-    """Размер конкретной детали. Ключ — `(item, local_number)`.
+    """Размер детали в одной ревизии чертежа. Ключ — `(item, revision, local#)`.
 
     `local_number` — строка: канон допускает буквенные номера (`AA`/`AB` для
     состояний до/после электрополировки, `Characteristic.md`).
+
+    Владелец — **ревизия**, а не деталь (QMS-017). Ревизия входит в схему ровно в
+    этой одной точке: `mapping` и `finding` висят на размере и наследуют её через
+    него, поэтому своей колонки ревизии у них нет и не должно быть.
     """
 
     __tablename__ = "characteristic"
     __table_args__ = (
-        UniqueConstraint("item_id", "local_number", name="uq_characteristic_item_local"),
+        UniqueConstraint(
+            "revision_id", "local_number", name="uq_characteristic_revision_local"
+        ),
     )
 
     characteristic_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    item_id: Mapped[int] = mapped_column(
-        ForeignKey("item.item_id", ondelete="CASCADE"), nullable=False
+    revision_id: Mapped[int] = mapped_column(
+        ForeignKey("item_revision.revision_id", ondelete="CASCADE"), nullable=False
     )
     local_number: Mapped[str] = mapped_column(String(32), nullable=False)
     # Спящее поле R1 (`decisions.md`): связь размеров-состояний. В S1 всегда NULL.
@@ -257,7 +315,7 @@ class Characteristic(Base):
         ForeignKey("characteristic.characteristic_id")
     )
 
-    item: Mapped[Item] = relationship(back_populates="characteristics")
+    revision: Mapped["ItemRevision"] = relationship(back_populates="characteristics")
     state_depending: Mapped[Optional["Characteristic"]] = relationship(
         remote_side="Characteristic.characteristic_id"
     )
@@ -267,7 +325,7 @@ class Characteristic(Base):
     findings: Mapped[list["Finding"]] = relationship(back_populates="characteristic")
 
     def __repr__(self) -> str:  # pragma: no cover - диагностика
-        return f"<Characteristic item={self.item_id} #{self.local_number}>"
+        return f"<Characteristic rev={self.revision_id} #{self.local_number}>"
 
 
 class Mapping(Base):
@@ -300,7 +358,7 @@ class Mapping(Base):
 class ItemPositionAbsent(Base):
     """Код 99 — «позицию рассмотрели, у детали её нет».
 
-    Пара (деталь, g-позиция). Не ключ поиска: выдача «детали по `(cg, g_index)`»
+    Пара (**ревизия**, g-позиция) — QMS-017. Не ключ поиска: выдача «детали по `(cg, g_index)`»
     строится по `mapping` и такие детали не возвращает — пара лишь фиксирует,
     что вопрос закрыт, и отличает это от «ещё не рассматривали»
     (`CharacteristicGroup.md`, Session-03 §4).
@@ -308,18 +366,20 @@ class ItemPositionAbsent(Base):
 
     __tablename__ = "item_position_absent"
     __table_args__ = (
-        UniqueConstraint("item_id", "g_position_id", name="uq_item_position_absent_pair"),
+        UniqueConstraint(
+            "revision_id", "g_position_id", name="uq_item_position_absent_pair"
+        ),
     )
 
     absent_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    item_id: Mapped[int] = mapped_column(
-        ForeignKey("item.item_id", ondelete="CASCADE"), nullable=False
+    revision_id: Mapped[int] = mapped_column(
+        ForeignKey("item_revision.revision_id", ondelete="CASCADE"), nullable=False
     )
     g_position_id: Mapped[int] = mapped_column(
         ForeignKey("g_position.g_position_id"), nullable=False
     )
 
-    item: Mapped["Item"] = relationship(back_populates="absent_positions")
+    revision: Mapped["ItemRevision"] = relationship(back_populates="absent_positions")
     g_position: Mapped[GPosition] = relationship(back_populates="absences")
 
 
@@ -341,6 +401,12 @@ class Deviation(Base):
     deviation_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     dev_number: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("item.item_id"), nullable=False)
+    # `item_id` сохранён намеренно: выдача «по детали целиком», поверх всех ревизий
+    # (`Search.md`), иначе каждый такой запрос шёл бы через join. Инвариант
+    # `revision.item_id == item_id` держит домен — схема его выразить не может.
+    revision_id: Mapped[int] = mapped_column(
+        ForeignKey("item_revision.revision_id"), nullable=False
+    )
     wo: Mapped[str] = mapped_column(String(64), nullable=False)  # `פק"ע`
     machine: Mapped[Optional[str]] = mapped_column(String(64))
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -356,6 +422,7 @@ class Deviation(Base):
     attachment: Mapped[Optional[str]] = mapped_column(Text)
 
     item: Mapped[Item] = relationship(back_populates="deviations")
+    revision: Mapped["ItemRevision"] = relationship(back_populates="deviations")
     findings: Mapped[list["Finding"]] = relationship(
         back_populates="deviation", cascade="all, delete-orphan"
     )
