@@ -25,7 +25,7 @@ from domain.deviations import list_deviations
 from domain.revisions import current_revision
 
 from . import kit
-from .common import decision_dev_label, iso, mark_unbound
+from .common import decision_dev_label, iso, mark_other_revision
 from .kit import tokens
 from .kit.pills import DECISION_ROLE, DecisionPillDelegate
 
@@ -125,14 +125,10 @@ class ItemDeviationsDialog(QDialog):
                 if column == DECISION_COLUMN:
                     cell.setData(DECISION_ROLE, row.decision_dev)
                 if column == REVISION_COLUMN and row.revision != current_designation:
-                    # Та же пометка, что в прецедентах, и по тому же правилу:
-                    # прежний выпуск сравним не во всём, и это должно быть видно
-                    # без вычитания обозначений глазами.
-                    mark_unbound(cell)
-                    cell.setToolTip(
-                        f"Revision {row.revision}: an earlier issue of the drawing, "
-                        f"not the current one ({current_designation})."
-                    )
+                    # Та же функция, что в прецедентах: один и тот же факт не имеет
+                    # права выглядеть на двух экранах по-разному. Только начертание —
+                    # цвет означает «нет канона» и на колонку ревизии не попадает.
+                    mark_other_revision(cell, row.revision, current_designation)
                 self.table.setItem(index, column, cell)
 
         self.table.setVisible(bool(rows))

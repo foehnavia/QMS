@@ -194,7 +194,12 @@ def test_the_item_deviations_list_covers_every_revision(engine) -> None:
 
 
 def test_a_row_from_an_earlier_issue_is_marked(engine) -> None:
-    """Та же пометка, что в прецедентах: красная, полужирная, с объяснением."""
+    """Пометка выпуска — **только начертание**, и та же, что в прецедентах.
+
+    Прежняя редакция этого теста требовала красного и тем самым закрепляла дефект:
+    цвет означает «за номером нет канона», и на колонке ревизии ему делать нечего
+    (`Search.md` v1.05).
+    """
     with session_scope(engine) as session:
         item_id = _two_revisions(session)
 
@@ -202,8 +207,8 @@ def test_a_row_from_an_earlier_issue_is_marked(engine) -> None:
     cell = dialog.table.item(0, _column(dialog.table, "Revision"))
 
     assert cell.font().bold() is True
-    assert cell.foreground().color().name().upper() == tokens.DANGER_TEXT.upper()
-    assert "earlier issue" in cell.toolTip()
+    assert cell.foreground().color().name().upper() != tokens.DANGER_TEXT.upper()
+    assert "another issue of the drawing" in cell.toolTip()
 
 
 def test_the_item_deviations_list_has_no_filters(engine) -> None:
@@ -276,3 +281,103 @@ def test_the_mapping_dialog_keeps_typing_in_the_row(engine) -> None:
     dialog = MappingDialog(engine, item_id, cg_id)
 
     assert dialog.table.editTriggers() != QAbstractItemView.EditTrigger.NoEditTriggers
+
+
+# --- Доводка 0025: пометки различаются свойством, а не функцией ----------------------
+
+
+def _revision_cell_of_precedent_card(engine, item_id):
+    """Ячейка ревизии прецедента в карточке отклонения по новой ревизии."""
+    from ui.card_dialog import CardDialog, PRECEDENT_REVISION_COLUMN
+
+    with session_scope(engine) as session:
+        from db.models import Item
+
+        item = session.get(Item, item_id)
+        clone = current_revision(item)
+        fresh = register(
+            session, item=item, revision=clone, wo="W-NEW", quantity=1, date=date(2026, 9, 1)
+        )
+        make_finding(
+            session,
+            fresh,
+            characteristic_by_number(clone, "66"),
+            direction="-",
+            value=0.01,
+        )
+        # Прецедент показывается только решённый.
+        past = next(d for d in item.deviations if d.wo == "W-REV-A")
+        past.decision_dev = "approved"
+        past.explanation = "ok"
+        session.flush()
+        deviation_id = fresh.deviation_id
+
+    card = CardDialog(engine, deviation_id)
+    card.findings.setCurrentCell(0, 0)
+    assert card.same_position.rowCount() == 1, "прецедент через ревизию обязан быть"
+    return card, card.same_position.item(0, PRECEDENT_REVISION_COLUMN)
+
+
+def test_the_revision_mark_looks_the_same_on_both_screens(engine) -> None:
+    """Один факт — одно оформление. Сравниваются **свойства ячейки**, не снимок.
+
+    Дефект, который этот тест ловит: пометку ставили две разные функции — в
+    прецедентах вручную полужирным, в списке отклонений детали через
+    `mark_unbound`, то есть красным. Один и тот же факт «строка из прежнего
+    выпуска» выглядел на двух экранах по-разному.
+    """
+    with session_scope(engine) as session:
+        item_id = _two_revisions(session)
+
+    _card, precedent_cell = _revision_cell_of_precedent_card(engine, item_id)
+    listing = ItemDeviationsDialog(engine, item_id)
+    listing_cell = listing.table.item(
+        next(
+            row
+            for row in range(listing.table.rowCount())
+            if _text(listing.table.item(row, _column(listing.table, "Revision"))) == "A"
+        ),
+        _column(listing.table, "Revision"),
+    )
+
+    assert precedent_cell.font().bold() == listing_cell.font().bold() is True
+    assert (
+        precedent_cell.foreground().color().name()
+        == listing_cell.foreground().color().name()
+    )
+    assert "another issue of the drawing" in precedent_cell.toolTip()
+    assert "another issue of the drawing" in listing_cell.toolTip()
+
+
+def test_the_revision_column_is_never_red(engine) -> None:
+    """Цвет занят смыслом «нет канона» и на колонку ревизии не попадает.
+
+    Проверяется на обоих экранах: разъехаться они могут только порознь.
+    """
+    with session_scope(engine) as session:
+        item_id = _two_revisions(session)
+
+    _card, precedent_cell = _revision_cell_of_precedent_card(engine, item_id)
+    listing = ItemDeviationsDialog(engine, item_id)
+    listing_cells = [
+        listing.table.item(row, _column(listing.table, "Revision"))
+        for row in range(listing.table.rowCount())
+    ]
+
+    danger = tokens.DANGER_TEXT.upper()
+    assert precedent_cell.foreground().color().name().upper() != danger
+    assert all(cell.foreground().color().name().upper() != danger for cell in listing_cells)
+
+
+def test_a_canon_dimension_of_a_past_revision_stays_uncoloured(engine) -> None:
+    """Проверка, что прежнее правило не сломалось: канонный размер красным не красится."""
+    from ui.card_dialog import PRECEDENT_SIZE_COLUMN
+
+    with session_scope(engine) as session:
+        item_id = _two_revisions(session)
+
+    card, _cell = _revision_cell_of_precedent_card(engine, item_id)
+    size_cell = card.same_position.item(0, PRECEDENT_SIZE_COLUMN)
+
+    assert size_cell.foreground().color().name().upper() != tokens.DANGER_TEXT.upper()
+    assert "!" not in _text(size_cell)

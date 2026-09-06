@@ -55,6 +55,7 @@ from .common import (
     dimension_sort_key,
     iso,
     joined,
+    mark_other_revision,
     mark_unbound,
     signed_label,
     unbound_size_text,
@@ -183,7 +184,11 @@ class PrecedentTable(kit.DataTable):
             PRECEDENT_DECISION_COLUMN, DecisionPillDelegate(self)
         )
 
-    def fill(self, rows: list[PrecedentRow]) -> None:
+    def fill(self, rows: list[PrecedentRow], *, reference: str | None = None) -> None:
+        """`reference` — ревизия, из которой смотрят: она попадает в подсказку
+        пометки выпуска. Пометку ставит `mark_other_revision` — та же функция,
+        что и в списке отклонений детали, чтобы один факт не выглядел на двух
+        экранах по-разному."""
         # Выбор сбрасываем: строки другие, а уцелевшее выделение делало бы вид,
         # что оператор что-то выбрал в таблице, которую он ещё не смотрел.
         self.clearSelection()
@@ -219,16 +224,10 @@ class PrecedentTable(kit.DataTable):
                 if column == PRECEDENT_SIZE_COLUMN and not row.is_canon_bound:
                     mark_unbound(cell)
                 if column == PRECEDENT_REVISION_COLUMN and row.other_revision:
-                    # Пометка «та же деталь, другая ревизия» — всегда при
-                    # расхождении. Совпадение через ревизию не отсеивается
-                    # никогда, только помечается (`Search.md`).
-                    cell.setToolTip(
-                        f"Same item, another revision ({row.revision}) than the one "
-                        "this card is read from."
-                    )
-                    font = cell.font()
-                    font.setBold(True)
-                    cell.setFont(font)
+                    # Пометка выпуска — всегда при расхождении: совпадение через
+                    # ревизию не отсеивается никогда, только помечается. Цвет здесь
+                    # не ставится — он занят смыслом «нет канона» (`Search.md` v1.05).
+                    mark_other_revision(cell, row.revision, reference)
                 if column == PRECEDENT_DECISION_COLUMN:
                     # Код исхода рядом с подписью: пилюлю красит он. Домен
                     # отдаёт в `row.decision` именно **код** — подпись из него
@@ -548,8 +547,9 @@ class CardDialog(QDialog):
                 session, characteristic, exclude_deviation=deviation
             )
             local_number = characteristic.local_number
+            reference_revision = characteristic.revision.designation
 
-        self.same_dimension.fill(same_dimension)
+        self.same_dimension.fill(same_dimension, reference=reference_revision)
         self.same_dimension.setVisible(bool(same_dimension))
         kit.set_empty_reason(
             self.dimension_empty, NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT
@@ -565,7 +565,7 @@ class CardDialog(QDialog):
             )
         )
 
-        self.same_position.fill(same_position)
+        self.same_position.fill(same_position, reference=reference_revision)
         self.position_hint_box.setVisible(not bound)
         self.same_position.setVisible(bound and bool(same_position))
         self.position_empty.setVisible(bound and not same_position)

@@ -121,7 +121,7 @@ def test_a_match_from_another_revision_is_marked_never_dropped(engine) -> None:
     assert card.same_dimension.rowCount() == 1, "прецедент прошлой ревизии обязан остаться"
     cell = card.same_dimension.item(0, PRECEDENT_REVISION_COLUMN)
     # Пометка берётся с самой ячейки: подсказка и начертание — то, что видит глаз.
-    assert "another revision" in cell.toolTip()
+    assert "another issue of the drawing" in cell.toolTip()
     assert cell.font().bold() is True
 
 
@@ -142,10 +142,12 @@ def test_a_non_canon_size_carries_the_warning_sign(engine) -> None:
 
     cell = card.same_dimension.item(0, PRECEDENT_SIZE_COLUMN)
     assert UNBOUND_MARK in _text(cell)
-    assert "nothing behind it but the number" in cell.toolTip()
+    assert "nothing behind this number but the number itself" in cell.toolTip()
     # Знак читается однозначно: красный и полужирный — цвет и начертание берутся
     # с самой ячейки, то есть с того, чем рисуют.
     assert cell.font().bold() is True
+    # Цвет — на размере, не на ревизии: у знака `!` и у пометки выпуска разные
+    # свойства и разные смыслы (`Search.md` v1.05).
     assert cell.foreground().color().name().upper() == tokens.DANGER_TEXT.upper()
 
 
@@ -168,7 +170,7 @@ def test_a_canon_size_in_the_same_revision_carries_no_marks(engine) -> None:
     revision_cell = card.same_dimension.item(0, PRECEDENT_REVISION_COLUMN)
     assert UNBOUND_MARK not in _text(size)
     assert revision_cell.font().bold() is False
-    assert "another revision" not in revision_cell.toolTip()
+    assert "another issue of the drawing" not in revision_cell.toolTip()
 
 
 # --- Форма отклонения ---------------------------------------------------------------
