@@ -16,7 +16,15 @@ from pathlib import Path
 
 import pytest
 
-from tools.build_mirror import build, canon_hash, check, collect, main, parse_front_matter
+from tools.build_mirror import (
+    body_hash,
+    build,
+    canon_hash,
+    check,
+    collect,
+    main,
+    parse_front_matter,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODEL = REPO_ROOT / "docs" / "model"
@@ -100,7 +108,11 @@ def test_check_goes_red_when_canon_changes_without_a_rev_bump(
 
     victim = canon / "Search.md"
     text = victim.read_text(encoding="utf-8")
-    assert 'rev: "1.00"' in text
+    # `rev` читается из файла, а не вписывается константой. Прибитая версия делала тест
+    # красным при каждой правке канона (упал на `rev: "1.02"`, наряд 0022) — сообщая при
+    # этом не о стороже, а о том, что Cowork поработал. Проверяется, что поле **не
+    # изменилось**, а какое оно — дело канона.
+    rev_line = next(line for line in text.splitlines() if line.startswith("rev:"))
     # Правим тело, поле `rev` намеренно не трогаем — прежний сторож это пропускал.
     victim.write_text(text + "\nA sentence added after the mirror was built.\n", encoding="utf-8")
 
@@ -108,7 +120,7 @@ def test_check_goes_red_when_canon_changes_without_a_rev_bump(
 
     assert code == 1
     assert "VERDICT: STALE" in output
-    assert 'rev: "1.00"' in victim.read_text(encoding="utf-8")
+    assert rev_line in victim.read_text(encoding="utf-8")
 
 
 def test_check_explains_which_files_it_hashed(canon: Path, tmp_path: Path) -> None:
@@ -122,14 +134,18 @@ def test_check_explains_which_files_it_hashed(canon: Path, tmp_path: Path) -> No
     assert "- reference/reference-data.md" in output
 
 
-def test_check_calls_a_mirror_without_a_hash_stale(canon: Path, tmp_path: Path) -> None:
-    """Зеркало, собранное до сторожа, штампа не несёт — это тоже «устарело»."""
+def test_check_calls_a_mirror_without_a_source_hash_stale(canon: Path, tmp_path: Path) -> None:
+    """Зеркало, собранное до сторожа, штампа канона не несёт — это тоже «устарело».
+
+    Строка вырезается точечно, тело остаётся байт в байт. Прежняя пересборка через
+    `splitlines()` съедала завершающий перевод строки — после QMS-019 сторож считает
+    и тело, и такой файл доложился бы как `CORRUPT`. Диагноз был бы верным (тело
+    действительно испорчено), но тест проверял бы не то, ради чего написан.
+    """
     mirror = _mirror(canon, tmp_path / "mirror.md")
     text = mirror.read_text(encoding="utf-8")
-    mirror.write_text(
-        "\n".join(line for line in text.splitlines() if not line.startswith("source_hash:")),
-        encoding="utf-8",
-    )
+    victim = next(line for line in text.splitlines() if line.startswith("source_hash:"))
+    mirror.write_text(text.replace(victim + "\n", "", 1), encoding="utf-8")
 
     code, output = _verdict(canon, mirror)
 
@@ -261,3 +277,168 @@ def test_hash_recipe_matches_the_recorded_constant(tmp_path: Path) -> None:
     model = _recipe_canon(tmp_path)
 
     assert canon_hash(model, collect(model)) == RECIPE_HASH
+
+
+# --- QMS-019: сторож считает и тело, а не только паспорт ---------------------------
+#
+# Инцидент 2026-09-06: копия зеркала в волте десять дней жила раздутой в 3,95 раза
+# (160 184 Б против генераторных 40 596 Б), и `--check` всё это время отвечал `OK` —
+# шапка была цела, а кроме шапки сторож ничего не смотрел.
+
+
+def _halves(mirror: Path) -> tuple[str, str]:
+    """Шапка и тело — ровно там, где их делит `parse_front_matter`.
+
+    Тело отдаётся `lstrip`-нутым по той же причине, по какой его так отдаёт парсер:
+    сторож штампует именно эту строку. Режь тест иначе — он проверял бы не ту
+    величину, которой сторож меряет.
+    """
+    text = mirror.read_text(encoding="utf-8")
+    marker = "\n---\n"
+    end = text.index(marker, len("---")) + len(marker)
+    return text[:end], text[end:].lstrip("\n")
+
+
+def _replace_body(mirror: Path, body: str) -> None:
+    """Подменить тело, оставив шапку — и оба штампа в ней — нетронутыми."""
+    header, _body = _halves(mirror)
+    mirror.write_text(header + "\n" + body, encoding="utf-8")
+
+
+def test_mirror_carries_a_body_hash(canon: Path, tmp_path: Path) -> None:
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    meta, _body = parse_front_matter(mirror.read_text(encoding="utf-8"))
+
+    assert meta["body_hash"].startswith("sha256:")
+    # Два штампа отвечают на разные вопросы и совпасть не могут.
+    assert meta["body_hash"] != meta["source_hash"]
+
+
+def test_the_stamp_matches_the_body_the_parser_returns(canon: Path, tmp_path: Path) -> None:
+    """Симметрия генератора и проверки — бесшумная ловушка наряда 0023 §2.2.
+
+    Парсер отдаёт тело без ведущих переводов строки. Посчитай генератор отпечаток по
+    той строке, что держит он сам, — штампы разошлись бы на пустой строке, и сторож
+    краснел бы на собственном свежем зеркале.
+    """
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    meta, body = parse_front_matter(mirror.read_text(encoding="utf-8"))
+
+    assert meta["body_hash"] == body_hash(body)
+    # И разрез теста совпадает с разрезом парсера — иначе тесты ниже мнимые.
+    assert _halves(mirror)[1] == body
+
+
+def test_the_2026_09_06_incident_reads_corrupt(canon: Path, tmp_path: Path) -> None:
+    """Воспроизведение инцидента: тело учетверено, шапка нетронута.
+
+    Сегодняшний сторож отвечает здесь `OK`. После наряда — `CORRUPT`, и отдельно
+    проверяется, что это **не** `OK` и **не** `STALE`: канон-то не двигался.
+    """
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    header_before, body = _halves(mirror)
+    _replace_body(mirror, body * 4)
+    assert _halves(mirror)[0] == header_before
+
+    code, output = _verdict(canon, mirror)
+
+    assert code == 3
+    assert "VERDICT: CORRUPT" in output
+    assert "VERDICT: OK" not in output
+    assert "VERDICT: STALE" not in output
+    # Оба отпечатка и размер — размер опознал инцидент глазами раньше хеша.
+    assert "body hash stamped:" in output
+    assert "body hash actual :" in output
+    assert f"body size actual : {len((body * 4).encode('utf-8'))} bytes" in output
+
+
+def test_a_truncated_body_reads_corrupt(canon: Path, tmp_path: Path) -> None:
+    """Порча бывает и в минус: недоехавший через мост файл — тоже испорченный."""
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    _header, body = _halves(mirror)
+    _replace_body(mirror, body[: len(body) // 2])
+
+    code, output = _verdict(canon, mirror)
+
+    assert code == 3
+    assert "VERDICT: CORRUPT" in output
+
+
+def test_corruption_outranks_a_canon_that_moved_on(canon: Path, tmp_path: Path) -> None:
+    """Порядок диагнозов: тело важнее свежести.
+
+    Испорченное зеркало не докладывается как «устарело» — это разные диагнозы и
+    разные действия: устарело → перегенерировать из канона; испорчено → перенести
+    артефакт заново и выяснить, что его испортило.
+    """
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    _header, body = _halves(mirror)
+    _replace_body(mirror, body * 4)
+    (canon / "Finding.md").write_text(
+        '---\ncanon: true\norder: 60\n---\n\nchanged\n', encoding="utf-8"
+    )
+
+    code, output = _verdict(canon, mirror)
+
+    assert code == 3
+    assert "VERDICT: CORRUPT" in output
+    assert "VERDICT: STALE" not in output
+
+
+def test_a_crlf_copy_stays_ok(canon: Path, tmp_path: Path) -> None:
+    """Перенос не ломает штамп.
+
+    Зеркало проходит мост, git-checkout и Obsidian на двух машинах. Не нормализуй
+    сторож переводы строки — он краснел бы на семантически целом файле, а это ровно
+    тот отказ, ради которого затевался Q-09.
+    """
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    copy = tmp_path / "vault-copy.md"
+    copy.write_text(
+        mirror.read_text(encoding="utf-8").replace("\n", "\r\n"), encoding="utf-8", newline=""
+    )
+    assert b"\r\n" in copy.read_bytes()
+
+    code, output = _verdict(canon, copy)
+
+    assert code == 0
+    assert "VERDICT: OK" in output
+
+
+def test_a_mirror_without_a_body_hash_reads_unverified(canon: Path, tmp_path: Path) -> None:
+    """Зеркало прежней сборки: штампа тела нет, судить о целости нечем.
+
+    Это не `OK` (не проверено) и не `CORRUPT` (порчи не видно) — отдельный вердикт,
+    снимаемый перештамповкой. Действующие зеркала в обращении сейчас именно такие —
+    объявлено в наряде 0023 §5.
+    """
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    text = mirror.read_text(encoding="utf-8")
+    victim = next(line for line in text.splitlines() if line.startswith("body_hash:"))
+    mirror.write_text(text.replace(victim + "\n", "", 1), encoding="utf-8")
+
+    code, output = _verdict(canon, mirror)
+
+    assert code == 1
+    assert "VERDICT: UNVERIFIED" in output
+    assert "regenerating" in output
+
+
+def test_main_returns_three_on_a_corrupt_mirror(canon: Path, tmp_path: Path) -> None:
+    """Код доходит до командной строки, а не теряется в `main`."""
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    _header, body = _halves(mirror)
+    _replace_body(mirror, body * 4)
+
+    assert main(["--model", str(canon), "--check", str(mirror)]) == 3
+
+
+def test_argparse_keeps_code_two(canon: Path) -> None:
+    """Код 2 занят argparse — `CORRUPT` не имеет права им прикидываться.
+
+    Иначе испорченное зеркало было бы неотличимо от опечатки в командной строке.
+    """
+    with pytest.raises(SystemExit) as exc:
+        main(["--model", str(canon)])
+
+    assert exc.value.code == 2

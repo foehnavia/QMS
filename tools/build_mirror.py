@@ -19,6 +19,25 @@ the mirror. ``source_version`` is still written, for a human to read, but the gu
 no longer depends on someone remembering to bump ``rev``: edit any canon file and
 ``--check`` goes red on the next run.
 
+**The guard has two halves, and they answer different questions (QMS-019).**
+
+- ``source_hash`` — over the **canon set**. Answers *which generation of the canon this
+  mirror was made from*. Goes red when the canon moves on: verdict ``STALE``.
+- ``body_hash`` — over the **mirror's own body**, everything below the YAML front matter.
+  Answers *is this file still the file that was generated*. Goes red when the artefact is
+  damaged in transit while its banner stays intact: verdict ``CORRUPT``.
+
+The second half exists because the first one cannot see damage. On 2026-09-06 the vault
+copy had lived bloated ~3.95x (160 184 B against a generated 40 596 B) for ten days while
+``--check`` reported ``OK`` every time: the banner was untouched, and the banner was all
+the guard looked at. The front matter is deliberately **outside** ``body_hash`` — the stamp
+lives inside it, so covering it would be recursive; edits confined to the banner stay the
+business of ``source_hash``.
+
+Verdicts and exit codes: ``OK`` 0 · ``STALE`` 1 · ``UNVERIFIED`` 1 (mirror predates
+``body_hash``) · ``CORRUPT`` 3. Code 2 is left alone — argparse uses it for a bad command
+line, and a corrupt mirror must not be indistinguishable from a typo.
+
 Usage:
     # regenerate into the repo, then hand the artefact over the bridge
     python tools/build_mirror.py --out build/mirror/CONCEPT_full_rev1.00_EN.md
@@ -41,6 +60,9 @@ import sys
 FM_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 
 HASH_PREFIX = "sha256:"
+
+#: Место под отпечаток тела на первом проходе сборки (см. ``build``).
+BODY_HASH_PLACEHOLDER = f"{HASH_PREFIX}{'0' * 64}"
 
 
 def parse_front_matter(text):
@@ -110,9 +132,46 @@ def canon_hash(model_dir, items):
     return f"{HASH_PREFIX}{digest.hexdigest()}"
 
 
+def _normalised(body):
+    """CRLF -> LF. The single normalisation the stamp and the reported size share."""
+    return body.replace("\r\n", "\n")
+
+
+def body_hash(body):
+    """sha256 over the mirror body - the file's own fingerprint (QMS-019).
+
+    The body is everything below the YAML front matter. The banner itself stays out:
+    the stamp lives in it, so hashing it would be recursive.
+
+    Line endings are normalised **CRLF -> LF**, exactly as in ``canon_hash`` and for the
+    same reason: the artefact crosses the bridge, a git checkout and Obsidian on two
+    machines. Without normalisation the guard would go red on a semantically intact file,
+    which is the one failure mode ("the guard is there, nobody believes it") that Q-09
+    was opened to prevent.
+    """
+    digest = hashlib.sha256()
+    digest.update(_normalised(body).encode("utf-8"))
+    return f"{HASH_PREFIX}{digest.hexdigest()}"
+
+
 def build(items, source_hash):
+    """Assemble the mirror, stamped with both hashes.
+
+    Two passes, and the reason is a silent trap. The stamp must match the body **as the
+    parser hands it back** - ``parse_front_matter`` strips the leading newlines off it.
+    Hashing the string the generator happens to hold instead would differ by exactly those
+    blank lines, and the guard would go red on its own freshly built mirror. So: assemble
+    with a placeholder, parse that draft, hash what came back, assemble again. Re-stamping
+    touches the banner only, so the body of the second pass is the body that was hashed.
+    """
     if not items:
         raise SystemExit("build_mirror: no canon files found")
+    draft = _assemble(items, source_hash, BODY_HASH_PLACEHOLDER)
+    _meta, body = parse_front_matter(draft)
+    return _assemble(items, source_hash, body_hash(body))
+
+
+def _assemble(items, source_hash, body_stamp):
     rev = items[0][2].get("rev", "?")            # _overview (order 10) carries the rev
     updated = items[0][2].get("updated", "")
     header = (
@@ -126,6 +185,7 @@ def build(items, source_hash):
         f"updated: {updated}\n"
         f'source_version: "{rev}"\n'
         f'source_hash: "{source_hash}"\n'
+        f'body_hash: "{body_stamp}"\n'
         "mirror_of: docs/model/\n"
         "generated_by: tools/build_mirror.py\n"
         "language: en\n"
@@ -151,12 +211,23 @@ def build(items, source_hash):
 
 
 def check(model_dir, mirror_path, stream=sys.stdout):
-    """Compare a mirror's stamped hash with the canon as it is now.
+    """Report the mirror's state: OK / CORRUPT / STALE / UNVERIFIED.
 
-    Returns 0 when they match, 1 otherwise. Writes nothing: the check must be safe
-    to run from anywhere, including against a mirror already sitting in the vault.
-    The file list is printed alongside the verdict so a mismatch can be explained,
-    not merely announced.
+    Two questions, asked in this order (QMS-019):
+
+    1. **Is the file intact?** ``body_hash`` against a fresh hash of the body.
+    2. **Is it current?** ``source_hash`` against the canon as it is now.
+
+    The order is the point. A damaged mirror must not be reported as merely "stale":
+    those are different diagnoses calling for different actions - stale means regenerate
+    from the canon, corrupt means carry the artefact over again and find out what damaged
+    it. Answering the freshness question first would hide the worse of the two.
+
+    Returns 0 (OK), 1 (STALE / UNVERIFIED) or 3 (CORRUPT). Never 2: argparse spends that
+    on a bad command line. Writes nothing - the check is run against the vault copy too.
+
+    Printed output stays **ASCII-only**: the work machine's console is cp1255 and a stray
+    dash would come out mangled at best (INFRASTRUCTURE section 8).
     """
     items = collect(model_dir)
     if not items:
@@ -168,8 +239,9 @@ def check(model_dir, mirror_path, stream=sys.stdout):
         print(f"build_mirror --check: mirror not found: {mirror_path}", file=stream)
         return 1
 
-    meta, _body = parse_front_matter(mirror_path.read_text(encoding="utf-8"))
+    meta, body = parse_front_matter(mirror_path.read_text(encoding="utf-8"))
     stamped = meta.get("source_hash", "")
+    stamped_body = meta.get("body_hash", "")
 
     print(f"canon files ({len(items)}), in hashing order:", file=stream)
     for relative, _path in canon_files(model_dir, items):
@@ -177,22 +249,53 @@ def check(model_dir, mirror_path, stream=sys.stdout):
     print(f"canon  hash: {expected}", file=stream)
     print(f"mirror hash: {stamped or '(not stamped)'}", file=stream)
 
+    # --- 1. Integrity of the file itself --------------------------------------------
+    if not stamped_body:
+        print(
+            "VERDICT: UNVERIFIED - mirror carries no body_hash; it predates the "
+            "integrity guard. Re-stamp it by regenerating.",
+            file=stream,
+        )
+        return 1
+
+    actual_body = body_hash(body)
+    if stamped_body != actual_body:
+        normalised = _normalised(body)
+        print(f"body hash stamped: {stamped_body}", file=stream)
+        print(f"body hash actual : {actual_body}", file=stream)
+        # The size is printed alongside the hash because it is what identified the
+        # 2026-09-06 incident by eye: the hash says "not it", the size says "four
+        # times too big".
+        print(
+            f"body size actual : {len(normalised.encode('utf-8'))} bytes",
+            file=stream,
+        )
+        print(
+            "VERDICT: CORRUPT - mirror body does not match its own stamp; the file was "
+            "damaged after generation. Carry the artefact over again and find out what "
+            "damaged it. (Canon freshness not judged: fix the file first.)",
+            file=stream,
+        )
+        return 3
+
+    # --- 2. Freshness against the canon ---------------------------------------------
     if not stamped:
         print(
-            "VERDICT: STALE — mirror carries no source_hash; regenerate it "
+            "VERDICT: STALE - mirror carries no source_hash; regenerate it "
             "(it predates the content guard).",
             file=stream,
         )
         return 1
     if stamped != expected:
         print(
-            "VERDICT: STALE — canon changed since this mirror was generated; "
+            "VERDICT: STALE - canon changed since this mirror was generated; "
             "regenerate and carry the artefact over.",
             file=stream,
         )
         return 1
-    print("VERDICT: OK — mirror matches the canon.", file=stream)
+    print("VERDICT: OK - mirror matches the canon, body matches its stamp.", file=stream)
     return 0
+
 
 
 def main(argv=None):
@@ -219,6 +322,9 @@ def main(argv=None):
     print(f"build_mirror: wrote {args.out} from {len(items)} canon files "
           f"(rev {items[0][2].get('rev','?')})")
     print(f"build_mirror: source_hash {source_hash}")
+    # Оба штампа печатаются: один опознаёт поколение канона, второй — сам файл.
+    stamped, _body = parse_front_matter(args.out.read_text(encoding="utf-8"))
+    print(f"build_mirror: body_hash   {stamped['body_hash']}")
     return 0
 
 
