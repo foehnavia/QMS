@@ -39,6 +39,7 @@ from .kit.pills import DECISION_ROLE, DecisionPillDelegate
 COLUMNS = (
     "Number",
     "Item",
+    "Revision",
     "WO",
     "Date",
     "Dev. qty",
@@ -50,20 +51,32 @@ COLUMNS = (
 
 #: Колонки, которым направление задаётся не по содержимому: дата, количество
 #: и счётчики читаются слева направо в любой строке (наряд 0007 §4а, канон §6).
-NUMERIC_COLUMNS = (3, 4, 5, 8)
+NUMERIC_COLUMNS = (4, 5, 6, 9)
 
 #: Вправо — только `Dev. qty`: её и сравнивают по величине вниз по столбцу.
 #: Счётчики находок и исследований остаются влево — сравнивать нечего, а левый
 #: край держит их под подписью колонки (канон §6).
-MAGNITUDE_COLUMNS = (4,)
+MAGNITUDE_COLUMNS = (5,)
 
 #: Ширины поимённо (§7.3 наряда 0020): max(заголовок, самое длинное реальное
 #: значение) × 1.25; знакоместо — по самому широкому знаку шрифта канона.
 #: `kit.FIT_LABEL` — счётчик (§8.3, класс 2): ширина равна заголовку,
 #: запаса нет — не растёт ни содержимое, ни подпись.
-WIDTHS = (19, 15, 15, 16, kit.FIT_LABEL, kit.FIT_LABEL, kit.pill(14), 40, kit.FIT_LABEL)
+#: `Revision` — обозначение как выпущено, класс 2: ширина по заголовку.
+WIDTHS = (
+    19,
+    15,
+    kit.FIT_LABEL,
+    15,
+    16,
+    kit.FIT_LABEL,
+    kit.FIT_LABEL,
+    kit.pill(14),
+    40,
+    kit.FIT_LABEL,
+)
 
-DECISION_COLUMN = 6
+DECISION_COLUMN = 7
 
 EMPTY_TITLE = "No deviations registered yet"
 EMPTY_BODY = (
@@ -150,6 +163,9 @@ class DeviationView(QWidget):
             values = (
                 iso(row.dev_number),
                 iso(row.item_number),
+                # Номер детали без ревизии — дефект: он не говорит, по какому
+                # чертежу читать номера размеров (наряд 0025 §6).
+                iso(row.revision),
                 iso(row.wo),
                 iso(f"{row.date:%d.%m.%Y}"),
                 iso(str(row.quantity)),
@@ -166,7 +182,7 @@ class DeviationView(QWidget):
                     # Код исхода — рядом с подписью: пилюлю красит он, а не
                     # разбор человеческого текста.
                     cell.setData(DECISION_ROLE, row.decision_dev)
-                if column == 7 and row.explanation:
+                if column == 8 and row.explanation:
                     # Обоснование в строке урезано, целиком — в подсказке: это
                     # главный текст прецедента, терять его нельзя.
                     cell.setToolTip(row.explanation)

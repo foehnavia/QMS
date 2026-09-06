@@ -21,7 +21,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from db.ids import next_dev_number
-from db.models import DECISION_DEV, Deviation, Finding, Inspection, Item
+from db.models import (
+    DECISION_DEV,
+    Deviation,
+    Finding,
+    Inspection,
+    Item,
+    ItemRevision,
+)
 
 from .errors import InvariantViolation, ValidationError
 from .revisions import current_revision
@@ -42,6 +49,10 @@ class DeviationRow:
     deviation_id: int
     dev_number: str
     item_number: str
+    #: Ревизия чертежа, против которой отклонение зарегистрировано (QMS-017).
+    #: Номер детали без ревизии — дефект: он не говорит, по какому чертежу
+    #: читать номера размеров (наряд 0025 §6).
+    revision: str
     wo: str
     date: date_type
     quantity: int
@@ -266,6 +277,7 @@ def list_deviations(session: Session, *, item: Item | None = None) -> list[Devia
             Deviation.deviation_id,
             Deviation.dev_number,
             Item.item_number,
+            ItemRevision.designation,
             Deviation.wo,
             Deviation.date,
             Deviation.quantity,
@@ -275,6 +287,7 @@ def list_deviations(session: Session, *, item: Item | None = None) -> list[Devia
             Deviation.explanation,
         )
         .join(Item, Deviation.item_id == Item.item_id)
+        .join(ItemRevision, Deviation.revision_id == ItemRevision.revision_id)
         .outerjoin(findings, findings.c.deviation_id == Deviation.deviation_id)
         .outerjoin(inspections, inspections.c.deviation_id == Deviation.deviation_id)
         .order_by(Deviation.date.desc(), Deviation.dev_number.desc())

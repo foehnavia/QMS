@@ -268,6 +268,10 @@ class CardDialog(QDialog):
         # --- шапка ---
         self.number = QLabel()
         self.item_label = QLabel()
+        # Ревизия рядом с деталью, только чтение: менять её — через `Edit`,
+        # где выбор уже есть и работает (наряд 0024). Номер детали без
+        # ревизии — дефект: он не говорит, по какому чертежу читать номера.
+        self.revision_label = QLabel()
         self.wo = QLabel()
         self.machine = QLabel()
         self.quantity = QLabel()
@@ -284,6 +288,7 @@ class CardDialog(QDialog):
         head_left = kit.form()
         head_left.addRow("Deviation:", self.number)
         head_left.addRow("Item:", self.item_label)
+        head_left.addRow("Revision:", self.revision_label)
         head_left.addRow("WO:", self.wo)
         head_left.addRow("Machine:", self.machine)
         head_right = kit.form()
@@ -447,6 +452,7 @@ class CardDialog(QDialog):
             )
             self.number.setText(iso(deviation.dev_number))
             self.item_label.setText(iso(deviation.item.item_number))
+            self.revision_label.setText(iso(deviation.revision.designation))
             self.wo.setText(iso(deviation.wo))
             self.machine.setText(iso(deviation.machine or "—"))
             self.quantity.setText(iso(str(deviation.quantity)))

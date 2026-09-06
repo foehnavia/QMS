@@ -82,18 +82,23 @@ class ItemView(QWidget):
         self._rows_shown = 0
 
         self.table = kit.data_table(COLUMNS, numeric_columns=NUMERIC_COLUMNS, widths=WIDTHS)
-        self.table.doubleClicked.connect(self.open_positions)
+        # Двойной щелчок показывает, а не правит (наряд 0025 §3). Прежде он
+        # открывал диалог позиций — не привязку, как сказано в наряде, но
+        # довод тот же: жест «посмотреть» выполнял не то, чего от него ждут.
+        self.table.doubleClicked.connect(lambda *_: self.open_card())
         self.empty = kit.empty_state(EMPTY_TITLE, EMPTY_BODY)
 
         self.add_button = kit.primary("New item")
         self.positions_button = kit.secondary("Positions…")
         self.edit_button = kit.secondary("Edit item")
         self.map_button = kit.secondary("Mapping…")
+        self.card_button = kit.secondary("Card")
         self.revision_button = kit.secondary("Add revision…")
         self.add_button.clicked.connect(self.add_item)
         self.positions_button.clicked.connect(self.open_positions)
         self.edit_button.clicked.connect(self.edit_item)
         self.map_button.clicked.connect(self.map_item)
+        self.card_button.clicked.connect(self.open_card)
         self.revision_button.clicked.connect(self.add_revision)
 
         layout = kit.screen_layout(self)
@@ -104,6 +109,7 @@ class ItemView(QWidget):
         layout.addLayout(
             kit.button_row(
                 self.add_button,
+                self.card_button,
                 self.positions_button,
                 self.edit_button,
                 self.map_button,
@@ -236,6 +242,21 @@ class ItemView(QWidget):
             return
         if ItemDialog.run(self._engine, item_id, self):
             self.reload()
+
+    def open_card(self) -> None:
+        """Карточка детали — то, чего ждут от двойного щелчка по строке.
+
+        До наряда 0025 двойной щелчок открывал привязку: жест «посмотреть, что
+        это за деталь» выполнял операцию правки канона. Теперь он показывает, а
+        `Mapping…` осталась кнопкой — прямой вход в частую операцию.
+        """
+        from .item_card_dialog import ItemCardDialog  # noqa: PLC0415
+
+        item_id = self._selected_item_id()
+        if item_id is None:
+            return
+        ItemCardDialog.run(self._engine, item_id, parent=self)
+        self.reload()
 
     def add_revision(self) -> None:
         """Новая ревизия чертежа — клоном прежней, с предзаполненной привязкой.

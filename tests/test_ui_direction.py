@@ -193,8 +193,14 @@ def test_the_delegate_is_wired_into_the_deviation_list(seeded_session) -> None:
     view = DeviationView(seeded_session.get_bind())
 
     assert isinstance(view.table.itemDelegate(), DirectionalDelegate)
-    # Дата, количество и два счётчика — числовые.
-    assert NUMERIC_COLUMNS == (3, 4, 5, 8)
+    # Дата, количество и два счётчика — числовые. Адресуются **по имени**, а не
+    # константой: вставка колонки `Revision` сдвинула номера, и прибитый кортеж
+    # сообщал бы о сдвиге, а не о том, верно ли объявлены колонки (§9а).
+    assert NUMERIC_COLUMNS == tuple(
+        COLUMNS.index(name) for name in ("Date", "Dev. qty", "Findings", "Inspections")
+    )
+    # Ревизия числовой не объявлена: обозначение — идентификатор, не величина.
+    assert COLUMNS.index("Revision") not in NUMERIC_COLUMNS
     # Вправо — только количество отклонения: его и сравнивают по величине.
     # Счётчики находок и исследований остаются влево (канон §6).
     assert MAGNITUDE_COLUMNS == (COLUMNS.index("Dev. qty"),)
