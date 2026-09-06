@@ -3,7 +3,7 @@ part_of: MIS-QMS/docs/model
 entity: Search
 order: 100
 canon: true
-rev: "1.04"
+rev: "1.05"
 updated: 2026-09-06
 ---
 
@@ -21,8 +21,12 @@ updated: 2026-09-06
     revisions**;
   - **by canon** — the same canonical position (CG + g-index), across all parts **and
     all revisions, other revisions of the same part included**
-    (`CharacteristicGroup.md`). Excluded from it is only what the first section already
-    showed — the same dimension of the same revision — so nothing is listed twice.
+    (`CharacteristicGroup.md`). Excluded from it is what the neighbouring section already
+    showed — **the whole set it returned, one dimension per revision** — so nothing is
+    listed twice. Excluding a single dimension is not enough, and the difference shows in
+    the common case: the by-number section searches every revision of the part, so when a
+    local number never moved it returns one dimension per revision, and dropping only one
+    of them would send the same precedent through twice.
 
   This is the level the **deviation card** shows automatically (`DeviationCard.md`).
 
@@ -89,6 +93,19 @@ out** — the engineer decides what an older issue is worth — but it is **alwa
 
   The sign is never given a second meaning on a second screen: the same rule governs the
   precedent sections and the list of a part's own deviations opened from its card.
+
+**How the two marks look — one property each, and the same on every screen.**
+
+| Property | Says | Where |
+|---|---|---|
+| **colour** (red) | there is no canon behind this number — nothing to lean on but the number itself | the dimension cell, non-CG only |
+| **weight** (bold) | this row is another issue of the drawing | the revision cell, on **every** screen that lists deviations |
+
+The two are read together, not against each other: a row that is bold **and** red says
+"earlier issue, and no canon either", which is exactly the sum of its parts. Neither
+property is borrowed for the other's meaning, and neither changes appearance between the
+precedent sections and the part's own deviation list — the same fact must not look
+different on two screens (QMS-017, доводка наряда `0025`).
 
 - Parts of the previous issue keep arriving from the shop for two to three months after
   a change, so cross-revision precedents are not a rare curiosity — they are the normal
