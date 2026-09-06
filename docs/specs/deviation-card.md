@@ -5,6 +5,7 @@ status: as-built
 task: QMS-015
 amended_by: QMS-016, QMS-017
 updated: 2026-09-06
+amended_run: QMS-017 hand-run
 ---
 
 # Deviation card & precedent search L1/L2 — as-built spec (S5 / QMS-015)
@@ -184,3 +185,38 @@ nothing, and that consequence is accepted (lazy re-linking is out of stage 1). T
 path (L1b) resolves through the mapping of the finding's **own** revision, so it keeps
 finding the precedent across the very re-issue that moved the number — verified on the
 acceptance run, screenshot `19d-card-revision-marks.png`.
+
+---
+
+## Amendment — L1 sections cut by how the match was made (naryad `0025`, as-built)
+
+The two exact sections used to be cut **by part** — "same item" and "*other* items, same
+position". That was right while a part had one set of dimensions: same part plus same
+g-position then implied the same local number, so the first section already covered it.
+A revision breaks the implication, and a precedent could fall between the two sections —
+the first missed it because the number had moved, the second discarded it because the
+part was its own. Found by hand-running naryad `0024`, on `C1-10375A` / `g13` / `19 → 66`.
+
+**As built now:**
+
+- **By number** — `no. N, all revisions of this item`. Same part, same local number,
+  every revision.
+- **By canon** — `position gN — other items and other revisions`. The same canonical
+  position across all parts **and all revisions, other revisions of this part included**.
+  Excluded from it is only what the first section already showed: this part's dimensions
+  carrying that same local number, in **any** of its revisions — a set, not one row,
+  because the first section returns one dimension per revision. Exclude a single one and
+  an unmoved number is listed twice.
+- Headings state what the section returns. The old `Other items` would have started
+  lying the moment the exclusion was lifted.
+
+**The `!` sign has exactly one meaning**, and one definition in the code (`ui.common`):
+*this number is read against another revision, and there is nothing behind it but the
+number.* A canon-bound dimension from a previous revision therefore carries the row mark
+but **no** `!` — the g-position finds it regardless of numbering. Rendered red and bold so
+it reads at a glance; the whole cell is coloured rather than the sign alone, because
+painting two runs inside one cell needs a delegate laying out text by hand, and that is
+where this application's direction bugs lived (QMS-016).
+
+The card header now carries `Revision` next to `Item`, read-only: a part number without a
+revision does not say which drawing its local numbers are read against.

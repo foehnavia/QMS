@@ -6,6 +6,7 @@ task: QMS-013
 amended_by: QMS-016, QMS-017
 rewritten: 2026-09-03
 updated: 2026-09-06
+amended_run: QMS-017 hand-run
 ---
 
 # CG editor & mapping dialog — as-built spec (S3 / QMS-013, rewritten after QMS-016)
@@ -137,3 +138,27 @@ revisions are not edited at all.
   will not change. "Unanswered" is the **absence of a row**, not a third state.
 - The `mapping` table gained no revision column and needed none: it hangs off a dimension,
   and the dimension carries the revision (ratification 3).
+
+---
+
+## Amendment — the item card, and what did not change here (naryad `0025`, as-built)
+
+A new screen sits beside this dialog: the **item card** (`ui/item_card_dialog.py`). It
+opens on a double click on an `Items` row — the gesture used to open the positions dialog,
+so "look at what this part is" performed an operation — and from a `Card` button. The
+`Mapping…` button stays on the `Items` table: it is the direct entry into a frequent
+operation and should not be buried one screen deeper.
+
+The card holds no mapping table of its own. Duplicating it would create a second place
+where mappings are edited; instead the card carries a button opening **this** dialog for
+the revision the card is showing.
+
+**Viewing and assigning are different controls** (decision 15). The card's revision combo
+changes only what is displayed and writes nothing. Making a revision current is a separate
+button behind a confirmation naming the consequence — new deviations will be registered
+against it — with `No` as the default button: a mis-hit on Enter must not change which
+drawing the shop's next deviation is read against.
+
+**Nothing in this dialog changed.** Typing the local number in the row is ratification S3
+and stays; the naryad's ban on in-row editing covers lists that *show* records, not
+dialogs that exist to *take input*. A test now guards both sides of that line.

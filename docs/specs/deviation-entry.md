@@ -5,6 +5,7 @@ status: as-built
 task: QMS-014
 amended_by: QMS-015, QMS-016, QMS-017
 updated: 2026-09-06
+amended_run: QMS-017 hand-run
 ---
 
 # Deviation entry — findings, decision, inspection — as-built spec (S4 / QMS-014)
@@ -178,3 +179,19 @@ would mean typing them blind.
 - Guard: a deviation and **all** of its findings live in one revision — a domain check of
   the same kind as "the finding belongs to the deviation's item" (S2), tightened from the
   item to the revision.
+
+---
+
+## Amendment — the deviations list shows the revision (naryad `0025`, as-built)
+
+The `Deviations` table gained a `Revision` column between `Item` and `WO`. The rule it
+follows is general: **a part number shown without its revision is a defect** — it does not
+say which drawing the local numbers are read against.
+
+`Revision` is not declared numeric: a designation is an identifier, not a magnitude.
+
+The table, like every other list in the application, does not enter edit mode on a double
+click. A row there is somebody's record, and one mis-click would replace a cell with a
+character. Editing goes through a form. The exception is deliberate and stays: the mapping
+dialog takes the local number **in the row**, because there the row is an input field, not
+a record (ratification S3 — writes happen per action).

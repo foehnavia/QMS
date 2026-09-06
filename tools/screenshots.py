@@ -419,6 +419,90 @@ def shoot(widget: QWidget, name: str) -> None:
     print(f"  {name}.png")
 
 
+def build_cross_revision_scenario(engine) -> dict:
+    """Сценарий наряда 0025: номер размера переехал между ревизиями.
+
+    Деталь `C1-10375A`, канон-позиция `g13`. Ревизия `A` зовёт этот размер
+    `19` и несёт по нему решённое отклонение; ревизия `B` зовёт его `66`.
+    Прецедент обязан быть виден из карточки нового отклонения — секцией по
+    канону, потому что секция по номеру его не найдёт.
+    """
+    from datetime import timedelta  # noqa: PLC0415
+
+    from domain.deviations import register, set_decision  # noqa: PLC0415
+    from domain.findings import make_finding  # noqa: PLC0415
+    from domain.groups import GPositionSpec, create_group  # noqa: PLC0415
+    from domain.items import create_item  # noqa: PLC0415
+    from domain.mappings import bind  # noqa: PLC0415
+    from domain.revisions import characteristic_by_number  # noqa: PLC0415
+
+    with session_scope(engine) as session:
+        group = create_group(
+            session,
+            "Implant_Con_375_C1_g13",
+            (GPositionSpec(13, 3.75, 0.05, -0.05),),
+        )
+        item = create_item(
+            session,
+            item_number="C1-10375A",
+            item_type=ref(session, RefItemType, "implant"),
+            connection_type=ref(session, RefConnectionType, "C1"),
+            size=ref(session, RefSize, "NP"),
+            revision="A",
+        )
+        source = current_revision(item)
+        bind(session, source, group.positions[0], "19")
+
+        past = register(
+            session,
+            item=item,
+            revision=source,
+            wo="W26007301",
+            quantity=25,
+            date=TODAY - timedelta(days=30),
+            machine="CNC-3",
+        )
+        make_finding(
+            session,
+            past,
+            characteristic_by_number(source, "19"),
+            direction=Direction.MINUS,
+            value=0.03,
+        )
+        set_decision(
+            session,
+            past,
+            decision="approved",
+            explanation=(
+                "Within functional limits; the thread engages to full depth."
+            ),
+        )
+
+        # Перевыпуск: номер того же конструктивного места переехал 19 -> 66.
+        clone = clone_revision(session, item, source, designation="B")
+        moved = characteristic_by_number(clone, "19")
+        moved.local_number = "66"
+        session.flush()
+
+        fresh = register(
+            session,
+            item=item,
+            revision=clone,
+            wo="W26007455",
+            quantity=14,
+            date=TODAY - timedelta(days=1),
+            machine="CNC-3",
+        )
+        make_finding(
+            session,
+            fresh,
+            characteristic_by_number(clone, "66"),
+            direction=Direction.MINUS,
+            value=0.04,
+        )
+        return {"item_id": item.item_id, "deviation_id": fresh.deviation_id}
+
+
 def build_revision_scenario(engine, ids) -> dict:
     """Довести демо-базу до состояния «вторая ревизия и прецедент через неё».
 
@@ -586,6 +670,32 @@ def main() -> int:
     form = DeviationDialog(engine)
     form.item.setCurrentText("C1-08375A")
     shoot(form, "19c-dialog-deviation-revision-picker")
+
+    # --- 20. Сценарий наряда 0025: канон через ревизии своей детали ---
+    #
+    # Тот самый случай, на котором дефект найден прогоном: у `C1-10375A` позиция
+    # `g13` в ревизии `A` привязана к номеру `19`, в `B` — к `66`. До правки §1
+    # прецедент не показывался нигде.
+    cross_ids = build_cross_revision_scenario(engine)
+
+    from ui.item_card_dialog import ItemCardDialog  # noqa: PLC0415
+    from ui.item_deviations_dialog import ItemDeviationsDialog  # noqa: PLC0415
+
+    item_card = ItemCardDialog(engine, cross_ids["item_id"])
+    shoot(item_card, "20-dialog-item-card")
+
+    shoot(
+        ItemDeviationsDialog(engine, cross_ids["item_id"]),
+        "20b-dialog-item-deviations",
+    )
+
+    cross_card = CardDialog(engine, cross_ids["deviation_id"])
+    cross_card.findings.setCurrentCell(0, 0)
+    cross_card.resize(kit.tokens.DIALOG_FULL, CARD_TALL)
+    shoot(cross_card, "20c-card-canon-across-revisions")
+
+    window.select_section(3)
+    shoot(window, "20d-deviations-with-revision-column")
 
     card = CardDialog(engine, revision_ids["new_deviation_id"])
     # Вторая находка — не-канонный размер 41: на ней видны **обе** пометки разом,

@@ -47,6 +47,11 @@ CURRENT_SUFFIX = " (current)"
 DIMENSION_COLUMNS = ("Local number", "Canon", "State")
 DIMENSION_NUMERIC_COLUMNS = (0,)
 
+#: Ширины поимённо (§7 наряда 0020). Без объявления таблица садится по содержимому
+#: и повисает узкой полосой посреди диалога — видно только на снимке.
+#: `Canon` шире прочих: там `Implant_Con_375_C1_g13 · g13`, а не одно `g13`.
+DIMENSION_WIDTHS = (16, 34, 14)
+
 STATE_BOUND = "linked"
 STATE_UNBOUND = "not bound"
 
@@ -111,7 +116,9 @@ class ItemCardDialog(QDialog):
         header.addRow("Revision:", kit.boxed(revision_row))
 
         self.table = kit.data_table(
-            DIMENSION_COLUMNS, numeric_columns=DIMENSION_NUMERIC_COLUMNS
+            DIMENSION_COLUMNS,
+            numeric_columns=DIMENSION_NUMERIC_COLUMNS,
+            widths=DIMENSION_WIDTHS,
         )
         # Правка в строке заперта самим `kit.data_table` (§7): по умолчанию
         # таблица данных нередактируема, отказываются от этого только диалоги,
