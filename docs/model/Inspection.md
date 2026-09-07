@@ -3,7 +3,7 @@ part_of: MIS-QMS/docs/model
 entity: Inspection
 order: 70
 canon: true
-rev: "1.02"
+rev: "1.03"
 updated: 2026-09-07
 ---
 
@@ -52,37 +52,34 @@ updated: 2026-09-07
   deviations by (Item, dimension)" (`Search.md`, `DeviationCard.md`).
 - Different dimensions of one deviation may carry different inspections.
 
-## What an inspection concludes — rev 1.01
+## What an inspection concludes — rev 1.03
 
-> Revised 2026-09-07 (QMS-018). Until rev 1.00 `decisionInsp` was **binary and
-> mandatory**, which forced a polar answer out of every study. Most studies do not
-> have one: "the useful clearance in the assembled state drops by 20 %" is a
-> measurement, not a verdict. The binary field made this file contradict itself — the
-> section below states that an inspection *accumulates information and does not
-> dictate the decision*, while the field demanded a decision-shaped answer.
+> Revised twice on 2026-09-07. **rev 1.01:** `decisionInsp` was binary and mandatory, which
+> forced a polar answer out of studies that do not have one — it became three-valued and
+> optional. **rev 1.03 (QMS-025): the field is removed altogether.** The three positions
+> were a workaround for a missing home: the finding had no state of its own, so "the quick
+> answer" had nowhere to live but the inspection. Once the finding gained its `outcome`
+> (`Finding.md` rev 1.01), the field on the inspection became a second verdict beside the
+> real one — two near-identical words meaning different things, side by side on one screen.
 
-- **`decisionInsp` is three-valued and optional.** Values: `approval possible` ·
-  `approval not possible` · `inconclusive`. **Empty means "not assessed yet"** and is
-  a legitimate state: the protocol is attached first, the reading of it comes later.
-- **`inconclusive` and empty are different states.** `inconclusive` — the study was
-  read and settles nothing about approvability; empty — nobody has read it yet.
-- The wording is deliberate: the field says what the study **permits**, not what was
-  decided. Some studies do land on an unambiguous answer, and when they do it is worth
-  seeing at a glance — that is what the three positions are for.
-- **`Conclusion` — short free text saying what the study found**, optional, up to 500
-  characters (three or four sentences). It exists so a finding can be read in a list
-  without opening the protocol file. It does **not** replace the protocol and carries
-  no fixed structure: forcing "magnitude + unit" would exclude statements such as
-  "−20 % of the useful clearance".
+- **An inspection carries no verdict.** It has a type, a written conclusion and a protocol.
+  That is all, and that is the point.
+- **`Conclusion` — short free text saying what the study found**, up to 500 characters
+  (three or four sentences), so a finding can be read in a list without opening the file.
+  Optional when a protocol is attached; **mandatory when `No protocol` is set**.
+- **Several inspections per finding stay possible and stay unranked.** A leak test plus a
+  functional check on the same dimension is rare but real; each states its own findings in
+  its own words, and the engineer reads them and decides — on the finding.
 
-## Decision independence
+## Decision independence — now structural
 
-- **`decisionInsp` is independent of `decisionDev`** (`Deviation.md`); it accumulates
-  information and **does not dictate** the decision. `approval not possible` on an
-  inspection alongside `approved — use as is` on the deviation is a valid combination:
-  the study supplies evidence, the human decides.
-- Consequently a deviation row is **never coloured or ranked by an inspection's
-  position**, and no screen puts the two on one scale.
+- **An inspection has no verdict field**, so it cannot dictate anything. What used to be a
+  rule enforced by care (`decisionInsp` is independent of `decisionDev`) is enforced by the
+  absence of the field itself (rev 1.03, QMS-025).
+- The judgement on the dimension lives on the finding (`Finding.md` rev 1.01); the judgement
+  on the batch lives on the deviation (`Deviation.md`). An inspection informs both and is
+  neither.
+- Consequently no screen ranks or colours a row by anything an inspection says.
 
 ## Fields (minimum)
 
@@ -91,8 +88,6 @@ updated: 2026-09-07
   `Implantation torque test`, `Tolerances review`; for growth: `Drilling force test`,
   functional checks; see `reference/reference-data.md`)
 - link to the finding (`Finding.md`)
-- `Inspection Result` (`decisionInsp` = `approval possible` / `approval not possible` /
-  `inconclusive`; **optional** — empty means not assessed yet)
 - `Conclusion` — short free text, ≤ 500 characters. **Optional when a protocol is
   attached** (it can be written after the file has been read); **mandatory when
   `No protocol` is set** — it is then the entire content of the record.
@@ -123,12 +118,12 @@ could stand in for it.
 - `Implantation torque test` — implant insertion torque under a drill deviation
   (dim 19, +).
 - `Solidworks assembly` — worst-case assembly gap (CS-TB015A dim 32 −, partner
-  C1-08375A); conclusion "clearance in the assembled state −20 %", position
-  `approval possible`.
+  C1-08375A); conclusion "clearance in the assembled state −20 %". The judgement that
+  follows from it is recorded on the finding, not here.
 - `Tolerances review`, **`No protocol` set** — outer diameter 10.0 against an inner one of
   9.9: the parts cannot mate, and the drawing alone settles it. No document exists;
-  conclusion "OD 10.0 vs ID 9.9 — no mating clearance, geometry excludes assembly",
-  position `approval not possible`.
+  conclusion "OD 10.0 vs ID 9.9 — no mating clearance, geometry excludes assembly"; the
+  finding is then set to `not permitted`.
 
 ## Related
 

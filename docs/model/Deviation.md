@@ -3,7 +3,7 @@ part_of: MIS-QMS/docs/model
 entity: Deviation
 order: 50
 canon: true
-rev: "1.02"
+rev: "1.03"
 updated: 2026-09-07
 ---
 
@@ -72,12 +72,24 @@ auto-derived.
 
 - The term is **`repair`**, not `rework` (the part is not returned to full drawing
   conformance).
-- **`decisionInsp` is three-valued and optional** (`approval possible` / `approval not
-  possible` / `inconclusive`; empty = not assessed yet) and is independent of
-  `decisionDev` (`Inspection.md`): an inspection answers "does this study permit
-  accepting the deviation", not "what to do with the batch" — **and it is allowed to
-  answer neither.** Revised 2026-09-07 (QMS-018); until rev 1.01 the field was binary
-  and mandatory, which forced a polar answer out of studies that do not have one.
+- **An inspection carries no verdict at all** (`Inspection.md` rev 1.03, QMS-025). It
+  supplies information — a type, a written conclusion, a protocol — and nothing else. The
+  rule "an inspection does not dictate the decision" stopped being a warning to observe and
+  became structure: there is no field to break it with. *(History: rev 1.01 made
+  `decisionInsp` three-valued to replace a binary one; rev 1.03 removed it, because the
+  judgement it stood in for now has a proper home.)*
+- **The judgement on one dimension lives on the finding** (`Finding.md` rev 1.01):
+  `outcome` = `permitted` / `not permitted` / empty. It is the **input** to `decisionDev`,
+  not a replacement: the finding says whether the dimension passed, the deviation says what
+  happens to the batch.
+- **Binding invariant — `approved — use as is` requires every finding to be `permitted`.**
+  Checked when the deviation's decision is **saved**, not on the finding's form: any finding
+  state other than `permitted` — *including empty* — closes that outcome. The other three
+  (`rejected`, `sorting`, `repair`) require nothing: they are what the engineer picks
+  precisely while sorting the matter out. Conversely, a finding cannot be changed to
+  `not permitted` while its deviation stands `approved` — the edit is refused with an
+  explanation, because silently voiding a decision that has gone into a document is worse
+  than making the engineer withdraw it on purpose.
 - **The sorting/repair forms are not modeled**: filled manually in ~95 % of cases;
   the sorting criterion is not stored.
 
