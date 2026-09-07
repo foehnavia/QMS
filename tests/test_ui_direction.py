@@ -199,7 +199,7 @@ def test_the_delegate_is_wired_into_the_deviation_list(seeded_session) -> None:
     # о сдвиге, а не о том, верно ли объявлены колонки (`CLAUDE.md` §9а.9).
     assert NUMERIC_COLUMNS == tuple(
         COLUMNS.index(name)
-        for name in ("Number", "Revision", "WO", "Date", "Dev. qty", "Decision")
+        for name in ("Number", "Revision", "WO", "Date", "Qty", "Decision")
     )
     # `Item` и `Explanation` направление берут по содержимому: там бывает иврит,
     # и принудительный LTR перевернул бы его (`CLAUDE.md` §9).
@@ -207,7 +207,7 @@ def test_the_delegate_is_wired_into_the_deviation_list(seeded_session) -> None:
     assert COLUMNS.index("Explanation") not in NUMERIC_COLUMNS
     # Вправо — только количество отклонения: его и сравнивают по величине
     # вниз по столбцу (канон §6).
-    assert MAGNITUDE_COLUMNS == (COLUMNS.index("Dev. qty"),)
+    assert MAGNITUDE_COLUMNS == (COLUMNS.index("Qty"),)
     assert COLUMNS.index("Findings") < COLUMNS.index("Decision")
 
 

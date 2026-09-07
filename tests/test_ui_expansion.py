@@ -18,7 +18,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import QStyleOptionViewItem
 
-import ui.kit
+import ui.kit as kit
 from conftest import count_queries, make_item, rev
 from db.models import Direction, Finding, RefInspectionType
 from db.session import session_scope
@@ -30,14 +30,14 @@ from domain.reference import ensure_value, list_values
 from ui.common import strip_iso
 from ui.deviation_view import (
     COLUMNS,
-    EXPLANATION_MIN,
+    EXPLANATION_FLOOR,
     FULL_WIDTHS,
     PANEL_COLUMNS,
     PANEL_WIDTHS,
+    TIGHT_WIDTHS,
     DeviationView,
     finding_row_height,
     grid_widths,
-    table_limit,
 )
 from ui.kit import tokens
 from ui.kit.chips import CHIPS_ROLE, EXPANDED_ROLE, Chip, ExpanderDelegate, FindingChipsDelegate
@@ -57,7 +57,7 @@ def engine(seeded_session):
 def no_modals(monkeypatch):
     """Ловушка модальных окон (`CLAUDE.md` §9): тест обязан увидеть их, а не повиснуть."""
     shown: list[Exception] = []
-    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
+    monkeypatch.setattr(kit, "show_error", lambda parent, error, **kw: shown.append(error))
     return shown
 
 
@@ -111,32 +111,37 @@ def _first_panel(view):
 
 
 def test_the_deviation_grid_adds_up_to_the_declared_width_at_1280() -> None:
-    """Правило `docs/worklog/0028-deviations-list-expansion.md` §1:
-    «Сумма при 1280: `23 + 200 + 120 + 92 + 90 + 80 + 180 + 367 = 1152`. Ровно
-    90 % окна».
+    """Правило доводки `0028`, пункт 2: «ширины уровня отклонения при 1280
+    назначить **замером**, целевая сумма — **1216**», и `design-system.md` §3
+    revision 1.8: таблица «at most 90 % of the window, **and never narrower than
+    1216**».
 
     Проверяется **сумма при сжатии**, а не список констант: сумма это то, что
-    отличает сошедшуюся сетку от несошедшейся, и она же названа в наряде числом.
+    отличает сошедшуюся сетку от несошедшейся, и она же названа в доводке числом.
+    Что ни одно значение при этом не обрезано — вопрос **замера** на нативной
+    платформе, и он живёт в `tools/screenshots.py` (`CLAUDE.md` §9а.13).
     """
     widths = grid_widths(1280, revision_width=116)
 
-    assert sum(widths.values()) == 1152 == table_limit(1280)
+    assert sum(widths.values()) == 1216 == kit.table_limit(1280)
     # Ровно те колонки, что перечислены в сумме, — и ни одной сверх.
-    assert set(widths) == {"", "Number", "Item", "WO", "Date", "Dev. qty", "Decision", "Explanation"}
-    assert widths["Explanation"] == EXPLANATION_MIN
+    assert set(widths) == {
+        "", "Number", "Item", "WO", "Date", "Qty", "Findings", "Decision", "Explanation"
+    }
+    assert widths["Explanation"] >= EXPLANATION_FLOOR
 
 
 def test_the_revision_width_cannot_move_the_1280_sum() -> None:
     """`Revision` в канве нет — её ширина считается по заголовку (§1 наряда).
 
     Тест на **независимость**: при 1280 колонка уходит, поэтому шрифт на сумму
-    не влияет. Без этого сумма 1152 зависела бы от машины прогона, и та же
+    не влияет. Без этого сумма 1216 зависела бы от машины прогона, и та же
     сетка была бы верной здесь и неверной у оператора.
     """
     narrow = sum(grid_widths(1280, revision_width=40).values())
     wide = sum(grid_widths(1280, revision_width=400).values())
 
-    assert narrow == wide == 1152
+    assert narrow == wide == 1216
 
 
 def test_the_full_grid_fits_the_wide_window() -> None:
@@ -145,34 +150,90 @@ def test_the_full_grid_fits_the_wide_window() -> None:
 
     assert "Findings" in widths and "Revision" in widths
     assert widths["Explanation"] == FULL_WIDTHS["Explanation"]
-    assert sum(widths.values()) <= table_limit(1920)
+    assert sum(widths.values()) <= kit.table_limit(1920)
+
+
+def test_the_table_width_rule_has_a_floor() -> None:
+    """Правило `design-system.md` §3 revision 1.8 и доводка, пункт 5: доля окна
+    получает **пол 1216**.
+
+    Пол — ревизия пустого места, а не подстраховка: при минимальном окне прежние
+    90 % отдавали 128 px фона, пока колонки голодали настолько, что `W26007336`
+    резался. Проверяется с обеих сторон точки перелома, иначе «пол» неотличим от
+    «всегда 1216».
+    """
+    assert kit.table_limit(1280) == 1216      # доля дала бы 1152 — пол выше
+    assert kit.table_limit(1440) == 1296      # доля выше пола — правит доля
+    assert kit.table_limit(1920) == 1728
 
 
 def test_the_finding_grid_adds_up_to_1144() -> None:
-    """Правило §4 наряда: «**Сумма фиксированных: 1144.** При 1280 (лимит 1152)
-    остаётся 8 px — сходится **без** потери `Canon` и **без** сжатия
-    `Inspections`».
+    """Правило §4 наряда: «**Сумма фиксированных: 1144.** …сходится **без** потери
+    `Canon` и **без** сжатия `Inspections`».
+
+    Запас после доводки вырос: предел при 1280 стал 1216 (пол правила ширины),
+    и панели остаётся 72 px вместо восьми.
     """
     assert sum(PANEL_WIDTHS.values()) == 1144
-    assert sum(PANEL_WIDTHS.values()) <= table_limit(1280)
+    assert sum(PANEL_WIDTHS.values()) <= kit.table_limit(1280)
     assert tuple(PANEL_WIDTHS) == PANEL_COLUMNS
 
 
-def test_the_shrink_order_drops_the_findings_column_before_the_revision() -> None:
-    """Правило §7 наряда, **одна** версия порядка сжатия: `Findings` уходит
-    третьей, `Revision` четвёртой.
+def test_findings_and_explanation_stay_at_the_minimum_window() -> None:
+    """Правило доводки `0028`, пункт 1: «`Findings` и `Explanation` **остаются**
+    при 1280; уходят зона запаса, `Revision`».
 
-    Сводка пилюлями на этой ширине не теряется, а становится лишней: находки
-    показывает раскрытие строками. Обратный порядок оставил бы на экране сводку
-    и снял обозначение выпуска — то есть данные вместо дубликата.
+    Это **исправление** прежнего порядка, и исправление по существу. Канва
+    обосновывала уход `Findings` тем, что находки на этой ширине показаны
+    строками, — но строками они показаны только у **раскрытой** записи. У
+    свёрнутой при 1280 про находки не было видно ничего, то есть требование,
+    ради которого экран переделан, при минимальном окне не выполнялось вовсе.
     """
     wide = grid_widths(1920, revision_width=68)
     narrow = grid_widths(1280, revision_width=68)
 
-    assert "Findings" in wide and "Revision" in wide
-    assert "Findings" not in narrow and "Revision" not in narrow
-    # `Explanation` не уходит никогда — обоснование это главный текст прецедента.
+    assert "Revision" in wide and "Revision" not in narrow
+    assert "Findings" in narrow, "свёрнутая запись при 1280 осталась бы немой"
     assert "Explanation" in narrow
+
+
+def test_every_declared_width_is_a_measured_one() -> None:
+    """`CLAUDE.md` §9а.12: «Объявленная ширина колонки — не нарисованная… Ширина
+    считается проверенной только после **замера на нативной платформе**».
+
+    Под offscreen сам замер непроверяем (§9а.13), и здесь сторожится то, что
+    проверяемо: сжатая сетка объявлена **своим** набором чисел, а не полной
+    минус что-нибудь. Иначе одно и то же число отвечало бы за две ширины окна,
+    и замерить его отдельно для каждой было бы нечем.
+    """
+    assert sum(TIGHT_WIDTHS.values()) == 1216
+    assert set(TIGHT_WIDTHS) == set(FULL_WIDTHS)
+    # Сжатая сетка **уже** полной в каждой колонке, кроме тех, где полная и так
+    # на минимуме: иначе «сжатие» ничего не сжимает.
+    assert all(TIGHT_WIDTHS[name] <= FULL_WIDTHS[name] for name in TIGHT_WIDTHS)
+    assert TIGHT_WIDTHS["Findings"] == FULL_WIDTHS["Findings"]
+
+
+def test_the_short_qty_header_keeps_the_full_wording_in_a_tooltip() -> None:
+    """Правило доводки `0028`, пункт 4: «Заголовок `Dev. qty` → `Qty`, подсказка
+    «parts in this deviation» сохраняется».
+
+    Сокращение заголовка — это **освобождение места**, а не потеря слов: прежний
+    заголовок был шире содержимого и один задавал ширину колонки. Тест сторожит
+    вторую половину: слова остались там, где их можно прочесть.
+    """
+    from ui.deviation_view import QTY_HINT
+
+    assert "Qty" in COLUMNS and "Dev. qty" not in COLUMNS
+    assert QTY_HINT == "parts in this deviation"
+
+
+def test_the_screen_puts_that_tooltip_on_the_header(engine) -> None:
+    """И оно доходит до заголовка: константа сама по себе ничего не показывает."""
+    view = DeviationView(engine)
+    header = view.table.horizontalHeaderItem(_column("Qty"))
+
+    assert header.toolTip() == "parts in this deviation"
 
 
 # --- Критерий 4: стоимость чтения --------------------------------------------------
@@ -581,7 +642,7 @@ def test_the_flask_is_actually_drawn_and_a_bare_chip_is_not(qt_app) -> None:
     величина здесь — число закрашенных точек **справа в пилюле**, там, где
     мензурка и стоит; на всей пилюле разница утонула бы в подписи.
     """
-    ui.kit.apply_theme(qt_app)
+    kit.apply_theme(qt_app)
     delegate = FindingChipsDelegate()
 
     def painted(researched: bool) -> int:

@@ -783,3 +783,18 @@ def show_error(parent: QWidget | None, error: Exception, title: str = "Not saved
     if _TEST_MODE:
         raise UnexpectedErrorDialog(f"{title}: {error}")
     error_box(parent, error, title).exec()
+
+
+def table_limit(window_width: int) -> int:
+    """Ширина, которой таблица не превышает: доля окна, но не уже пола.
+
+    `design-system.md` §3, revision 1.8: «at most 90 % of the window, **and never
+    narrower than 1216**» — 1728 при 1920, 1216 при 1280.
+
+    Пол здесь не подстраховка, а **ревизия пустого места** (QMS-018): при
+    минимальном окне прежняя доля отдавала 128 px чистого фона, пока колонки
+    голодали настолько, что `W26007336` резался до `W260073…`. Живёт в `kit`, а
+    не на экране: правило про таблицы вообще, и второй экран, который до него
+    доберётся, обязан получить то же число, а не похожее.
+    """
+    return max(int(window_width * t.TABLE_SHARE), t.TABLE_WIDTH_FLOOR)

@@ -82,6 +82,7 @@ from .widgets import (
     status_label,
     stretching_form,
     subtitle,
+    table_limit,
     title,
 )
 
@@ -150,6 +151,7 @@ __all__ = [
     "strip_iso",
     "stylesheet",
     "subtitle",
+    "table_limit",
     "title",
     "tokens",
 ]

@@ -57,6 +57,7 @@ from domain.reference import ensure_value, list_values  # noqa: E402
 from domain.errors import ValidationError  # noqa: E402
 from seed.reference import ref, seed_reference  # noqa: E402
 from ui import kit  # noqa: E402
+from ui.deviation_view import COLUMNS as COLUMNS_FOR_MEASURE  # noqa: E402
 
 OUT = REPO_ROOT / "build" / "screens"
 DB = REPO_ROOT / "build" / "screens-demo.sqlite"
@@ -353,6 +354,122 @@ def measure_pill_room(table, column: int, caption: str) -> None:
         need = metrics.horizontalAdvance(text) + PILL_CHROME
         verdict = "режет" if need > room else "ok"
         print(f"    {text:14} нужно {need:4} px  {verdict}")
+
+
+def cell_chrome(table) -> int:
+    """Сколько пикселей ячейки **не достаётся тексту** — замером, не константой.
+
+    `CLAUDE.md` §9а.12: объявленная ширина колонки — не нарисованная. Между
+    числом, выставленным в `setColumnWidth`, и текстом стоят три слагаемых:
+    линия сетки, отступы листа стиля (`QTableView::item { padding: 0 10px }`) и
+    собственные поля Qt (`PM_FocusFrameHMargin + 1` с каждой стороны). На этой
+    платформе выходит 27; зашивать это число нельзя — на другой оно другое, и
+    зашитое врало бы молча.
+    """
+    from PySide6.QtWidgets import QStyle, QStyleOptionViewItem
+
+    margin = table.style().pixelMetric(
+        QStyle.PixelMetric.PM_FocusFrameHMargin, QStyleOptionViewItem(), table
+    )
+    return 1 + kit.tokens.PAD_CELL * 2 + 2 * (margin + 1)
+
+
+def measure_grid(view, caption: str) -> int:
+    """Сетка уровня отклонения: объявлено · нарисовано · рекорд · вердикт.
+
+    Критерий 1 доводки `0028`. Печатается **здесь, а не в тесте**, по
+    `CLAUDE.md` §9а.13: под offscreen шрифт моноширинный, и та же проверка
+    краснела бы на верной сетке. Возвращает число обрезанных колонок — ноль и
+    есть приёмка.
+
+    Колонки, которые рисует делегат, считаются **по тому, чем рисуют**: пилюля
+    исхода — своим шрифтом с оправой, пилюли находок — своим и с мензуркой.
+    Замер по тексту ячейки у них молчал бы (§8 наряда 0020).
+    """
+    from PySide6.QtGui import QFont, QFontMetrics
+
+    from ui.deviation_view import COLUMNS
+    from ui.kit.chips import CHIPS_ROLE, CHIPS_SHOWN
+    from ui.kit.pills import PILL_CHROME
+
+    table = view.table
+    chrome = cell_chrome(table)
+    metrics = table.fontMetrics()
+
+    pill_font = QFont(table.font())
+    pill_font.setPointSizeF(kit.tokens.SIZE_PILL)
+    pill_font.setWeight(QFont.Weight(kit.tokens.WEIGHT_PILL))
+    pill_metrics = QFontMetrics(pill_font)
+
+    chip_font = QFont(table.font())
+    chip_font.setPointSizeF(kit.tokens.SIZE_PILL)
+    chip_metrics = QFontMetrics(chip_font)
+
+    print(f"  {caption} (непечатаемое в ячейке: {chrome} px):")
+    print(
+        f"    {'колонка':14} {'объявл':>7} {'рисует':>7} {'рекорд':>7}  вердикт   значение"
+    )
+    print("    (у `Explanation` «рисует» — площадь двух строк: ячейка двухстрочная)")
+    clipped = 0
+    for column, name in enumerate(COLUMNS):
+        if table.isColumnHidden(column):
+            print(f"    {name or '(раскрытие)':14} {'—':>7} {'—':>7} {'—':>7}  снята")
+            continue
+        declared = table.columnWidth(column)
+        room, widest, longest = declared - chrome, 0, ""
+
+        if name == "Findings":
+            # Делегат отступает `PAD_CELL` от обоих краёв ячейки; сама пилюля
+            # несёт свои отступы и место под мензурку.
+            room = declared - 1 - kit.tokens.PAD_CELL * 2
+            for row in range(table.rowCount()):
+                cell = table.item(row, column)
+                for chip in (cell.data(CHIPS_ROLE) or [])[:CHIPS_SHOWN] if cell else []:
+                    need = chip_metrics.horizontalAdvance(chip.text()) + kit.tokens.PAD_CELL * 2
+                    if chip.researched:
+                        need += kit.tokens.CHIP_GLYPH_SIZE + kit.tokens.GAP_PILL_ICON
+                    if need > widest:
+                        widest, longest = need, chip.text()
+        elif name == "Decision":
+            room = declared - 1 - kit.tokens.PAD_CELL * 2
+            for row in range(table.rowCount()):
+                cell = table.item(row, column)
+                text = cell.text() if cell else ""
+                need = pill_metrics.horizontalAdvance(text) + PILL_CHROME
+                if need > widest:
+                    widest, longest = need, text
+        elif name == "":
+            print(f"    {'(раскрытие)':14} {declared:7} {'—':>7} {'—':>7}  рисует делегат")
+            continue
+        else:
+            for row in range(table.rowCount()):
+                cell = table.item(row, column)
+                for line in (cell.text() if cell else "").splitlines() or [""]:
+                    need = metrics.horizontalAdvance(line)
+                    if need > widest:
+                        widest, longest = need, line
+            header = metrics.horizontalAdvance(name)
+            if header > widest:
+                widest, longest = header, f"заголовок {name}"
+
+        # Обоснование — единственная двухстрочная ячейка экрана (канва §1), и
+        # места у неё вдвое. Считать её по одной строке значило бы объявлять
+        # обрезку там, где текст читается целиком, — тот же класс ошибки, что
+        # замер целой многострочной ячейки вместо её строк.
+        lines = 2 if name == "Explanation" else 1
+        room *= lines
+        verdict = "РЕЖЕТ" if widest > room else "ok"
+        clipped += 1 if widest > room else 0
+        print(
+            f"    {name:14} {declared:7} {room:7} {widest:7}  {verdict:8}  {longest[:34]!r}"
+        )
+    total = sum(
+        table.columnWidth(column)
+        for column in range(table.columnCount())
+        if not table.isColumnHidden(column)
+    )
+    print(f"    {'ИТОГО':14} {total:7}  предел {kit.table_limit(view.window().width())}")
+    return clipped
 
 
 def shoot_on_run_database() -> int:
@@ -673,21 +790,29 @@ def main() -> int:
             break
     window.layout().activate()
     shoot(window, "21-deviations-expanded")
-    measure_columns(deviations.table, "Deviations, уровень отклонения")
     for row in range(deviations.table.rowCount()):
         panel = deviations.panel_at(row)
         if panel is not None:
             measure_columns(panel, "Deviations, уровень находки")
             break
-    measure_pill_room(
-        deviations.table, deviations.table.columnCount() - 2, "Decision"
-    )
+
+    # Замер сетки — критерий 1 доводки: на **обеих** ширинах, и ни одно значение
+    # не обрезано. Печатается здесь, а не в тесте (`CLAUDE.md` §9а.13).
+    print("Deviations grid:")
+    clipped = measure_grid(deviations, f"уровень отклонения при {WIDE}")
 
     # Лента при минимальной ширине: уходят подписи и правая строка состояния,
     # высота остаётся 44 (решение В-5).
     window.resize(kit.tokens.WINDOW_MIN_WIDTH, kit.tokens.WINDOW_MIN_HEIGHT)
     window.select_section(3)
+    window.layout().activate()
+    QApplication.processEvents()
     shoot(window, "01-section-4b-deviations-1280")
+    clipped += measure_grid(
+        deviations, f"уровень отклонения при {kit.tokens.WINDOW_MIN_WIDTH}"
+    )
+    measure_pill_room(deviations.table, COLUMNS_FOR_MEASURE.index("Decision"), "Decision")
+    print(f"  обрезанных колонок: {clipped}" + ("" if clipped == 0 else "  <-- РАСХОЖДЕНИЕ"))
     window.resize(WIDE, TALL)
 
     # Отдельно — ивритский справочник: делегат разворачивает строку списка по

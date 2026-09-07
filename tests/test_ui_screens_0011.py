@@ -86,7 +86,11 @@ def test_column_order_and_names_follow_the_design(engine) -> None:
     колонки исследований в раскрытии тоже нет — она была бы вторым счётчиком
     там, где показано содержимое».
     """
-    assert "Dev. qty" in COLUMNS and "Quantity" not in COLUMNS
+    # Заголовок сокращён до `Qty` (доводка `0028`, пункт 4): прежний был шире
+    # содержимого и **один** задавал ширину колонки. Полная формулировка не
+    # потеряна — она в подсказке заголовка, и это проверяется ниже.
+    assert "Qty" in COLUMNS
+    assert "Quantity" not in COLUMNS and "Dev. qty" not in COLUMNS
     assert "Explanation" in COLUMNS
     assert COLUMNS.index("Findings") < COLUMNS.index("Decision")
     assert "Inspections" not in COLUMNS
@@ -199,7 +203,7 @@ def test_the_three_kinds_of_cell_behave_by_the_canon(engine, no_modals) -> None:
     assert drawn(date) & Qt.AlignmentFlag.AlignLeft
 
     # Величина — единственная, что идёт вправо: её сравнивают вниз по столбцу.
-    quantity = option(COLUMNS.index("Dev. qty"))
+    quantity = option(COLUMNS.index("Qty"))
     assert quantity.direction == LTR
     assert drawn(quantity) & Qt.AlignmentFlag.AlignRight
 
