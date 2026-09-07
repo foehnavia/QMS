@@ -938,6 +938,7 @@ def test_the_stored_verdict_values_did_not_change(engine, no_modals) -> None:
             decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
+            no_protocol=False,
         )
         assert inspection.decision_insp == "approval_possible"
 

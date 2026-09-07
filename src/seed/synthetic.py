@@ -229,6 +229,7 @@ def build_synthetic(session: Session) -> dict[str, object]:
         decision_insp="approval_possible",
         conclusion="Insertion torque stays within the range of the reference batch.",
         protocol=r"\\fileserver\QC\protocols\2026\torque-C1-08375A-19.docx",
+        no_protocol=False,
     )
     session.add(insp)
     # Второе исследование на той же находке — **без позиции и без вывода**:
@@ -244,6 +245,7 @@ def build_synthetic(session: Session) -> dict[str, object]:
             decision_insp=None,
             conclusion=None,
             protocol=r"\\fileserver\QC\protocols\2026\assembly-C1-08375A-19.docx",
+            no_protocol=False,
         )
     )
     session.flush()

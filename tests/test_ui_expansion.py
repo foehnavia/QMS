@@ -86,6 +86,7 @@ def _inspect(session, finding, position, *, kind: str = "Solidworks assembly"):
         decision_insp=position,
         conclusion=None,
         protocol="p.docx",
+        no_protocol=False,
     )
 
 
@@ -495,6 +496,7 @@ def test_the_conclusion_lives_in_the_tooltip_not_in_the_cell(engine) -> None:
             decision_insp="approval_possible",
             conclusion=whole,
             protocol="p.docx",
+            no_protocol=False,
         )
 
     view = DeviationView(engine)

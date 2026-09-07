@@ -483,6 +483,8 @@ class Inspection(Base):
 
     rev 0.4 (QMS-018): позиция стала трёхзначной и необязательной, добавлен
     короткий вывод `conclusion`, `protocol` по смыслу — ссылка на файл.
+    rev 0.5 (QMS-024): запись бывает **без файла протокола** — по признаку
+    `no_protocol`, и тогда вывод обязателен.
     """
 
     __tablename__ = "inspection"
@@ -491,6 +493,22 @@ class Inspection(Base):
             "decision_insp IS NULL OR decision_insp IN "
             "('approval_possible', 'approval_not_possible', 'inconclusive')",
             name="decision_insp",
+        ),
+        #: **Файл ИЛИ вывод — инвариант держит схема, а не форма** (`Inspection.md`
+        #: rev 1.02). Запись, не несущая ни того ни другого, невидима для поиска
+        #: прецедентов, то есть бесполезна ровно в том, ради чего таблица заведена.
+        #: Форму обходят импортом, скриптом или следующим нарядом; ограничение
+        #: схемы обойти нечем.
+        #:
+        #: Отмеченный признак требует **пустого** протокола намеренно: «файл есть,
+        #: но он не нужен» — состояние без смысла, и допустить его значит завести
+        #: третий случай, который придётся объяснять на каждом экране.
+        CheckConstraint(
+            "(no_protocol = 0 AND protocol IS NOT NULL AND trim(protocol) <> '')"
+            " OR "
+            "(no_protocol = 1 AND (protocol IS NULL OR trim(protocol) = '')"
+            " AND conclusion IS NOT NULL AND trim(conclusion) <> '')",
+            name="protocol_or_conclusion",
         ),
     )
 
@@ -511,10 +529,19 @@ class Inspection(Base):
     #: Не заменяет протокол и структуры не имеет: «−20 % полезного зазора» в
     #: рамку «величина + единица» не лезет (`Inspection.md` rev 1.01).
     conclusion: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    #: Ссылка на файл протокола — обязательна, но **существование не проверяется**
-    #: (решение 4 QMS-018): протокол может лежать на недоступном в момент ввода
-    #: ресурсе, и ложный отказ дороже устаревшей ссылки.
-    protocol: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Ссылка на файл протокола. **Существование не проверяется** (решение 4
+    #: QMS-018): протокол может лежать на недоступном в момент ввода ресурсе, и
+    #: ложный отказ дороже устаревшей ссылки. Пусто — только вместе с поднятым
+    #: `no_protocol`; это держит `CHECK`, а не форма.
+    protocol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    #: **Решение инженера, а не вывод из пустого поля** (`Inspection.md` rev 1.02).
+    #: Часть отклонений решается одним чертежом — наружный 10.0 против внутреннего
+    #: 9.9 не сопрягается, — и такой вердикт стоит записать прецедентом, хотя
+    #: документа к нему не существует. Пустое поле протокола — незаконченная
+    #: запись; поднятый признак — сознательный отказ от документа.
+    no_protocol: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
 
     deviation: Mapped[Deviation] = relationship(back_populates="inspections")
     finding: Mapped[Finding] = relationship(back_populates="inspections")

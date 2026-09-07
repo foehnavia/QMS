@@ -40,7 +40,8 @@ def create_inspection(
     inspection_type,
     decision_insp: str | None,
     conclusion: str | None,
-    protocol: str,
+    protocol: str | None,
+    no_protocol: bool,
 ) -> Inspection:
     """Завести исследование на находке; отклонение выводится из неё."""
     if finding is None:
@@ -49,7 +50,7 @@ def create_inspection(
     _check_type(inspection_type)
     decision_insp = _check_position(decision_insp)
     conclusion = _check_conclusion(conclusion)
-    protocol = _check_protocol(protocol)
+    protocol = _check_record(protocol, conclusion, no_protocol)
 
     # Номер — до создания объекта (`db.ids`): он NOT NULL, и незаполненный
     # Inspection в сессии сорвал бы автофлаш перед SELECT счётчика.
@@ -61,6 +62,7 @@ def create_inspection(
         decision_insp=decision_insp,
         conclusion=conclusion,
         protocol=protocol,
+        no_protocol=bool(no_protocol),
     )
     session.add(inspection)
     session.flush()
@@ -74,7 +76,8 @@ def update_inspection(
     inspection_type,
     decision_insp: str | None,
     conclusion: str | None,
-    protocol: str,
+    protocol: str | None,
+    no_protocol: bool,
 ) -> Inspection:
     """Заменить поля исследования **целиком** (правило S3).
 
@@ -89,12 +92,13 @@ def update_inspection(
     _check_type(inspection_type)
     decision_insp = _check_position(decision_insp)
     conclusion = _check_conclusion(conclusion)
-    protocol = _check_protocol(protocol)
+    protocol = _check_record(protocol, conclusion, no_protocol)
 
     inspection.type = inspection_type
     inspection.decision_insp = decision_insp
     inspection.conclusion = conclusion
     inspection.protocol = protocol
+    inspection.no_protocol = bool(no_protocol)
     session.flush()
     return inspection
 
@@ -176,18 +180,44 @@ def _check_conclusion(conclusion: str | None) -> str | None:
     return cleaned
 
 
-def _check_protocol(protocol: str) -> str:
-    """Ссылка на протокол — непусто; **существование файла не проверяется**.
+def _check_record(protocol: str | None, conclusion: str | None, no_protocol: bool) -> str | None:
+    """Инвариант «файл ИЛИ вывод» — **человеческим текстом поверх схемы**.
 
-    Решение 4 QMS-018: протокол может лежать на ресурсе, недоступном в момент
-    ввода, и ложный отказ дороже устаревшей ссылки. Обязательность же остаётся —
-    наличие письменного переиспользуемого анализа и есть критерий, по которому
-    строка заводится вообще (`Inspection.md`).
+    Тот же инвариант держит `CHECK` в `db.models` (`Inspection.md` rev 1.02), и
+    держит его именно схема: форму обходят импортом, скриптом или следующим
+    нарядом. Здесь он повторён не ради страховки, а ради **текста**: ограничение
+    ловит любой путь записи и отвечает `IntegrityError`, а оператору надо сказать,
+    чего именно не хватает.
+
+    Три отказа — три разных нехватки:
+
+    * признак снят, протокола нет → нужен файл (прежнее правило целиком);
+    * признак поднят, вывода нет → вывод становится **всем содержимым** записи;
+    * признак поднят, но путь введён → «файл есть, но он не нужен» смысла не имеет
+      и третьим случаем не заводится.
+
+    Существование файла по-прежнему **не проверяется** (решение 4 QMS-018).
     """
     cleaned = (protocol or "").strip()
-    if not cleaned:
+
+    if not no_protocol:
+        if not cleaned:
+            raise ValidationError(
+                "Protocol is required: an inspection is recorded only when a written, "
+                "reusable analysis exists. If this verdict needs no document, tick "
+                "“No protocol” and write the conclusion instead."
+            )
+        return cleaned
+
+    if cleaned:
         raise ValidationError(
-            "Protocol is required: an inspection is recorded only when a written, "
-            "reusable analysis exists."
+            "“No protocol” is set, so the protocol path must be empty — a record cannot "
+            "both waive the document and point at one. Clear the path or untick the box."
         )
-    return cleaned
+    if not (conclusion or "").strip():
+        raise ValidationError(
+            "An inspection without a protocol must carry a conclusion: it is then the "
+            "whole content of the record, and a record that says nothing is invisible "
+            "to the precedent search."
+        )
+    return None

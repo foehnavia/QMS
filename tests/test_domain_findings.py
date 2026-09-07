@@ -206,6 +206,7 @@ def test_a_finding_with_an_inspection_is_not_removable(seeded_session: Session) 
         decision_insp="approval_possible",
         conclusion=None,
         protocol="p.docx",
+        no_protocol=False,
     )
 
     with pytest.raises(ValueInUse) as excinfo:

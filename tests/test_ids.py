@@ -104,6 +104,7 @@ def test_inspection_numbers_are_sequential(seeded_session: Session) -> None:
                 decision_insp="approval_possible",
                 conclusion=None,
                 protocol="p.docx",
+                no_protocol=False,
             )
         )
         numbers.append(number)

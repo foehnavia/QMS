@@ -242,6 +242,7 @@ def test_row_carries_the_whole_deviation_not_just_the_finding(
         decision_insp="approval_possible",
         conclusion=None,
         protocol="p.docx",
+        no_protocol=False,
     )
     seeded_session.commit()
 

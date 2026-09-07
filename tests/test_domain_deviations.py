@@ -215,6 +215,7 @@ def test_list_counts_findings_and_inspections(seeded_session: Session) -> None:
         decision_insp="approval_possible",
         conclusion=None,
         protocol=r"\\srv\qa\p.docx",
+        no_protocol=False,
     )
     seeded_session.commit()
 
@@ -262,6 +263,7 @@ def test_deleting_a_deviation_takes_findings_and_inspections(seeded_session: Ses
         decision_insp="approval_not_possible",
         conclusion=None,
         protocol="protocol.docx",
+        no_protocol=False,
     )
     seeded_session.commit()
 

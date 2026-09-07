@@ -284,3 +284,157 @@ def test_rev04_adds_a_column_not_a_table(migrated_url: str) -> None:
 
     assert {"decision_insp", "conclusion", "protocol"} <= columns
     assert len(ALL_TABLES) == 16
+
+
+# --- rev05: исследование без файла протокола (QMS-024, наряд 0029) ----------------
+
+
+def _seed_rev04_inspections(engine) -> None:
+    """Строки схемы `rev04`: у всех есть протокол, признака ещё не существует."""
+    statements = (
+        "INSERT INTO ref_connection_type (connection_type_id, name) VALUES (1, 'BSP')",
+        "INSERT INTO ref_size (size_id, name) VALUES (1, '1/2\"')",
+        "INSERT INTO ref_inspection_type (inspection_type_id, name)"
+        " VALUES (1, 'Solidworks assembly')",
+        "INSERT INTO item (item_id, item_number, connection_type_id, size_id)"
+        " VALUES (1, 'P-0001', 1, 1)",
+        "INSERT INTO item_revision (revision_id, item_id, designation, seq, is_current)"
+        " VALUES (1, 1, 'A', 1, 1)",
+        "INSERT INTO characteristic (characteristic_id, revision_id, local_number)"
+        " VALUES (1, 1, '12')",
+        "INSERT INTO deviation (deviation_id, dev_number, item_id, revision_id, wo,"
+        " quantity, date, decision_date, explanation)"
+        " VALUES (1, 'DEV-260907-001', 1, 1, 'W1', 3, '2026-09-07',"
+        " '2026-09-07 08:00:00', '')",
+        "INSERT INTO finding (finding_id, deviation_id, characteristic_id, direction)"
+        " VALUES (1, 1, 1, '+')",
+        "INSERT INTO inspection (inspection_id, insp_number, deviation_id, finding_id,"
+        " type_id, decision_insp, conclusion, protocol)"
+        " VALUES (1, 'INSP-1', 1, 1, 1, 'approval_possible', NULL, 'a.docx')",
+        "INSERT INTO inspection (inspection_id, insp_number, deviation_id, finding_id,"
+        " type_id, decision_insp, conclusion, protocol)"
+        " VALUES (2, 'INSP-2', 1, 1, 1, NULL, 'read later', 'b.docx')",
+        "INSERT INTO inspection (inspection_id, insp_number, deviation_id, finding_id,"
+        " type_id, decision_insp, conclusion, protocol)"
+        " VALUES (3, 'INSP-3', 1, 1, 1, 'inconclusive', NULL, 'c.docx')",
+    )
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
+def test_rev05_keeps_every_existing_row_and_marks_it_as_documented(db_url: str) -> None:
+    """Критерий 5 наряда `0029`: «накат на базе с существующими строками **не
+    теряет строк** и проставляет им `no_protocol = 0`».
+
+    Проверяется числом строк **до и после**, а не наличием колонки: миграция,
+    уронившая половину записей, колонку бы всё равно завела. Наряд прямо просит
+    проверить это тестом, а не предположением.
+    """
+    config = alembic_config(db_url)
+    command.upgrade(config, "rev04")
+    engine = create_db_engine(db_url)
+    _seed_rev04_inspections(engine)
+
+    command.upgrade(config, "head")
+
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT inspection_id, no_protocol, protocol FROM inspection"
+                " ORDER BY inspection_id"
+            )
+        ).all()
+
+    assert rows == [(1, 0, "a.docx"), (2, 0, "b.docx"), (3, 0, "c.docx")]
+
+
+def test_rev05_admits_a_row_without_a_protocol_and_refuses_an_empty_one(db_url: str) -> None:
+    """Инвариант «файл ИЛИ вывод» — **на уровне схемы, после наката**.
+
+    Записью проверяется, а не чтением объявления: колонка, объявленная nullable
+    при `CHECK`, который её не пропускает, выглядела бы правильной и не работала.
+    """
+    config = alembic_config(db_url)
+    command.upgrade(config, "rev04")
+    engine = create_db_engine(db_url)
+    _seed_rev04_inspections(engine)
+    command.upgrade(config, "head")
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO inspection (insp_number, deviation_id, finding_id, type_id,"
+                " decision_insp, conclusion, protocol, no_protocol)"
+                " VALUES ('INSP-4', 1, 1, 1, 'approval_not_possible',"
+                " 'OD 10.0 vs ID 9.9 — geometry excludes assembly', NULL, 1)"
+            )
+        )
+
+    with pytest.raises(IntegrityError):
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO inspection (insp_number, deviation_id, finding_id, type_id,"
+                    " decision_insp, conclusion, protocol, no_protocol)"
+                    " VALUES ('INSP-5', 1, 1, 1, NULL, NULL, NULL, 1)"
+                )
+            )
+
+
+def test_rev05_downgrade_drops_what_the_old_schema_cannot_hold(db_url: str, capsys) -> None:
+    """Критерий 5: откат работает, и строки с `no_protocol = 1` удаляются с сообщением.
+
+    В старой схеме `protocol` объявлен NOT NULL, а у таких строк его нет **по
+    существу**, а не по недосмотру. Подставить выдуманный путь означало бы вписать
+    в базу документ, которого не существует, — та же подмена, против которой
+    заведён сам признак. Прецеденты `rev02` и `rev04`.
+    """
+    config = alembic_config(db_url)
+    command.upgrade(config, "rev04")
+    engine = create_db_engine(db_url)
+    _seed_rev04_inspections(engine)
+    command.upgrade(config, "head")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO inspection (insp_number, deviation_id, finding_id, type_id,"
+                " decision_insp, conclusion, protocol, no_protocol)"
+                " VALUES ('INSP-4', 1, 1, 1, NULL, 'the drawing settles it', NULL, 1)"
+            )
+        )
+
+    command.downgrade(config, "rev04")
+
+    with engine.connect() as connection:
+        kept = connection.execute(
+            text("SELECT inspection_id FROM inspection ORDER BY inspection_id")
+        ).all()
+        columns = {c["name"] for c in inspect(engine).get_columns("inspection")}
+    assert kept == [(1,), (2,), (3,)]
+    assert "no_protocol" not in columns
+    assert "dropping 1 inspection row(s) recorded without a protocol" in capsys.readouterr().out
+
+
+def test_rev05_downgrade_is_silent_when_every_row_carries_a_file(db_url: str, capsys) -> None:
+    """Зеркало предыдущего: терять нечего — откат ничего не удаляет и молчит."""
+    config = alembic_config(db_url)
+    command.upgrade(config, "rev04")
+    engine = create_db_engine(db_url)
+    _seed_rev04_inspections(engine)
+    command.upgrade(config, "head")
+    capsys.readouterr()
+
+    command.downgrade(config, "rev04")
+
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT COUNT(*) FROM inspection")).scalar_one() == 3
+    assert "dropping" not in capsys.readouterr().out
+
+
+def test_rev05_adds_a_column_not_a_table(migrated_url: str) -> None:
+    """Перечень таблиц схемы не изменился — добавлено поле, а не таблица."""
+    columns = {c["name"] for c in inspect(create_db_engine(migrated_url)).get_columns("inspection")}
+
+    assert "no_protocol" in columns
+    assert len(ALL_TABLES) == 16

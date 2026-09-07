@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from conftest import make_item, rev
@@ -55,6 +57,7 @@ def test_inspection_is_created_on_a_finding_with_a_business_number(
         decision_insp="approval_possible",
         conclusion=None,
         protocol=r"\\srv\qa\SW-2026-14.docx",
+        no_protocol=False,
     )
     seeded_session.commit()
 
@@ -77,6 +80,7 @@ def test_business_numbers_are_unique_within_a_day(seeded_session: Session) -> No
             decision_insp="approval_possible",
             conclusion=None,
             protocol=f"p{index}.docx",
+            no_protocol=False,
         ).insp_number
         for index in range(5)
     }
@@ -103,6 +107,7 @@ def test_unknown_verdict_is_rejected(seeded_session: Session) -> None:
             decision_insp="maybe",
             conclusion=None,
             protocol="p.docx",
+            no_protocol=False,
         )
 
 
@@ -118,6 +123,7 @@ def test_empty_protocol_is_refused(seeded_session: Session) -> None:
             decision_insp="approval_possible",
             conclusion=None,
             protocol="   ",
+            no_protocol=False,
         )
 
     assert "Protocol" in str(excinfo.value)
@@ -133,6 +139,7 @@ def test_missing_type_is_refused(seeded_session: Session) -> None:
             decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
+            no_protocol=False,
         )
 
 
@@ -149,6 +156,7 @@ def test_approved_inspection_under_a_rejected_deviation_is_valid(
         decision_insp="approval_possible",
         conclusion=None,
         protocol="p.docx",
+        no_protocol=False,
     )
     set_decision(
         seeded_session, finding.deviation, decision="rejected", explanation="в брак"
@@ -172,6 +180,7 @@ def test_inspection_is_updated_wholesale(seeded_session: Session) -> None:
         decision_insp="approval_possible",
         conclusion=None,
         protocol="old.docx",
+        no_protocol=False,
     )
 
     update_inspection(
@@ -181,6 +190,7 @@ def test_inspection_is_updated_wholesale(seeded_session: Session) -> None:
         decision_insp="approval_not_possible",
         conclusion=None,
         protocol="new.docx",
+        no_protocol=False,
     )
     seeded_session.commit()
 
@@ -198,6 +208,7 @@ def test_update_demands_every_field(seeded_session: Session) -> None:
         decision_insp="approval_possible",
         conclusion=None,
         protocol="p.docx",
+        no_protocol=False,
     )
 
     with pytest.raises(TypeError):
@@ -213,6 +224,7 @@ def test_inspection_is_removed_without_touching_the_finding(seeded_session: Sess
         decision_insp="approval_possible",
         conclusion=None,
         protocol="p.docx",
+        no_protocol=False,
     )
 
     remove_inspection(seeded_session, inspection)
@@ -244,6 +256,7 @@ def test_mirror_search_does_not_mix_two_items_with_the_same_dimension_number(
         decision_insp="approval_possible",
         conclusion=None,
         protocol="first.docx",
+        no_protocol=False,
     )
     create_inspection(
         seeded_session,
@@ -252,6 +265,7 @@ def test_mirror_search_does_not_mix_two_items_with_the_same_dimension_number(
         decision_insp="approval_not_possible",
         conclusion=None,
         protocol="second.docx",
+        no_protocol=False,
     )
     seeded_session.commit()
 
@@ -280,6 +294,7 @@ def test_mirror_search_gathers_inspections_across_deviations(seeded_session: Ses
             decision_insp="approval_possible",
             conclusion=None,
             protocol=f"p{index}.docx",
+            no_protocol=False,
         )
     seeded_session.commit()
 
@@ -301,6 +316,7 @@ def test_mirror_search_returns_nothing_for_a_mismatched_pair(seeded_session: Ses
         decision_insp="approval_possible",
         conclusion=None,
         protocol="p.docx",
+        no_protocol=False,
     )
     seeded_session.commit()
 
@@ -339,6 +355,7 @@ def test_the_three_positions_of_the_canon_are_accepted(
         decision_insp=position,
         conclusion=None,
         protocol="p.docx",
+        no_protocol=False,
     )
     seeded_session.commit()
 
@@ -365,6 +382,7 @@ def test_an_empty_position_is_accepted_and_stored_as_none(
         decision_insp=empty,
         conclusion=None,
         protocol="p.docx",
+        no_protocol=False,
     )
     seeded_session.commit()
 
@@ -388,6 +406,7 @@ def test_the_old_binary_values_are_refused(seeded_session: Session, stale: str) 
             decision_insp=stale,
             conclusion=None,
             protocol="p.docx",
+            no_protocol=False,
         )
 
     assert "approval_possible" in str(excinfo.value)
@@ -406,6 +425,7 @@ def test_a_conclusion_is_kept_and_trimmed(seeded_session: Session) -> None:
         decision_insp="approval_possible",
         conclusion="  clearance in the assembled state −20 %  ",
         protocol="p.docx",
+        no_protocol=False,
     )
     seeded_session.commit()
 
@@ -424,6 +444,7 @@ def test_an_empty_conclusion_is_accepted(seeded_session: Session, empty) -> None
         decision_insp="approval_possible",
         conclusion=empty,
         protocol="p.docx",
+        no_protocol=False,
     )
     seeded_session.commit()
 
@@ -445,6 +466,7 @@ def test_a_conclusion_longer_than_the_limit_is_refused(seeded_session: Session) 
         decision_insp="approval_possible",
         conclusion="x" * CONCLUSION_LIMIT,
         protocol="p.docx",
+        no_protocol=False,
     )
     assert len(at_the_limit.conclusion) == CONCLUSION_LIMIT
 
@@ -456,6 +478,7 @@ def test_a_conclusion_longer_than_the_limit_is_refused(seeded_session: Session) 
             decision_insp="approval_possible",
             conclusion="x" * (CONCLUSION_LIMIT + 1),
             protocol="p.docx",
+            no_protocol=False,
         )
 
     assert str(CONCLUSION_LIMIT) in str(excinfo.value)
@@ -479,6 +502,7 @@ def test_the_protocol_link_is_not_checked_for_existence(seeded_session: Session)
         decision_insp=None,
         conclusion=None,
         protocol=nowhere,
+        no_protocol=False,
     )
     seeded_session.commit()
 
@@ -504,6 +528,7 @@ def test_an_empty_protocol_is_still_refused_when_the_position_is_empty(
             decision_insp=None,
             conclusion=None,
             protocol="   ",
+            no_protocol=False,
         )
 
     assert "Protocol" in str(excinfo.value)
@@ -523,6 +548,7 @@ def test_update_replaces_the_conclusion_wholesale(seeded_session: Session) -> No
         decision_insp="approval_possible",
         conclusion="first reading",
         protocol="p.docx",
+        no_protocol=False,
     )
 
     update_inspection(
@@ -532,7 +558,209 @@ def test_update_replaces_the_conclusion_wholesale(seeded_session: Session) -> No
         decision_insp=None,
         conclusion=None,
         protocol="p.docx",
+        no_protocol=False,
     )
     seeded_session.commit()
 
     assert (inspection.decision_insp, inspection.conclusion) == (None, None)
+
+
+# --- QMS-024: исследование без протокола, инвариант «файл ИЛИ вывод» --------------
+
+
+def _raw_inspection(session, finding, **columns) -> None:
+    """Вставка **в обход домена** — прямым SQL, минуя всякую валидацию.
+
+    Ради этого тесты ограничения и существуют: доменную проверку обходят
+    импортом, скриптом или следующим нарядом, а `CHECK` обойти нечем.
+    """
+    kind = list_values(session, RefInspectionType)[0]
+    values = {
+        "insp_number": f"INSP-260907-{columns.pop('n', 1):03d}",
+        "deviation_id": finding.deviation_id,
+        "finding_id": finding.finding_id,
+        "type_id": kind.inspection_type_id,
+        "decision_insp": None,
+        "conclusion": None,
+        "protocol": None,
+        "no_protocol": 0,
+    }
+    values.update(columns)
+    session.execute(
+        text(
+            "INSERT INTO inspection (insp_number, deviation_id, finding_id, type_id,"
+            " decision_insp, conclusion, protocol, no_protocol)"
+            " VALUES (:insp_number, :deviation_id, :finding_id, :type_id,"
+            " :decision_insp, :conclusion, :protocol, :no_protocol)"
+        ),
+        values,
+    )
+
+
+def test_a_record_with_neither_a_file_nor_a_conclusion_is_refused_by_the_schema(
+    seeded_session: Session,
+) -> None:
+    """**Главный тест наряда `0029`.** Правило `docs/model/Inspection.md` rev 1.02:
+    «A row with neither says nothing to the precedent search and must not exist —
+    that is the invariant this section is about, and it is **enforced by the
+    schema, not by discipline**».
+
+    Вставка идёт **прямым SQL, мимо домена**: доменную проверку обходят импортом,
+    скриптом или следующим нарядом, и тест, идущий через `create_inspection`,
+    проверял бы форму записи, а не инвариант.
+    """
+    finding = _finding(seeded_session, make_item(seeded_session, "IT-N01"))
+    seeded_session.flush()
+
+    with pytest.raises(IntegrityError):
+        _raw_inspection(seeded_session, finding, no_protocol=1)
+    seeded_session.rollback()
+
+
+@pytest.mark.parametrize(
+    ("columns", "why"),
+    [
+        ({"no_protocol": 0, "protocol": None}, "признак снят, файла нет"),
+        ({"no_protocol": 0, "protocol": "   "}, "признак снят, путь из пробелов"),
+        ({"no_protocol": 1, "conclusion": None}, "признак поднят, вывода нет"),
+        ({"no_protocol": 1, "conclusion": "  "}, "признак поднят, вывод из пробелов"),
+        (
+            {"no_protocol": 1, "conclusion": "settled by the drawing", "protocol": "p.docx"},
+            "признак поднят и путь введён — «файл есть, но не нужен»",
+        ),
+    ],
+)
+def test_the_schema_refuses_every_shape_the_invariant_forbids(
+    seeded_session: Session, columns: dict, why: str
+) -> None:
+    """Каждый из пяти запрещённых видов записи — отдельным случаем.
+
+    Пятый существен особо: `no_protocol = 1` вместе с путём это «файл есть, но он
+    не нужен» — состояние без смысла, и допустить его значит завести третий
+    случай, который придётся объяснять на каждом экране (§1 наряда).
+    """
+    finding = _finding(seeded_session, make_item(seeded_session, f"IT-{abs(hash(why)) % 900:03d}"))
+    seeded_session.flush()
+
+    with pytest.raises(IntegrityError):
+        _raw_inspection(seeded_session, finding, **columns)
+    seeded_session.rollback()
+
+
+@pytest.mark.parametrize(
+    ("columns", "why"),
+    [
+        ({"no_protocol": 0, "protocol": "p.docx"}, "файл есть — обычная запись"),
+        (
+            {"no_protocol": 1, "conclusion": "OD 10.0 vs ID 9.9 — geometry excludes assembly"},
+            "файла нет, вывод есть — случай, ради которого заведён признак",
+        ),
+    ],
+)
+def test_the_schema_admits_both_legitimate_shapes(
+    seeded_session: Session, columns: dict, why: str
+) -> None:
+    """Обратная сторона: ограничение пропускает **оба** законных вида.
+
+    Без неё предыдущий тест был бы зелёным и на схеме, которая не пропускает
+    ничего, — то есть не отличал бы верное от неверного (`CLAUDE.md` §9а.4).
+    """
+    finding = _finding(seeded_session, make_item(seeded_session, f"IT-{abs(hash(why)) % 900:03d}"))
+    seeded_session.flush()
+
+    _raw_inspection(seeded_session, finding, **columns)
+    seeded_session.flush()
+
+    assert seeded_session.query(Inspection).count() == 1
+
+
+def test_a_verdict_without_a_document_is_recorded_with_its_conclusion(
+    seeded_session: Session,
+) -> None:
+    """Правило `Inspection.md` rev 1.02 и повод наряда: «an outer diameter of 10.0
+    against an inner one of 9.9 does not fit, and no study will change that — and
+    that verdict is a reusable precedent worth recording, while no document exists
+    to attach».
+    """
+    finding = _finding(seeded_session, make_item(seeded_session, "IT-N02"))
+
+    inspection = create_inspection(
+        seeded_session,
+        finding,
+        inspection_type=_type(seeded_session, "Tolerances review"),
+        decision_insp="approval_not_possible",
+        conclusion="OD 10.0 vs ID 9.9 — no mating clearance, geometry excludes assembly",
+        protocol=None,
+        no_protocol=True,
+    )
+    seeded_session.commit()
+
+    assert inspection.no_protocol is True
+    assert inspection.protocol is None
+    assert inspection.conclusion.startswith("OD 10.0")
+
+
+def test_the_domain_explains_what_is_missing_instead_of_an_integrity_error(
+    seeded_session: Session,
+) -> None:
+    """§2 наряда: доменная валидация **человеческим текстом поверх** ограничения.
+
+    Ограничение ловит любой путь записи и отвечает `IntegrityError`; оператору
+    надо сказать, чего именно не хватает. Три нехватки — три разных текста, и
+    каждый называет **следующее действие**, а не нарушенное правило.
+    """
+    finding = _finding(seeded_session, make_item(seeded_session, "IT-N03"))
+
+    with pytest.raises(ValidationError) as no_file:
+        create_inspection(
+            seeded_session, finding, inspection_type=_type(seeded_session),
+            decision_insp=None, conclusion=None, protocol="", no_protocol=False,
+        )
+    assert "No protocol" in str(no_file.value)
+
+    with pytest.raises(ValidationError) as no_conclusion:
+        create_inspection(
+            seeded_session, finding, inspection_type=_type(seeded_session),
+            decision_insp=None, conclusion=None, protocol=None, no_protocol=True,
+        )
+    assert "conclusion" in str(no_conclusion.value)
+
+    with pytest.raises(ValidationError) as both:
+        create_inspection(
+            seeded_session, finding, inspection_type=_type(seeded_session),
+            decision_insp=None, conclusion="settled", protocol="p.docx", no_protocol=True,
+        )
+    assert "must be empty" in str(both.value)
+
+    # Ни одна из трёх попыток записи не оставила строки.
+    assert seeded_session.query(Inspection).count() == 0
+
+
+def test_the_flag_survives_an_update_in_both_directions(seeded_session: Session) -> None:
+    """`update_inspection` заменяет поля целиком, и признак — тоже поле.
+
+    Проверяются **оба** перехода: обычная запись становится записью без файла и
+    обратно. Один переход был бы зелёным и на коде, который признак только
+    поднимает.
+    """
+    finding = _finding(seeded_session, make_item(seeded_session, "IT-N04"))
+    inspection = create_inspection(
+        seeded_session, finding, inspection_type=_type(seeded_session),
+        decision_insp=None, conclusion=None, protocol="p.docx", no_protocol=False,
+    )
+
+    update_inspection(
+        seeded_session, inspection, inspection_type=_type(seeded_session),
+        decision_insp="approval_not_possible", conclusion="the drawing settles it",
+        protocol=None, no_protocol=True,
+    )
+    seeded_session.commit()
+    assert (inspection.no_protocol, inspection.protocol) == (True, None)
+
+    update_inspection(
+        seeded_session, inspection, inspection_type=_type(seeded_session),
+        decision_insp="approval_not_possible", conclusion="the drawing settles it",
+        protocol="back.docx", no_protocol=False,
+    )
+    seeded_session.commit()
+    assert (inspection.no_protocol, inspection.protocol) == (False, "back.docx")
