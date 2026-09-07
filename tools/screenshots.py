@@ -318,14 +318,41 @@ def measure_columns(table, caption: str) -> None:
         longest, widest = "", 0
         for row in range(table.rowCount()):
             cell = table.item(row, column)
-            text = cell.text() if cell else ""
-            if metrics.horizontalAdvance(text) > widest:
-                longest, widest = text, metrics.horizontalAdvance(text)
+            # По **строкам**, а не по всему значению: ячейка списка отклонений
+            # многострочна (пилюли находок, список исследований), и замер целой
+            # строки объявлял бы обрезку там, где рисуются три строки подряд.
+            for text in (cell.text() if cell else "").splitlines() or [""]:
+                if metrics.horizontalAdvance(text) > widest:
+                    longest, widest = text, metrics.horizontalAdvance(text)
         verdict = "режет" if widest > room else "ok"
         print(
             f"    {label:20} {table.columnWidth(column):4} px  "
             f"место {room:4}  рекорд {widest:4} ({longest[:28]!r})  {verdict}"
         )
+
+
+def measure_pill_room(table, column: int, caption: str) -> None:
+    """Хватает ли колонке места на пилюлю — замер **на нативной платформе**.
+
+    Переехал сюда из `tests/test_ui_kit.py` вместе с наряду `0028` (`CLAUDE.md`
+    §9а.8): под offscreen шрифт моноширинный, и та же проверка объявляла
+    дефицит там, где на пропорциональном шрифте запас двукратный. Свойство,
+    которого нет на платформе прогона, замеряется на той, где оно есть.
+    """
+    from PySide6.QtGui import QFont, QFontMetrics
+
+    from ui.kit.pills import PILL_CHROME
+
+    font = QFont(table.font())
+    font.setPointSizeF(kit.tokens.SIZE_PILL)
+    font.setWeight(QFont.Weight(kit.tokens.WEIGHT_PILL))
+    metrics = QFontMetrics(font)
+    room = table.columnWidth(column) - kit.tokens.PAD_CELL * 2
+    print(f"  {caption}: место под пилюлю {room} px")
+    for text in ("Approved", "Rejected", "Sorting", "Repair", "Not decided"):
+        need = metrics.horizontalAdvance(text) + PILL_CHROME
+        verdict = "режет" if need > room else "ok"
+        print(f"    {text:14} нужно {need:4} px  {verdict}")
 
 
 def shoot_on_run_database() -> int:
@@ -415,6 +442,12 @@ def shoot(widget: QWidget, name: str) -> None:
     внутри разделителя оставалась при своей стартовой ширине, и центрирование
     считалось не от той (наряд 0020 §3.1). Досылаем событие сами — тот же приём,
     что в `drawing_view`.
+
+    Досыла тоже мало для **вложенной** таблицы: шапку `QHeaderView` раскладывает
+    отложенно, и панель находок раскрытой строки (наряд 0028) выходила на снимке
+    с шапкой в две подписи из восьми — при том что на живом экране она верна.
+    Поэтому очередь событий прокручивается перед захватом: снимок обязан
+    показывать то, что увидит оператор, а не промежуточное состояние раскладки.
     """
     from PySide6.QtGui import QResizeEvent  # noqa: PLC0415
 
@@ -426,6 +459,7 @@ def shoot(widget: QWidget, name: str) -> None:
     QApplication.sendEvent(widget, QResizeEvent(size, size))
     if layout is not None:
         layout.activate()
+    QApplication.processEvents()
     widget.grab().save(str(OUT / f"{name}.png"))
     print(f"  {name}.png")
 
@@ -627,6 +661,27 @@ def main() -> int:
     ):
         window.select_section(row)
         shoot(window, f"01-section-{row + 1}-{name}")
+
+    # Раскрытие строки (наряд 0028): панель находок со своей шапкой, колонка
+    # `Research` и список исследований. Снимается **раскрытым**: свёрнутый экран
+    # показывает только пилюли, а панель — половина того, что делает наряд.
+    window.select_section(3)
+    deviations = window.deviation_view
+    for row in range(deviations.table.rowCount()):
+        if not deviations.is_panel_row(row):
+            deviations.toggle_expansion(row)
+            break
+    window.layout().activate()
+    shoot(window, "21-deviations-expanded")
+    measure_columns(deviations.table, "Deviations, уровень отклонения")
+    for row in range(deviations.table.rowCount()):
+        panel = deviations.panel_at(row)
+        if panel is not None:
+            measure_columns(panel, "Deviations, уровень находки")
+            break
+    measure_pill_room(
+        deviations.table, deviations.table.columnCount() - 2, "Decision"
+    )
 
     # Лента при минимальной ширине: уходят подписи и правая строка состояния,
     # высота остаётся 44 (решение В-5).
