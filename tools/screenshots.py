@@ -183,10 +183,10 @@ def build_database():
         for name in ("inner diameter", "thread root", "אזור הברגה"):
             ensure_value(session, RefZone, name)
         ensure_value(session, RefDeviationType, "thread depth")
-        # Тип, к которому документа не прилагается вовсе, — повод наряда 0029:
-        # часть отклонений решается одним чертежом, и такой вердикт стоит
-        # записать прецедентом, хотя протокола к нему нет.
-        ensure_value(session, RefInspectionType, "Tolerances review")
+        # `Tolerances review` здесь **не заводится**: он приезжает стартовым
+        # набором справочника (`seed.reference`, канон rev 1.01). Своё значение
+        # рядом с общим источником означало бы, что снимок показывает базу,
+        # какой её не увидит ни один оператор (доводка Д-1 наряда 0029).
 
         group = create_group(session, "Implant_Con_375_C1", POSITIONS)
         set_drawing(session, group, _drawing_png(), "implant.png")
@@ -276,10 +276,13 @@ def build_database():
                 zone=zone,
                 deviation_type=kind,
             )
+        # Тип берётся **по имени**, а не по номеру в справочнике (`CLAUDE.md`
+        # §9а.9): третий тип, приехавший стартовым набором в QMS-024, сдвинул
+        # позиционный `[-1]` и молча переназначил вид второму исследованию.
         create_inspection(
             session,
             finding,
-            inspection_type=list_values(session, RefInspectionType)[0],
+            inspection_type=ref(session, RefInspectionType, "Solidworks assembly"),
             decision_insp="approval_possible",
             conclusion="Clearance in the assembled state drops by 20 %.",
             protocol=r"\\srv\qa\SW-2026-14.docx",
@@ -290,11 +293,23 @@ def build_database():
         create_inspection(
             session,
             finding,
-            inspection_type=list_values(session, RefInspectionType)[-1],
+            inspection_type=ref(session, RefInspectionType, "Implantation torque test"),
             decision_insp=None,
             conclusion=None,
             protocol=r"\\srv\qa\torque-2026-03.docx",
             no_protocol=False,
+        )
+        # Третье — **без протокола вовсе**: тот самый случай, ради которого
+        # заведён признак (QMS-024). Экран, снятый только на документированных
+        # записях, не показывает того, что сделал наряд.
+        create_inspection(
+            session,
+            finding,
+            inspection_type=ref(session, RefInspectionType, "Tolerances review"),
+            decision_insp="approval_not_possible",
+            conclusion="OD 10.0 vs ID 9.9 — no mating clearance, geometry excludes assembly",
+            protocol=None,
+            no_protocol=True,
         )
 
         ids = dict(
@@ -830,6 +845,17 @@ def main() -> int:
     )
     lists.setCurrentRow(zone_index)
     shoot(window, "01-section-1b-reference-zone")
+
+    # Типы исследований — критерий доводки Д-1 наряда 0029: стартовый набор
+    # обязан нести **три** значения, и снимок показывает их именно так, как их
+    # увидит оператор на новой базе.
+    kinds_index = next(
+        index
+        for index in range(lists.count())
+        if lists.item(index).text() == "Inspection type"
+    )
+    lists.setCurrentRow(kinds_index)
+    shoot(window, "01-section-1c-reference-inspection-types")
 
     # --- 2…14. диалоги ---
     shoot(ItemDialog(engine), "02-dialog-item")

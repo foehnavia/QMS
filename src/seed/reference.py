@@ -40,7 +40,15 @@ REFERENCE_SEED: dict[type, tuple[str, ...]] = {
         "cutting-edge width",
         "angle",
     ),
-    RefInspectionType: ("Solidworks assembly", "Implantation torque test"),
+    # Три типа, а не два (`reference/reference-data.md` rev 1.01, QMS-024):
+    # `Tolerances review` — названный случай вердикта, который чертёж решает сам,
+    # и в паре с `No protocol` он законен. Стартовый набор без него заставлял
+    # первое же такое отклонение ждать значения, вписанного руками.
+    RefInspectionType: (
+        "Solidworks assembly",
+        "Implantation torque test",
+        "Tolerances review",
+    ),
 }
 
 

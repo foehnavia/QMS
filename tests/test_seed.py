@@ -59,3 +59,55 @@ def test_general_defaults_exist(session: Session) -> None:
 
     assert ref(session, RefConnectionType, GENERAL).name == GENERAL
     assert ref(session, RefSize, GENERAL).name == GENERAL
+
+
+def test_the_starting_set_of_inspection_types_names_all_three(session: Session) -> None:
+    """Правило `docs/model/reference/reference-data.md` rev 1.01: стартовый набор
+    типов исследования — **`Solidworks assembly`, `Implantation torque test`,
+    `Tolerances review`**.
+
+    Значения названы здесь **дословно**, а не выведены из `REFERENCE_SEED`:
+    тест, сверяющий сид с самим сидом, зелен при любом его содержимом и не
+    сторожит ничего (`CLAUDE.md` §9а.9 — тест, разделяющий с кодом ту самую
+    величину, которую проверяет). Именно поэтому пропажу `Tolerances review`
+    прогон бы не заметил: `test_seed_fills_the_starting_sets` выше сравнивает
+    набор с ним же.
+
+    Третий тип въехал в набор с QMS-024: в паре с `No protocol` это названный
+    случай вердикта, который чертёж решает сам, и набор без него заставлял первое
+    же такое отклонение ждать значения, вписанного руками.
+    """
+    from db.models import RefInspectionType
+
+    seed_reference(session)
+    session.commit()
+
+    assert {row.name for row in session.query(RefInspectionType)} == {
+        "Solidworks assembly",
+        "Implantation torque test",
+        "Tolerances review",
+    }
+
+
+def test_a_fresh_database_carries_those_three_and_nothing_else(migrated_url: str) -> None:
+    """Критерий доводки: **новая пустая база несёт три типа**.
+
+    Отдельно от предыдущего потому, что тот работает на сессии, уже поднятой
+    фикстурой; здесь база создаётся миграциями с нуля — тем же путём, каким она
+    появляется у оператора.
+    """
+    from db.models import RefInspectionType
+    from db.session import create_db_engine, make_session_factory
+
+    engine = create_db_engine(migrated_url)
+    with make_session_factory(engine)() as fresh:
+        seed_reference(fresh)
+        fresh.commit()
+        names = {row.name for row in fresh.query(RefInspectionType)}
+    engine.dispose()
+
+    assert names == {
+        "Solidworks assembly",
+        "Implantation torque test",
+        "Tolerances review",
+    }
