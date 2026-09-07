@@ -388,6 +388,49 @@ def _fit_columns(table, magnitude_columns, content, widths) -> None:
         table.setColumnWidth(column, column_width(table, slots, caption))
 
 
+#: Предел вложенности пересчёта центрирования. Раскладка зовёт его синхронно, и
+#: несходящийся пересчёт уходит в рекурсию, а не в мигание: стек переполняется, и
+#: процесс умирает без питоновской трассы. Законных вложений не бывает больше двух.
+CENTRING_DEPTH_LIMIT = 8
+
+
+def centring_margin(table, width: int | None = None) -> int:
+    """Каким должен быть отступ полотна — **чистый расчёт**, без побочных действий.
+
+    Вынесен из `_centre_columns` доводкой 2 наряда `0028`, чтобы свойство, в
+    котором жил стоп-дефект, стало проверяемым **на любой платформе**. Свойство
+    одно: у расчёта обязана быть неподвижная точка — посчитанный отступ, будучи
+    применённым, обязан пересчитаться сам в себя.
+
+    **Свой отступ вычитать нельзя — иначе выход функции становится её входом.**
+    Отступ задаётся листом стиля, а Qt считает его частью `frameWidth()`. Без
+    поправки `current * 2` неподвижной точки не существует вовсе:
+
+        margin 0  -> frameWidth 1  -> available 1238 -> margin 11
+        margin 11 -> frameWidth 12 -> available 1216 -> margin 0
+
+    Гард `_margin == margin` такого не ловит: значение не повторяется, оно
+    **чередуется**. А раскладка зовёт пересчёт синхронно, поэтому на нативной
+    платформе колебание уходит в неограниченную рекурсию — переполнение стека и
+    смерть процесса без питоновской трассы. Под offscreen оно затухает, и прогон
+    этого не видел (`CLAUDE.md` §9а.13).
+    """
+    total = sum(table.columnWidth(column) for column in range(table.columnCount()))
+    current = getattr(table, "_margin", 0) or 0
+    available = (
+        (table.width() if width is None else width) - table.frameWidth() * 2 + current * 2
+    )
+    bar = table.verticalScrollBar()
+    if bar.isVisible():
+        available -= bar.width()
+    # Центрируем **только** когда таблица занимает существенную часть области
+    # (правило 3 §7.3). Поле шире самой таблицы читается как поломка, а не как
+    # приём: на снимке Reference data так и вышло.
+    if available > 0 and total >= available * CENTRING_SHARE:
+        return max((available - total) // 2, 0)
+    return 0
+
+
 def _centre_columns(table, width: int | None = None) -> None:
     """Центрировать полотно, а лишнюю ширину отдать отступам.
 
@@ -395,18 +438,10 @@ def _centre_columns(table, width: int | None = None) -> None:
     утопленная поверхность. Сумма колонок шире области → отступы исчезают и
     таблица прокручивается вбок: без этой второй половины сломались бы широкие
     экраны (правка пользователя к решению 02.09).
+
+    Сам расчёт — в `centring_margin`; здесь применение и сторож сходимости.
     """
-    total = sum(table.columnWidth(column) for column in range(table.columnCount()))
-    bar = table.verticalScrollBar()
-    available = (table.width() if width is None else width) - table.frameWidth() * 2
-    if bar.isVisible():
-        available -= bar.width()
-    # Центрируем **только** когда таблица занимает существенную часть области
-    # (правило 3 §7.3). Поле шире самой таблицы читается как поломка, а не как
-    # приём: на снимке Reference data так и вышло.
-    margin = 0
-    if available > 0 and total >= available * CENTRING_SHARE:
-        margin = max((available - total) // 2, 0)
+    margin = centring_margin(table, width)
 
     # Отступ задаётся **листом стиля**, а не `setViewportMargins`: последние Qt
     # держит под свои заголовки, и правка их разводит шапку с телом — на снимке
@@ -414,18 +449,34 @@ def _centre_columns(table, width: int | None = None) -> None:
     # часть коробки виджета, и полотно с шапкой едут вместе (замерено).
     if getattr(table, "_margin", None) == margin:
         return
-    table._margin = margin
-    # Селектор по типу, а не голое свойство: голое наследуют дети, и шапка
-    # получала отступ **вторично** — на снимке подписи стояли на 334 px правее
-    # своих колонок.
-    table.setStyleSheet(
-        f"QTableView {{ padding-left: {margin}px; padding-right: {margin}px; }}"
-    )
-    # Пересчёт стиля — синхронно. Иначе он ждёт следующего прохода цикла
-    # событий, а снимки снимаются без него: на снимке шапка оставалась на
-    # прежнем месте, пока тело уже переехало.
-    table.style().unpolish(table)
-    table.style().polish(table)
+
+    # Сторож несходимости — **механизм, а не дисциплина**: тот же довод, что
+    # закрыл `show_error` (QMS-021) и канон-хеш на приёмке. Расчёт выше сходится;
+    # если он когда-нибудь снова перестанет, здесь будет красный тест с читаемым
+    # текстом, а не смерть процесса без трассы.
+    depth = getattr(table, "_centring_depth", 0) + 1
+    table._centring_depth = depth
+    try:
+        if depth > CENTRING_DEPTH_LIMIT:
+            raise RuntimeError(
+                f"centring did not converge: {depth} nested passes, "
+                f"margin {getattr(table, '_margin', None)} -> {margin}. "
+                "The padding this function sets is being read back as frame width."
+            )
+        table._margin = margin
+        # Селектор по типу, а не голое свойство: голое наследуют дети, и шапка
+        # получала отступ **вторично** — на снимке подписи стояли на 334 px правее
+        # своих колонок.
+        table.setStyleSheet(
+            f"QTableView {{ padding-left: {margin}px; padding-right: {margin}px; }}"
+        )
+        # Пересчёт стиля — синхронно. Иначе он ждёт следующего прохода цикла
+        # событий, а снимки снимаются без него: на снимке шапка оставалась на
+        # прежнем месте, пока тело уже переехало.
+        table.style().unpolish(table)
+        table.style().polish(table)
+    finally:
+        table._centring_depth = depth - 1
 
 
 class DataTable(QTableWidget):

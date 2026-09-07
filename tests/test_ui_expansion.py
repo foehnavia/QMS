@@ -15,8 +15,9 @@ from datetime import date
 
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtGui import QColor, QPainter, QPixmap
-from PySide6.QtWidgets import QStyleOptionViewItem
+from PySide6.QtWidgets import QApplication, QStyleOptionViewItem
 
 import ui.kit as kit
 from conftest import count_queries, make_item, rev
@@ -40,6 +41,7 @@ from ui.deviation_view import (
     grid_widths,
 )
 from ui.kit import tokens
+from ui.kit.widgets import CENTRING_DEPTH_LIMIT, _centre_columns, centring_margin
 from ui.kit.chips import CHIPS_ROLE, EXPANDED_ROLE, Chip, ExpanderDelegate, FindingChipsDelegate
 
 pytestmark = pytest.mark.usefixtures("qt_app")
@@ -675,3 +677,184 @@ def test_the_flask_is_actually_drawn_and_a_bare_chip_is_not(qt_app) -> None:
 
     with_flask, without = painted(True), painted(False)
     assert with_flask > without, f"мензурка не нарисована: {with_flask} против {without}"
+
+
+# --- Доводка 2: путь пользователя — настоящим событием ---------------------------
+#
+# `CLAUDE.md` §9а: «проверка должна входить в систему там же, где в неё входит
+# человек — у клавиатуры и мыши, а не у метода», и §9а.6: «события доставляются
+# через приложение, а не прямой посылкой в виджет».
+#
+# Двенадцать тестов выше зовут `toggle_expansion` напрямую, и все двенадцать были
+# зелёными, пока раскрытие роняло приложение у пользователя. Прямой вызов остаётся
+# там, где проверяется **состояние**; путь человека проверяется здесь.
+
+
+@pytest.fixture
+def two_deviations(engine):
+    """Две записи по одной детали, у каждой две находки.
+
+    Ровно тот случай, ради которого раскрытие сделано множественным: отклонения
+    сравнивают между собой (решение 6 реестра).
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        _deviation(session, item, wo="W26007336", numbers=("12", "19"))
+        _deviation(session, item, wo="W26007201", numbers=("12", "77"))
+    return engine
+
+
+@pytest.fixture
+def shown_view(two_deviations):
+    """Экран, **показанный** на экране (§9а.5).
+
+    У скрытого виджета часть механики Qt не запускается вовсе: `resizeEvent` ему
+    не шлётся, и ветка пересчёта центрирования, в которой жил стоп-дефект, не
+    исполняется. Скрытый виджет пережил бы то, от чего показанный умирал.
+    """
+    view = DeviationView(two_deviations)
+    view.resize(1280, 760)
+    view.show()
+    QApplication.processEvents()
+    yield view
+    view.close()
+
+
+def _click_expander(view, row: int) -> None:
+    """Клик мышью по стрелке раскрытия — **через приложение**, а не вызовом слота.
+
+    Между кнопкой и обработчиком есть промежуток, и дефекты живут ровно в нём
+    (§9а.6, находка №12 наряда 0017). Точка берётся из `visualRect` — то есть из
+    того же места, откуда её берёт отрисовка.
+    """
+    table = view.table
+    index = table.model().index(row, COLUMNS.index(""))
+    QTest.mouseClick(
+        table.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        table.visualRect(index).center(),
+    )
+    QApplication.processEvents()
+
+
+def test_the_centring_computation_has_a_fixed_point(shown_view) -> None:
+    """**Стоп-дефект доводки 2, названный причиной и проверяемый арифметикой.**
+
+    `kit.centring_margin` задаёт отступ полотна листом стиля, а Qt считает этот
+    же отступ частью `frameWidth()`. Пока расчёт вычитал `frameWidth()` без
+    поправки, его выход был его входом, и неподвижной точки не существовало:
+
+        margin 0  -> frameWidth 1  -> available 1238 -> margin 11
+        margin 11 -> frameWidth 12 -> available 1216 -> margin 0
+
+    Гард `_margin == margin` этого не ловил: значение не повторялось, оно
+    **чередовалось**. Раскладка зовёт пересчёт синхронно, поэтому на нативной
+    платформе колебание уходило в неограниченную рекурсию — переполнение стека и
+    смерть процесса без питоновской трассы.
+
+    Проверяется **неподвижная точка**, а не клик: под offscreen колебание
+    затухает, и тест на клик был бы зелёным на сломанном коде (`CLAUDE.md`
+    §9а.13). Арифметика же платформы не знает — отступ, который применён, обязан
+    пересчитаться сам в себя.
+    """
+    table = shown_view.table
+    applied = getattr(table, "_margin", None)
+
+    assert applied is not None, "центрирование ещё не применялось"
+    assert centring_margin(table) == applied, (
+        f"расчёт не имеет неподвижной точки: применён {applied}, "
+        f"пересчитан {centring_margin(table)} — функция читает собственный "
+        "отступ как ширину рамки"
+    )
+
+
+def test_the_convergence_guard_is_a_mechanism_not_a_wish(shown_view) -> None:
+    """Обратная сторона: если сходимость когда-нибудь снова сломается, это будет
+    **красный тест с текстом**, а не смерть процесса.
+
+    Тот же довод, что закрыл `show_error` (QMS-021) и канон-хеш на приёмке:
+    дисциплина остаётся пожеланием, гард — механизмом.
+    """
+    table = shown_view.table
+    table._centring_depth = CENTRING_DEPTH_LIMIT
+    table._margin = -1  # заведомо иное значение, чтобы пересчёт дошёл до гарда
+
+    with pytest.raises(RuntimeError) as raised:
+        _centre_columns(table)
+
+    assert "did not converge" in str(raised.value)
+    table._centring_depth = 0
+
+
+def test_a_real_click_on_the_arrow_expands_the_row(shown_view) -> None:
+    """**Главный критерий приёмки доводки 2.**
+
+    Клик по стрелке настоящим событием на показанном виджете. На прежнем коде
+    этот путь убивал процесс; двенадцать тестов, звавших `toggle_expansion`
+    напрямую, оставались зелёными.
+    """
+    before = shown_view.table.rowCount()
+
+    _click_expander(shown_view, 0)
+
+    assert len(shown_view.expanded()) == 1
+    assert shown_view.table.rowCount() == before + 1
+    assert shown_view.panel_at(1) is not None
+
+
+def test_a_second_real_click_collapses_it_again(shown_view) -> None:
+    """Повторный клик сворачивает — тем же событием, не вызовом метода."""
+    _click_expander(shown_view, 0)
+    assert len(shown_view.expanded()) == 1
+
+    _click_expander(shown_view, 0)
+
+    assert shown_view.expanded() == set()
+    assert shown_view.panel_at(1) is None
+
+
+def test_a_real_click_expands_a_second_record_beside_the_first(shown_view) -> None:
+    """Раскрытие второй записи при уже раскрытой первой — настоящими событиями.
+
+    Решение 6 реестра: раскрытых может быть сколько угодно, потому что отклонения
+    сравнивают **между собой**. Именно этот путь проходит по служебной строке,
+    вставленной предыдущим раскрытием, и потому опаснее одиночного.
+    """
+    _click_expander(shown_view, 0)
+    # Вторая запись съехала вниз на служебную строку — ищем её по владельцу,
+    # а не по номеру (§9а.9).
+    table = shown_view.table
+    second = next(
+        row
+        for row in range(table.rowCount())
+        if not shown_view.is_panel_row(row)
+        and shown_view._deviation_at(row) not in shown_view.expanded()
+    )
+
+    _click_expander(shown_view, second)
+
+    assert len(shown_view.expanded()) == 2
+    panels = [row for row in range(table.rowCount()) if shown_view.is_panel_row(row)]
+    assert len(panels) == 2
+
+
+def test_a_click_outside_the_arrow_does_not_expand(shown_view) -> None:
+    """Обратная сторона: раскрывает **стрелка**, а не строка целиком.
+
+    Без этого предыдущие три теста были бы зелёными и на экране, который
+    раскрывается от любого клика, — то есть не отличали бы верное от неверного.
+    """
+    table = shown_view.table
+    index = table.model().index(0, COLUMNS.index("Number"))
+    QTest.mouseClick(
+        table.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        table.visualRect(index).center(),
+    )
+    QApplication.processEvents()
+
+    assert shown_view.expanded() == set()
+    # Но выбор строки клик менять обязан — это обычная строка списка.
+    assert shown_view._selected_id() is not None
