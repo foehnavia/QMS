@@ -30,6 +30,7 @@ from sqlalchemy import Engine  # noqa: E402
 from db.session import create_db_engine, default_db_url, session_scope  # noqa: E402
 from domain.reference import normalise_all  # noqa: E402
 from seed.reference import seed_reference  # noqa: E402
+from ui import crash  # noqa: E402
 from ui.kit import apply_theme  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402
 
@@ -88,6 +89,12 @@ def main(argv: list[str] | None = None) -> int:
     # Палитра ставится явно: тёмный режим Windows иначе перекрашивает экраны в
     # то, чего никто не проектировал (канон §0).
     apply_theme(app)
+    # Перехватчик необработанных исключений — **после** `QApplication`, потому
+    # что окно ошибки без приложения не собрать, и **до** первого окна, чтобы
+    # сбой при его построении уже был виден. Доводка 3 наряда 0030, Д-3.3:
+    # исключение слота уходит в консоль, а после упаковки в `.exe` консоли не
+    # будет вовсе — отказ станет полностью невидимым.
+    crash.install()
 
     window = MainWindow(engine)
     window.show()
