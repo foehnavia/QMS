@@ -409,10 +409,14 @@ class CardDialog(QDialog):
         # --- исследования выбранной находки ---
         self.inspections = kit.data_table(INSPECTION_COLUMNS, widths=INSPECTION_WIDTHS)
         self.inspections.currentCellChanged.connect(lambda *_: self._refresh_protocol_button())
-        # Двойной клик открывает протокол — та же идиома, что у прецедентов ниже:
-        # строка таблицы открывается двойным кликом, кнопка рядом делает то же
-        # для тех, кто её ищет глазами.
-        self.inspections.doubleClicked.connect(lambda *_: self.open_protocol())
+        # Двойной клик открывает **объект строки** — исследование, — как и везде
+        # в этом интерфейсе: по отклонению в списке он открывает карточку, по
+        # прецеденту ниже — прецедент. Вешать сюда открытие файла было ошибкой
+        # (доводка 3, Д-3.1): жест «открыть запись» превращался в жест «открыть
+        # чужое приложение», а у записи без протокола открывать было и нечего.
+        # Файл остаётся за своей кнопкой `Open protocol…`, которая умеет быть
+        # неактивной там, где файла нет.
+        self.inspections.doubleClicked.connect(lambda *_: self.edit_inspection())
         self.protocol_button = kit.secondary("Open protocol…")
         self.protocol_button.clicked.connect(self.open_protocol)
 
@@ -771,6 +775,18 @@ class CardDialog(QDialog):
         with session_scope(self._engine) as session:
             protocol = session.get(Inspection, inspection_id).protocol
 
+        # Вторая сторона Д-3.2. Первая — что для такой записи действие вообще
+        # недоступно: кнопка выключена, а двойной клик сюда больше не ведёт. Но
+        # «недоступно» держится на состоянии экрана, и одного этого мало: с
+        # наряда `0029` пустой протокол — **законное** состояние записи, и
+        # функция обязана отвечать на него словами сама, откуда бы её ни позвали.
+        # До `0029` `None` не возникал, поэтому `Path(protocol)` и падал
+        # `TypeError` — регрессия ровно того рода, которую ловит листинг
+        # потребителей поля, а не память.
+        if not (protocol or "").strip():
+            kit.show_error(self, _protocol_absent(), title="No protocol to open")
+            return
+
         path = Path(protocol)
         if not path.exists():
             kit.show_error(self, _protocol_missing(protocol), title="Protocol not opened")
@@ -877,6 +893,21 @@ class CardDialog(QDialog):
         if finding_id is None:
             return
         if InspectionDialog.run(self._engine, finding_id, None, self):
+            self.reload()
+
+    def edit_inspection(self) -> None:
+        """Открыть **выбранное** исследование — та же форма, что заводит новое.
+
+        Кнопка `Inspection…` заводит новую запись по выбранной находке; двойной
+        клик по строке правит ту запись, по которой кликнули (доводка 3, Д-3.1).
+        Разные действия, одна форма — различает их `inspection_id`.
+        """
+        inspection_id = self._selected_inspection_id()
+        if inspection_id is None:
+            return
+        with session_scope(self._engine) as session:
+            finding_id = session.get(Inspection, inspection_id).finding_id
+        if InspectionDialog.run(self._engine, finding_id, inspection_id, self):
             self.reload()
 
     def bind_canon(self) -> None:
@@ -988,6 +1019,22 @@ def _scrolling(content: QWidget) -> QScrollArea:
 def _one_line(text: str | None) -> str:
     """Обоснование в одну строку — в таблице многострочный текст рвёт вёрстку."""
     return " ".join((text or "").split())
+
+
+def _protocol_absent() -> Exception:
+    """Протокола у записи нет вовсе — это **не** ошибка, а объявленное состояние.
+
+    Отдельно от `_protocol_missing`: там путь записан, а файла по нему нет — сбой,
+    который надо чинить правкой ссылки. Здесь файла нет **по решению инженера**
+    (галочка `No protocol`, наряд `0029`), и вся запись — её вывод. Свалить два
+    случая в одно сообщение значило бы объяснять оператору не то, что он видит.
+    """
+    from domain.errors import ValidationError
+
+    return ValidationError(
+        "This inspection has no protocol file — “No protocol” is set on it, and "
+        "its conclusion is the record. Open the inspection to read it."
+    )
 
 
 def _protocol_missing(protocol: str) -> Exception:

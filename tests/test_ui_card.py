@@ -1255,3 +1255,172 @@ def test_the_card_refuses_to_void_a_decision_that_has_gone_into_a_document(
     # Правка не применилась: отказ — это отказ, а не предупреждение поверх записи.
     with session_scope(engine) as session:
         assert session.get(Finding, finding_id).outcome == "permitted"
+
+
+# --- Доводка 3: двойной клик по исследованию (Д-3.1) и запись без протокола (Д-3.2) --
+
+
+def _double_click_row(table, row: int) -> None:
+    """Настоящий двойной клик по строке — через приложение (`CLAUDE.md` §9а.6).
+
+    Прямая посылка события в виджет обошла бы диспетчеризацию и проверила
+    **обработчик**, а не поведение. Целимся в центр ячейки, как оператор.
+
+    **Одиночный клик перед двойным обязателен, и это не ритуал.** `mouseDClick` в
+    пустую по строке, которой ещё не касались, до `doubleClicked` не доходит:
+    `QAbstractItemView` запоминает индекс на **нажатии**, и без него двойной клик
+    не с чем связать. Замерено — сигнала не было вовсе. Так же ведёт себя и
+    человек: он сперва выбирает строку, потом раскрывает её.
+    """
+    cell = table.visualItemRect(table.item(row, 0)).center()
+    viewport = table.viewport()
+    QTest.mouseClick(
+        viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, cell
+    )
+    QApplication.processEvents()
+    QTest.mouseDClick(
+        viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, cell
+    )
+    QApplication.processEvents()
+
+
+def _open_inspection_form(monkeypatch):
+    """Перехват открытия формы исследования: что открыли и какую запись.
+
+    `InspectionDialog.run` под offscreen открыл бы модальное окно и **повесил
+    прогон** (`CLAUDE.md` §9), поэтому подменяется он, а не что-либо ниже:
+    проверяется именно то, куда ведёт жест, — форма исследования и **какая
+    запись** в ней.
+    """
+    calls: list[tuple[int, int | None]] = []
+    monkeypatch.setattr(
+        card_dialog.InspectionDialog,
+        "run",
+        classmethod(
+            lambda cls, engine, finding_id, inspection_id=None, parent=None: (
+                calls.append((finding_id, inspection_id)) or False
+            )
+        ),
+    )
+    return calls
+
+
+def test_a_double_click_on_an_inspection_opens_the_inspection(
+    engine, monkeypatch, slot_errors
+) -> None:
+    """**Критерий 1 доводки 3 (Д-3.1).** Двойной клик по строке открывает **объект
+    строки** — исследование, — а не файл протокола.
+
+    Так устроен весь остальной интерфейс: по отклонению в списке двойной клик
+    открывает карточку, по прецеденту — прецедент. Открытие файла на этом жесте
+    было ошибкой: жест «открыть запись» становился жестом «открыть чужое
+    приложение», и у записи без протокола открывать было нечего.
+
+    Настоящим двойным кликом, не вызовом метода: этот путь не был покрыт ни одним
+    тестом — потому дефект и дожил до прогона руками.
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12", decision=None)
+        finding = session.get(Finding, finding_id)
+        inspection = create_inspection(
+            session,
+            finding,
+            inspection_type=ensure_value(session, RefInspectionType, "Solidworks assembly"),
+            conclusion=None,
+            protocol="p.docx",
+            no_protocol=False,
+        )
+        session.flush()
+        inspection_id = inspection.inspection_id
+
+    card = _shown_card(engine, deviation_id)
+    card.findings.setCurrentCell(0, 0)
+    calls = _open_inspection_form(monkeypatch)
+
+    _double_click_row(card.inspections, 0)
+
+    assert slot_errors == []
+    assert calls == [(finding_id, inspection_id)], "открылось не исследование строки"
+
+
+def test_a_double_click_opens_an_inspection_that_has_no_protocol(
+    engine, monkeypatch, slot_errors
+) -> None:
+    """**Критерий 2 доводки 3 (Д-3.2), лицевая сторона.** Ровно та запись, на
+    которой приложение падало: `No protocol` (наряд `0029`).
+
+    Три утверждения в одном тесте, потому что различает верное от неверного
+    именно их сочетание: жест **работает**, файловое действие **недоступно**, и
+    ничего не улетело в `sys.excepthook` — а падение уходило именно туда, не
+    роняя ни одного из 666 зелёных тестов.
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12", decision=None)
+        finding = session.get(Finding, finding_id)
+        inspection = create_inspection(
+            session,
+            finding,
+            inspection_type=ensure_value(session, RefInspectionType, "Tolerances review"),
+            conclusion="the drawing settles it",
+            protocol=None,
+            no_protocol=True,
+        )
+        session.flush()
+        inspection_id = inspection.inspection_id
+
+    card = _shown_card(engine, deviation_id)
+    card.findings.setCurrentCell(0, 0)
+    calls = _open_inspection_form(monkeypatch)
+
+    _double_click_row(card.inspections, 0)
+
+    assert slot_errors == []
+    assert calls == [(finding_id, inspection_id)]
+    assert card.protocol_button.isEnabled() is False
+
+
+def test_open_protocol_answers_instead_of_crashing_without_a_file(
+    engine, monkeypatch
+) -> None:
+    """**Критерий 2 доводки 3 (Д-3.2), вторая сторона.** Прямой вызов на записи без
+    протокола отвечает **словами**, а не падает `TypeError` на `Path(None)`.
+
+    Одной недоступности действия мало: она держится на состоянии экрана, а с
+    наряда `0029` пустой протокол — законное состояние записи, и функция обязана
+    отвечать на него сама, откуда бы её ни позвали. Это и есть «чинить обе
+    стороны» доводки.
+
+    Сообщение проверяется **по существу**: «файла нет по записанному пути» и «файла
+    нет вовсе» — разные случаи, и слить их в один текст значило бы объяснять
+    оператору не то, что он видит.
+    """
+    shown: list = []
+    monkeypatch.setattr(
+        card_dialog.kit, "show_error", lambda parent, error, title="": shown.append(error)
+    )
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12", decision=None)
+        finding = session.get(Finding, finding_id)
+        create_inspection(
+            session,
+            finding,
+            inspection_type=ensure_value(session, RefInspectionType, "Tolerances review"),
+            conclusion="the drawing settles it",
+            protocol=None,
+            no_protocol=True,
+        )
+
+    card = _shown_card(engine, deviation_id)
+    card.findings.setCurrentCell(0, 0)
+    card.inspections.setCurrentCell(0, 0)
+
+    card.open_protocol()  # именно прямой вызов — сторона «а вызванный не падает»
+
+    assert len(shown) == 1
+    assert "no protocol file" in str(shown[0])
+    # Не перепутано с «файл записан, но не найден» — там речь о правке ссылки.
+    assert "is not there" not in str(shown[0])
