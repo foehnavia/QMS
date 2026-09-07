@@ -78,13 +78,23 @@ def _bound_item(engine, *, local_number: str = "12"):
 
 
 def test_column_order_and_names_follow_the_design(engine) -> None:
-    """Состав колонок — то, что наряд 0011 §4 внёс из макета."""
+    """Состав колонок — то, что наряд 0011 §4 внёс из макета.
+
+    Сторожит и правило `docs/worklog/0028-deviations-list-expansion.md` §1:
+    «**Колонка `Inspections` снимается совсем.** Она была временной: наряд
+    `0011` §4 оставил её именно потому, что раскрытия не существовало. Числовой
+    колонки исследований в раскрытии тоже нет — она была бы вторым счётчиком
+    там, где показано содержимое».
+    """
     assert "Dev. qty" in COLUMNS and "Quantity" not in COLUMNS
     assert "Explanation" in COLUMNS
     assert COLUMNS.index("Findings") < COLUMNS.index("Decision")
-    # `Inspections` осталась своей колонкой: в макете она уходит в раскрытие
-    # строки, а раскрытия в этой сборке нет (§4, «не входит»).
-    assert "Inspections" in COLUMNS
+    assert "Inspections" not in COLUMNS
+    # И в панели раскрытия её нет как **счётчика**: там колонка того же имени
+    # несёт список исследований, а не число.
+    from ui.deviation_view import PANEL_COLUMNS
+
+    assert "Inspections" in PANEL_COLUMNS
 
 
 def test_the_explanation_reaches_the_list(engine, no_modals) -> None:

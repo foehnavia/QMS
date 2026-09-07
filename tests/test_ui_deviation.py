@@ -581,7 +581,14 @@ def test_the_form_refuses_to_remove_a_studied_finding(engine_with_item, monkeypa
 # --- Раздел «Отклонения» ---------------------------------------------------------
 
 
-def test_view_lists_deviations_with_counts_and_decision(engine_with_item) -> None:
+def test_view_lists_deviations_with_findings_and_decision(engine_with_item) -> None:
+    """Строка показывает **сами находки**, а не их число.
+
+    Сторожит правило `docs/worklog/0028-deviations-list-expansion.md` §2:
+    «Строка отклонения перестаёт быть счётчиком и показывает сами находки».
+    Проверяется содержимое ячейки: до наряда там стояло `"1"`, и тест, сверявший
+    число, был бы зелёным на экране, который находок не показывает.
+    """
     _finding_id(engine_with_item)
 
     from ui.deviation_view import COLUMNS
@@ -593,7 +600,9 @@ def test_view_lists_deviations_with_counts_and_decision(engine_with_item) -> Non
     # `Decision` и добавил `Explanation`, и номер здесь ничего не проверяет.
     # Короткая метка колонки списка (макет S13, дизайн-система rev. 1.4).
     assert view.table.item(0, COLUMNS.index("Decision")).text() == "Not decided"
-    assert view.table.item(0, COLUMNS.index("Findings")).text() == "1"
+    findings = view.table.item(0, COLUMNS.index("Findings")).text()
+    assert findings != "1"
+    assert "Dim. 12" in findings
     # Счётчик выдачи — в подзаголовке экрана (макет S9); подвал показывает
     # выбранную запись, а не то же число второй раз (наряд 0012).
     assert "1 undecided" in view.summary_text()
@@ -691,12 +700,20 @@ def test_date_and_quantity_editors_are_left_to_right(engine_with_item) -> None:
 
 
 def test_the_list_isolates_dates_and_business_numbers(engine_with_item) -> None:
-    """В таблицах текст формируем сами — там достаточно изолята."""
+    """В таблицах текст формируем сами — там достаточно изолята.
+
+    Колонки адресуются **по заголовку** (`CLAUDE.md` §9а.9): наряд `0028` встал
+    колонкой раскрытия перед `Number`, и прибитые номера сообщали бы о сдвиге, а
+    не о том, изолированы ли значения.
+    """
+    from ui.deviation_view import COLUMNS
+
     _finding_id(engine_with_item)
     view = DeviationView(engine_with_item)
 
-    for column in (0, 1, 2, 3, 4):
-        assert view.table.item(0, column).text().startswith("⁨")
+    for name in ("Number", "Item", "Revision", "WO", "Date"):
+        cell = view.table.item(0, COLUMNS.index(name))
+        assert cell.text().startswith("⁨"), name
 
 
 # --- Ревью S4: замена всех находок за одну правку --------------------------------

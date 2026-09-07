@@ -12,12 +12,29 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Sequence
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from db.models import Characteristic, Deviation, Direction, Finding, Inspection
+from db.models import (
+    Characteristic,
+    Deviation,
+    Direction,
+    Finding,
+    GPosition,
+    Inspection,
+    Mapping,
+    RefDeviationType,
+    RefInspectionType,
+    RefZone,
+)
 
 from .errors import InvariantViolation, ValidationError, ValueInUse
+# Подпись «не привязан» берётся из поиска, а не заводится второй раз:
+# одно значение — одно определение (`Search.md` v1.04).
+from .precedents import CANON_UNBOUND
 
 
 def ensure_finding_target(deviation: Deviation, characteristic: Characteristic) -> None:
@@ -169,3 +186,206 @@ def remove_finding(session: Session, finding: Finding) -> None:
     # разошёлся бы с базой (урок наряда 0003).
     deviation.findings.remove(finding)
     session.flush()
+
+
+# --- Уровень находки в списке отклонений (наряд 0028, QMS-018) -------------------
+
+
+@dataclass(frozen=True)
+class FindingRow:
+    """Находка так, как её показывают пилюля свёрнутой строки и панель раскрытия.
+
+    Отдельно от `Finding` потому, что экран рисует не запись, а **сводку**:
+    подпись канона живёт в другой таблице, а число исследований — агрегат.
+    Тащить ради них ORM-объект значило бы ходить в базу на каждую строку.
+    """
+
+    finding_id: int
+    deviation_id: int
+    #: Местный номер размера на чертеже — то, что оператор читает как «дим 19».
+    local_number: str
+    #: `gN` либо `CANON_UNBOUND`. Третьего состояния, «размер ещё не заведён»,
+    #: здесь быть не может: находка без размера не существует.
+    canon: str
+    direction: str
+    value: float | None
+    zone: str | None
+    deviation_type: str | None
+    #: Сколько исследований висит на находке. Признак наличия, **не вердикт**:
+    #: значок мензурки в пилюле ставится по нему и от позиции не зависит.
+    inspections: int
+
+
+def findings_for_deviations(
+    session: Session, deviation_ids: Sequence[int]
+) -> dict[int, list[FindingRow]]:
+    """Находки нескольких отклонений — **один** запрос на весь экран.
+
+    Решение 7 QMS-018: пакетных запросов на экран два — отклонения и находки
+    всех видимых строк вместе с числом исследований у каждой находки. Запрет,
+    который за этим стоит, — «ни одного запроса на строку и ни одного на
+    находку». Поэтому подпись канона и счётчик исследований приезжают **этим
+    же** запросом, левыми соединениями, а не вызовами `canon_labels` и
+    `inspection_counts`: те, при всей своей пакетности, дали бы третий и
+    четвёртый запрос.
+
+    Ключ — `deviation_id`; отклонение без находок в ответе есть, с **пустым**
+    списком, а не пропуском: экран обязан отличать «находок нет» от «не спросили».
+    """
+    ids = [int(value) for value in deviation_ids]
+    if not ids:
+        return {}
+
+    counts = (
+        select(Inspection.finding_id.label("finding_id"), func.count().label("n"))
+        .group_by(Inspection.finding_id)
+        .subquery()
+    )
+
+    query = (
+        select(
+            Finding.finding_id,
+            Finding.deviation_id,
+            Characteristic.local_number,
+            GPosition.g_index,
+            Finding.direction,
+            Finding.value,
+            RefZone.name,
+            RefDeviationType.name,
+            func.coalesce(counts.c.n, 0),
+        )
+        .join(Characteristic, Finding.characteristic_id == Characteristic.characteristic_id)
+        .outerjoin(Mapping, Mapping.characteristic_id == Characteristic.characteristic_id)
+        .outerjoin(GPosition, Mapping.g_position_id == GPosition.g_position_id)
+        .outerjoin(RefZone, Finding.zone_id == RefZone.zone_id)
+        .outerjoin(
+            RefDeviationType,
+            Finding.deviation_type_id == RefDeviationType.deviation_type_id,
+        )
+        .outerjoin(counts, counts.c.finding_id == Finding.finding_id)
+        .where(Finding.deviation_id.in_(ids))
+        # Порядок здесь только **устойчивый**, а не читательский: номер размера
+        # строка, и «10» текстом встаёт перед «9». Числовой ключ живёт в
+        # `ui.common.dimension_sort_key`, и сортирует экран — домену незачем
+        # заводить его второй раз ради порядка, который нужен одному экрану.
+        .order_by(Finding.deviation_id, Finding.finding_id)
+    )
+
+    grouped: dict[int, list[FindingRow]] = {key: [] for key in ids}
+    for row in session.execute(query):
+        grouped[row[1]].append(
+            FindingRow(
+                finding_id=row[0],
+                deviation_id=row[1],
+                local_number=row[2],
+                canon=CANON_UNBOUND if row[3] is None else f"g{row[3]}",
+                direction=row[4],
+                value=row[5],
+                zone=row[6],
+                deviation_type=row[7],
+                inspections=row[8],
+            )
+        )
+    return grouped
+
+
+# --- Уровень исследования в панели раскрытия (наряд 0028 §4.2, §5.3) --------------
+
+
+@dataclass(frozen=True)
+class InspectionRow:
+    """Исследование так, как его показывает ячейка `Inspections` панели.
+
+    В ячейке — **тип · позиция**; короткий вывод в 340 px не помещается и живёт
+    в подсказке (§4.2 наряда), поэтому он здесь есть, но отдельной колонкой не
+    становится.
+    """
+
+    inspection_id: int
+    finding_id: int
+    #: Вид исследования из справочника (`Solidworks assembly`, …).
+    type_name: str
+    #: Позиция; `None` — «ещё не разбирали» (`Inspection.md` rev 1.01).
+    position: str | None
+    conclusion: str | None
+
+
+def inspections_of_deviation(
+    session: Session, deviation_id: int
+) -> dict[int, list[InspectionRow]]:
+    """Исследования одного отклонения, разложенные по находкам — **один** запрос.
+
+    Ленивый: зовётся на **раскрытие** записи, а не на отрисовку экрана
+    (решение 7 QMS-018). Свёрнутой строке от исследования нужен один признак —
+    «есть или нет», — и он уже приехал счётчиком в `FindingRow.inspections`.
+
+    Ключ — `finding_id`; находки без исследований в ответе **нет**: пустое
+    состояние ячейки рисует экран, и словарь, набитый пустыми списками, только
+    заставил бы его различать два одинаковых ответа.
+    """
+    query = (
+        select(
+            Inspection.inspection_id,
+            Inspection.finding_id,
+            RefInspectionType.name,
+            Inspection.decision_insp,
+            Inspection.conclusion,
+        )
+        .join(
+            RefInspectionType,
+            Inspection.type_id == RefInspectionType.inspection_type_id,
+        )
+        .where(Inspection.deviation_id == deviation_id)
+        .order_by(Inspection.finding_id, Inspection.insp_number)
+    )
+
+    grouped: dict[int, list[InspectionRow]] = {}
+    for row in session.execute(query):
+        grouped.setdefault(row[1], []).append(
+            InspectionRow(
+                inspection_id=row[0],
+                finding_id=row[1],
+                type_name=row[2],
+                position=row[3],
+                conclusion=row[4],
+            )
+        )
+    return grouped
+
+
+#: У находки нет исследований. **Норма, а не пустое поле**: рутинная сверка с
+#: чертежом строки исследования не создаёт (`Inspection.md`).
+NOT_RESEARCHED = "Not researched"
+
+
+def research_label(positions: Sequence[str | None]) -> str:
+    """Сводка позиций исследований одной находки — пять состояний (§4.1 наряда).
+
+    Правило `docs/decisions.md`, QMS-018 решение 8: `Not researched` · одна из
+    трёх позиций, **когда она проставлена у всех исследований находки и
+    совпадает** · `Researched \u00b7 N`, когда позиции разошлись **или**
+    проставлены не у всех.
+
+    **Ни одно состояние не является суждением экрана.** `Researched \u00b7 N`
+    намеренно не выбирает строгейшую позицию: выбор был бы решением, принятым
+    экраном за инженера, а канон говорит, что исследование накапливает сведения
+    и решения не диктует (`Inspection.md`, «Decision independence»).
+    """
+    values = list(positions)
+    if not values:
+        return NOT_RESEARCHED
+    distinct = set(values)
+    if len(distinct) == 1 and None not in distinct:
+        return INSPECTION_POSITION_LABELS[values[0]]
+    return f"Researched \u00b7 {len(values)}"
+
+
+#: Подписи позиции — те же слова, что на всех прочих экранах. Английские подписи
+#: живут в UI (`ui.common.DECISION_INSP_LABELS`), но сводка `Research` считается
+#: **в домене**: это правило канона, а не оформление, и проверяться оно должно
+#: без поднятия Qt. Совпадение двух наборов сторожит тест.
+INSPECTION_POSITION_LABELS = {
+    "approval_possible": "Approval possible",
+    "approval_not_possible": "Approval not possible",
+    "inconclusive": "Inconclusive",
+}

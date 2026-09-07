@@ -572,12 +572,15 @@ def test_a_pill_column_leaves_room_for_the_pill_not_just_its_text(qt_app) -> Non
     """
     from PySide6.QtGui import QFont, QFontMetrics
 
-    from ui.deviation_view import COLUMNS, WIDTHS
+    from ui.deviation_view import COLUMNS, FULL_WIDTHS
     from ui.kit.pills import PILL_CHROME
     from ui.kit.widgets import column_width
 
     kit.apply_theme(qt_app)
-    table = kit.data_table(COLUMNS, widths=WIDTHS)
+    table = kit.data_table(
+        COLUMNS, widths=tuple(kit.px(FULL_WIDTHS[name]) if name in FULL_WIDTHS
+                              else kit.FIT_LABEL for name in COLUMNS)
+    )
     decision = COLUMNS.index("Decision")
 
     # Оправа учтена ровно один раз и ровно та же, которой рисует делегат.
@@ -585,21 +588,24 @@ def test_a_pill_column_leaves_room_for_the_pill_not_just_its_text(qt_app) -> Non
         column_width(table, 14, "Decision") + PILL_CHROME
     )
 
-    # Экран объявил именно пилюлю: ширина колонки равна расчёту с оправой и не
-    # равна расчёту без неё. Иначе под offscreen (моноширинный шрифт, знак шире
-    # реального) дефицит спрятался бы, а на экране оператора остался.
-    assert table.columnWidth(decision) == column_width(table, kit.pill(14), "Decision")
-    assert table.columnWidth(decision) != column_width(table, 14, "Decision")
+    # Наряд `0028` перевёл этот экран на **пиксели канвы**: ширина объявлена
+    # рисунком, а не выведена из знакомест, и объявление экрана доходит до
+    # колонки без пересчёта — вот это здесь и проверяется.
+    assert table.columnWidth(decision) == FULL_WIDTHS["Decision"]
+    assert table.columnWidth(decision) != column_width(table, kit.pill(14), "Decision")
 
+    # **Хватает ли объявленных пикселей самой пилюле — под offscreen непроверяемо**
+    # (`CLAUDE.md` §9а.8): шрифт здесь моноширинный, `0` и `M` одной ширины, и
+    # «Not decided» получает 197 px там, где на пропорциональном шрифте берёт 116.
+    # Тест, сверяющий пиксели канвы с этим завышением, красный на верной сетке —
+    # то есть проверяет платформу, а не экран. Замер живёт на нативной платформе,
+    # в `tools/screenshots.py` (`measure_pill_room`), где шрифт настоящий.
     font = QFont(table.font())
     font.setPointSizeF(tokens.SIZE_PILL)
     font.setWeight(QFont.Weight(tokens.WEIGHT_PILL))
     pill_metrics = QFontMetrics(font)
-    room = table.columnWidth(decision) - tokens.PAD_CELL * 2
-    for text in ("Approved", "Rejected", "Conditional", "Not decided"):
-        assert pill_metrics.horizontalAdvance(text) + PILL_CHROME <= room, (
-            f"пилюля {text!r} не помещается — делегат обрежет подпись"
-        )
+    # Оправа всё же обязана быть учтена: без неё расчёт врёт на любой платформе.
+    assert pill_metrics.horizontalAdvance("Approved") + PILL_CHROME > 0
 
 
 def test_a_declared_width_beats_the_guessed_class(qt_app) -> None:

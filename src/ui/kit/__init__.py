@@ -46,6 +46,7 @@ from .pills import (
 )
 from .ribbon import NavigationRibbon
 from .theme import ROLE, apply_theme, font_family, palette, stylesheet
+from . import chips  # noqa: F401 — доступен как `kit.chips`
 from .widgets import (
     FIT_LABEL,
     Choice,
@@ -65,6 +66,7 @@ from .widgets import (
     inline_table_height,
     pill,
     primary,
+    px,
     screen_layout,
     secondary,
     section_caption,
@@ -84,8 +86,10 @@ from .widgets import (
 )
 
 __all__ = [
+    "chips",
     "FIT_LABEL",
     "pill",
+    "px",
     "Choice",
     "DataTable",
     "DECISION_ROLE",

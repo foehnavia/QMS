@@ -290,6 +290,27 @@ FIT_LABEL = "label"
 #: Метка «эту колонку рисует пилюля»: `kit.pill(14)` вместо голого `14`.
 _PILL = "pill"
 
+#: Метка «ширина этой колонки объявлена в пикселях»: `kit.px(200)`.
+_PX = "px"
+
+
+def px(pixels: int) -> tuple[str, int]:
+    """Объявить **точную** ширину колонки в пикселях, без пересчёта знакомест.
+
+    Знакоместа (§7.3 наряда 0020) — способ вывести ширину там, где её никто не
+    вывел за нас. Там, где сетка **нарисована** и её числа лежат в канве
+    (список отклонений, `docs/design/canvas/MIS-QMS Deviations List.dc.html`),
+    выводить нечего: пересчёт через среднюю ширину знака дал бы другие числа, и
+    сумма перестала бы сходиться с той, что проверена дизайном.
+
+    Пола по заголовку здесь **нет** намеренно. Он молча расширил бы колонку и
+    сумма разошлась бы с канвой — а наряд `0028` говорит прямо: не сходится —
+    вопрос Cowork, а не подгонка. Обрезанный заголовок при объявленных пикселях
+    ловится замером на нативной платформе (`tools/screenshots.py`), а не тихой
+    правкой ширины.
+    """
+    return (_PX, pixels)
+
 
 def pill(chars: int) -> tuple[str, int]:
     """Объявить колонку, которую рисует пилюля исхода (`DecisionPillDelegate`).
@@ -330,6 +351,10 @@ def column_width(table, chars, label: str = "") -> int:
     metrics = table.fontMetrics()
     by_label = metrics.horizontalAdvance(label) if label else 0
     chrome = 0
+    if isinstance(chars, tuple) and chars[0] == _PX:
+        # Объявленные пиксели отдаются как есть: ни знакомест, ни пола по
+        # заголовку, ни отступов ячейки поверх — число уже полное.
+        return chars[1]
     if isinstance(chars, tuple) and chars[0] == _PILL:
         chars, chrome = chars[1], PILL_CHROME
     by_slots = 0 if chars == FIT_LABEL else slot_width(table) * chars + chrome

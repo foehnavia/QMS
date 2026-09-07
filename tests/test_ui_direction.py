@@ -193,16 +193,20 @@ def test_the_delegate_is_wired_into_the_deviation_list(seeded_session) -> None:
     view = DeviationView(seeded_session.get_bind())
 
     assert isinstance(view.table.itemDelegate(), DirectionalDelegate)
-    # Дата, количество и два счётчика — числовые. Адресуются **по имени**, а не
-    # константой: вставка колонки `Revision` сдвинула номера, и прибитый кортеж
-    # сообщал бы о сдвиге, а не о том, верно ли объявлены колонки (§9а).
+    # Принудительно LTR — идентификаторы, наряд, дата, количество и исход.
+    # Адресуются **по имени**, а не константой: наряд `0028` встал колонкой
+    # раскрытия перед `Number` и снял `Inspections`, и прибитый кортеж сообщал бы
+    # о сдвиге, а не о том, верно ли объявлены колонки (`CLAUDE.md` §9а.9).
     assert NUMERIC_COLUMNS == tuple(
-        COLUMNS.index(name) for name in ("Date", "Dev. qty", "Findings", "Inspections")
+        COLUMNS.index(name)
+        for name in ("Number", "Revision", "WO", "Date", "Dev. qty", "Decision")
     )
-    # Ревизия числовой не объявлена: обозначение — идентификатор, не величина.
-    assert COLUMNS.index("Revision") not in NUMERIC_COLUMNS
-    # Вправо — только количество отклонения: его и сравнивают по величине.
-    # Счётчики находок и исследований остаются влево (канон §6).
+    # `Item` и `Explanation` направление берут по содержимому: там бывает иврит,
+    # и принудительный LTR перевернул бы его (`CLAUDE.md` §9).
+    assert COLUMNS.index("Item") not in NUMERIC_COLUMNS
+    assert COLUMNS.index("Explanation") not in NUMERIC_COLUMNS
+    # Вправо — только количество отклонения: его и сравнивают по величине
+    # вниз по столбцу (канон §6).
     assert MAGNITUDE_COLUMNS == (COLUMNS.index("Dev. qty"),)
     assert COLUMNS.index("Findings") < COLUMNS.index("Decision")
 
