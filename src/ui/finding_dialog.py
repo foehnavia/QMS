@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy import Engine
 
-from db.models import Direction, Item, RefDeviationType, RefZone
+from db.models import OUTCOME, Direction, Item, RefDeviationType, RefZone
 from db.session import session_scope
 from domain.revisions import current_revision
 from domain.errors import ValidationError
@@ -34,7 +34,7 @@ from domain.reference import list_values
 
 from . import kit
 from .cg_dialog import parse_optional_number
-from .common import iso
+from .common import NO_OUTCOME_LABEL, OUTCOME_LABELS, iso
 from .kit import tokens
 
 NOT_SET = "— not set —"
@@ -67,6 +67,10 @@ class FindingRow:
     deviation_type_id: int | None = None
     finding_id: int | None = None
     inspections: int = 0
+    #: Исход находки: `permitted` · `not_permitted` · `None` («ещё не решали»).
+    #: Пусто по умолчанию — нормальное состояние свежей регистрации: находки
+    #: заводятся при регистрации, суждение приходит позже (`Finding.md` rev 1.01).
+    outcome: str | None = None
     canon: str = field(default=CANON_NEW)
 
 
@@ -113,6 +117,17 @@ class FindingDialog(QDialog):
         self.canon_label = QLabel()
         self.canon_label.setWordWrap(True)
 
+        # Исход — **суждение по размеру**, и форма его не блокирует: любое из трёх
+        # состояний законно в любой момент (`Finding.md` rev 1.01). Пустое стоит
+        # вариантом на экране, а не отсутствием выбора: «ещё не решали» — это
+        # нормальное состояние свежей регистрации, и оператор должен видеть его
+        # словами, а не догадываться по пустоте.
+        self.outcome = kit.Choice()
+        self.outcome.add(None, NO_OUTCOME_LABEL)
+        for code in OUTCOME:
+            self.outcome.add(code, OUTCOME_LABELS[code])
+        self.outcome.set_value(None)
+
         self.buttons = kit.dialog_buttons(accept="Add finding")
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
@@ -131,6 +146,8 @@ class FindingDialog(QDialog):
         form.addRow("Zone:", self.zone)
         form.addRow("Deviation type:", self.deviation_type)
         form.addRow("Comment:", self.comment_edit)
+        # Исход — последним: сперва вводят измеренное, потом судят о нём.
+        form.addRow("Outcome:", self.outcome)
 
         layout = kit.dialog_layout(self)
         layout.addLayout(form)
@@ -181,6 +198,7 @@ class FindingDialog(QDialog):
         self.comment_edit.setPlainText(row.comment or "")
         _select(self.zone, row.zone_id)
         _select(self.deviation_type, row.deviation_type_id)
+        self.outcome.set_value(row.outcome)
 
     def _refresh_canon(self) -> None:
         """Показать состояние привязки размера к канону (`g5` / 99 / нет)."""
@@ -211,6 +229,7 @@ class FindingDialog(QDialog):
                 # новой, а прежнюю удалила вместе с её исследованиями.
                 finding_id=self._source.finding_id if self._source else None,
                 inspections=self._source.inspections if self._source else 0,
+                outcome=self.outcome.value(),
             )
         except Exception as error:
             kit.show_error(self, error, title="Finding not accepted")

@@ -43,17 +43,13 @@ from sqlalchemy import Engine
 from db.models import Deviation
 from db.session import session_scope
 from domain.deviations import delete_deviation, list_deviations
-from domain.findings import (
-    findings_for_deviations,
-    inspections_of_deviation,
-    research_label,
-)
+from domain.findings import findings_for_deviations, inspections_of_deviation
 
 from . import kit
 from .card_dialog import CardDialog
 from .common import (
     decision_dev_label,
-    decision_insp_label,
+    outcome_label,
     dimension_sort_key,
     iso,
     joined,
@@ -159,6 +155,10 @@ EXPLANATION_FLOOR = 94
 #: теряется главный текст прецедента.
 SHRINK_ORDER = ("Revision",)
 
+#: Колонка `Research` **замещена** исходом (QMS-025): те же 168 px, сетка не
+#: тронута. `Research` была сводкой того, что говорят исследования; после снятия
+#: позиции сводить нечего, а её место занимает то, ради чего колонка и смотрелась.
+#:
 #: Сетка панели находок — тоже пиксели канвы. `Find identical` (160 px) в наряд
 #: не входит, и её ширина уходит в зону запаса (решение 14 реестра).
 PANEL_INDENT = ""
@@ -169,7 +169,7 @@ PANEL_COLUMNS = (
     "Sign · value",
     "Zone",
     "Deviation type",
-    "Research",
+    "Outcome",
     "Inspections",
 )
 PANEL_WIDTHS = {
@@ -179,7 +179,7 @@ PANEL_WIDTHS = {
     "Sign · value": 92,
     "Zone": 196,
     "Deviation type": 176,
-    "Research": 168,
+    "Outcome": 168,
     "Inspections": 340,
 }
 
@@ -270,16 +270,14 @@ def finding_row_height(inspections: int) -> int:
 def inspections_text(rows) -> str:
     """Ячейка `Inspections`: **тип · позиция**, по строке на исследование.
 
-    Короткий вывод сюда не попадает намеренно (§4.2 наряда): 340 px это около
-    45 знаков, а тип и позиция съедают их почти целиком. Вывод целиком уходит в
-    подсказку — приём не новый, так уже сделано с обоснованием решения.
+    Короткий вывод сюда не попадает намеренно (§4.2 наряда `0028`): 340 px это
+    около 45 знаков. Вывод целиком уходит в подсказку — приём не новый, так уже
+    сделано с обоснованием решения. Позиции у исследования больше нет вовсе
+    (`Inspection.md` rev 1.03).
     """
     if not rows:
         return NO_INSPECTIONS
-    shown = [
-        strip_iso(joined(row.type_name, decision_insp_label(row.position)))
-        for row in rows[:INSPECTIONS_SHOWN]
-    ]
+    shown = [strip_iso(iso(row.type_name)) for row in rows[:INSPECTIONS_SHOWN]]
     hidden = len(rows) - len(shown)
     if hidden > 0:
         shown.append(f"+{hidden} inspection" + ("" if hidden == 1 else "s"))
@@ -287,11 +285,16 @@ def inspections_text(rows) -> str:
 
 
 def inspections_tooltip(rows) -> str:
-    """Полный вывод каждого исследования — **без обрезки** (§4.2 наряда)."""
+    """Полный вывод каждого исследования — **без обрезки** (§4.2 наряда `0028`).
+
+    Позиции здесь больше нет: исследование поставляет сведения и суждения не
+    несёт (`Inspection.md` rev 1.03).
+    """
     lines = []
     for row in rows:
-        head = strip_iso(joined(row.type_name, decision_insp_label(row.position)))
-        lines.append(f"{head}\n{row.conclusion}" if row.conclusion else head)
+        lines.append(
+            f"{row.type_name}\n{row.conclusion}" if row.conclusion else row.type_name
+        )
     return "\n\n".join(lines)
 
 
@@ -342,7 +345,7 @@ class FindingsPanel(QTableWidget):
                 signed_label(row.direction, row.value),
                 row.zone or "",
                 row.deviation_type or "",
-                research_label([item.position for item in found]),
+                outcome_label(row.outcome),
                 inspections_text(found),
             )
             for column, value in enumerate(values):
@@ -590,6 +593,7 @@ class DeviationView(QWidget):
                 value=strip_iso(signed_label(finding.direction, finding.value)),
                 kind=finding.deviation_type or "",
                 researched=bool(finding.inspections),
+                outcome=finding.outcome,
             )
             for finding in sorted(findings, key=lambda f: dimension_sort_key(f.local_number))
         ]

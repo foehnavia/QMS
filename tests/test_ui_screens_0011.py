@@ -19,6 +19,7 @@ import ui.kit
 from conftest import (
     fill_item_form_and_accept,
     make_item,
+    permit_findings,
     rev,
     stub_mapping_dialog,
 )
@@ -32,7 +33,7 @@ from domain.inspections import create_inspection
 from domain.mappings import bind
 from domain.reference import list_values
 from ui import kit
-from ui.common import DECISION_INSP_LABELS, strip_iso
+from ui.common import strip_iso
 from ui.deviation_view import COLUMNS, DeviationView
 from ui.item_positions_dialog import COLUMNS as ItemPositionsColumns
 from ui.item_positions_dialog import ItemPositionsDialog
@@ -111,6 +112,7 @@ def test_the_explanation_reaches_the_list(engine, no_modals) -> None:
         )
         characteristic, _ = get_or_create_characteristic(session, rev(item), "12")
         make_finding(session, deviation, characteristic, direction=Direction.PLUS, value=0.08)
+        permit_findings(session, deviation)
         set_decision(session, deviation, decision="approved", explanation=text)
 
     view = DeviationView(engine)
@@ -171,6 +173,7 @@ def test_the_three_kinds_of_cell_behave_by_the_canon(engine, no_modals) -> None:
         )
         characteristic, _ = get_or_create_characteristic(session, rev(item), "12")
         make_finding(session, deviation, characteristic, direction=Direction.PLUS, value=0.08)
+        permit_findings(session, deviation)
         set_decision(session, deviation, decision="approved", explanation=hebrew)
 
     view = DeviationView(engine)
@@ -404,6 +407,7 @@ def _deviation_with_a_precedent(engine) -> tuple[int, int]:
             direction=Direction.MINUS,
             value=0.05,
         )
+        permit_findings(session, past)
         set_decision(
             session, past, decision="approved", explanation="no effect on assembly"
         )
@@ -431,6 +435,7 @@ def _decided_deviation(engine) -> int:
         make_finding(
             session, deviation, characteristic, direction=Direction.PLUS, value=0.08
         )
+        permit_findings(session, deviation)
         set_decision(session, deviation, decision="approved", explanation="checked")
         return deviation.deviation_id
 
@@ -811,62 +816,6 @@ def test_the_outcome_is_chosen_by_radio_without_a_default(engine, no_modals) -> 
     assert no_modals == []
 
 
-def test_the_inspection_result_is_chosen_by_radio(engine, no_modals) -> None:
-    """Значения — радиокнопками, и пустое стоит **вариантом**, а не пустотой.
-
-    Сторожит правило `docs/model/Inspection.md` rev 1.01: «`decisionInsp` is
-    three-valued and optional. Empty means "not assessed yet" and is a legitimate
-    state: the protocol is attached first, the reading of it comes later».
-    До QMS-018 форма отказывала на пустом выводе — то есть требовала полярного
-    ответа, которого исследование не давало.
-    """
-    from db.models import Inspection
-    from ui.inspection_dialog import InspectionDialog
-
-    finding_id = _finding_of(engine)
-
-    dialog = InspectionDialog(engine, finding_id)
-    # Четыре кнопки: три позиции канона плюс «ещё не разбирали».
-    assert len(dialog.verdict.buttons()) == 4
-    assert dialog.verdict.value() is None
-
-    dialog.protocol.setText("p.docx")
-    dialog.save()
-
-    # Сохранилось, и **без единого модального окна**: незаполненный вывод больше
-    # не отказ (`CLAUDE.md` §9 — тест успешного пути перехватывает `show_error`).
-    assert no_modals == []
-    with session_scope(engine) as session:
-        stored = session.query(Inspection).one()
-        assert stored.decision_insp is None
-        assert stored.conclusion is None
-
-
-def test_an_unassessed_inspection_is_not_the_same_as_an_inconclusive_one(
-    engine, no_modals
-) -> None:
-    """Правило `Inspection.md` rev 1.01: «`inconclusive` and empty are different
-    states. `inconclusive` — the study was read and settles nothing about
-    approvability; empty — nobody has read it yet».
-
-    Тест на **различимость**, а не на список значений: до QMS-018 поле было
-    бинарным и обязательным, и два этих состояния не различались никак.
-    """
-    from db.models import Inspection
-    from ui.inspection_dialog import InspectionDialog
-
-    dialog = InspectionDialog(engine, _finding_of(engine))
-    dialog.protocol.setText("p.docx")
-    dialog.verdict.set_value("inconclusive")
-    dialog.save()
-
-    assert no_modals == []
-    with session_scope(engine) as session:
-        stored = session.query(Inspection).one()
-        assert stored.decision_insp == "inconclusive"
-        assert stored.decision_insp is not None
-
-
 def test_the_chrome_is_the_tightened_one(engine) -> None:
     """Ревизия канона 1.3: шесть высот уплотнены, лента и строка — нет."""
     assert tokens.SECTION_HEADER_HEIGHT == 48
@@ -897,29 +846,26 @@ def _finding_of(engine) -> int:
 # --- §4: подписи вердикта исследования (В-9) ----------------------------------------
 
 
-def test_the_inspection_verdict_names_a_judgement_not_an_object() -> None:
-    """В-9: `Deviation approved` называл объект, к которому вердикт не привязан.
+def test_an_inspection_carries_no_judgement_at_all(engine, no_modals) -> None:
+    """Правило `docs/model/Inspection.md` rev 1.03 (QMS-025): «An inspection
+    carries no verdict at all… The rule "an inspection does not dictate the
+    decision" stopped being a warning to observe and became **structure: there is
+    no field to break it with**».
 
-    Исследование висит на **находке**, а `approved` дословно совпадало с исходом
-    отклонения — две разные сущности под одной подписью в одной карточке.
-
-    Формулировку уточнил канон rev 1.01 (`Inspection.md`): «The wording is
-    deliberate: the field says what the study **permits**, not what was decided».
-    Отсюда `Approval possible`, а не прежнее `Acceptable`.
+    Проверяется **отсутствие поля**, а не отсутствие значения: поле, оставленное
+    пустым, всё ещё позволяет вписать в него суждение следующим нарядом. История:
+    rev 1.01 сделала позицию трёхзначной вместо бинарной, rev 1.03 сняла её вовсе,
+    потому что у суждения появился свой дом — `Finding.outcome`.
     """
-    assert DECISION_INSP_LABELS == {
-        "approval_possible": "Approval possible",
-        "approval_not_possible": "Approval not possible",
-        "inconclusive": "Inconclusive",
-    }
+    from db.models import Inspection as InspectionModel
 
+    assert not hasattr(InspectionModel, "decision_insp")
+    # И в самой таблице колонки нет: атрибут можно было бы не объявить, оставив
+    # столбец в схеме, — тогда следующий наряд вписал бы в него суждение снова.
+    assert "decision_insp" not in InspectionModel.__table__.columns
 
-def test_the_stored_verdict_values_did_not_change(engine, no_modals) -> None:
-    """Хранимые значения канона rev 1.01 — `approval_possible` и соседи.
-
-    Имя теста осталось от В-9, где правилась только подпись; QMS-018 сменил и
-    значения, и тест сторожит теперь их (`docs/decisions.md`, решение 1).
-    """
+    # И живая запись его не несёт: объявление можно снять, а колонку в базе
+    # оставить — тогда следующий наряд вписал бы в неё суждение снова.
     from db.models import RefInspectionType
 
     with session_scope(engine) as session:
@@ -935,12 +881,11 @@ def test_the_stored_verdict_values_did_not_change(engine, no_modals) -> None:
             session,
             finding,
             inspection_type=list_values(session, RefInspectionType)[0],
-            decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
             no_protocol=False,
         )
-        assert inspection.decision_insp == "approval_possible"
+        assert not hasattr(inspection, "decision_insp")
 
     assert no_modals == []
 

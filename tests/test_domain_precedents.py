@@ -7,7 +7,7 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy.orm import Session
 
-from conftest import make_item, rev
+from conftest import make_item, permit_findings, rev
 from db.models import Direction, Item, RefDeviationType, RefZone
 from domain.characteristics import get_or_create_characteristic
 from domain.deviations import register, set_decision
@@ -65,6 +65,10 @@ def _case(
         deviation_type=deviation_type,
     )
     if decision is not None:
+        # Одобрение требует разрешённых находок (QMS-025); хелпер строит данные,
+        # а не проверяет инвариант — тому есть свои тесты, заходящие мимо формы.
+        if decision == "approved":
+            permit_findings(session, deviation)
         set_decision(session, deviation, decision=decision, explanation=explanation)
     return deviation, finding, characteristic
 
@@ -239,7 +243,6 @@ def test_row_carries_the_whole_deviation_not_just_the_finding(
         seeded_session,
         finding,
         inspection_type=list_values(seeded_session, RefInspectionType)[0],
-        decision_insp="approval_possible",
         conclusion=None,
         protocol="p.docx",
         no_protocol=False,

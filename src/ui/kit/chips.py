@@ -56,8 +56,11 @@ class Chip:
     value: str
     #: Тип отклонения из справочника; пусто — не указан.
     kind: str
-    #: Есть ли у находки исследования. Признак наличия, не вердикт.
+    #: Есть ли у находки исследования. Признак наличия, не суждение.
     researched: bool
+    #: Исход находки: `permitted` · `not_permitted` · `None` («ещё не решали»).
+    #: Рисуется **формой**, а не цветом, и показывается всегда — см. `_outcome`.
+    outcome: str | None = None
 
     def text(self) -> str:
         """Подпись пилюли одной строкой — она же уходит в `DisplayRole`."""
@@ -144,11 +147,18 @@ class FindingChipsDelegate(QStyledItemDelegate):
         painter.restore()
 
     def _chip(self, painter, metrics, chip: Chip, left: int, top: int, limit: int) -> None:
-        """Одна пилюля: оправа, две половины подписи и, если надо, мензурка."""
-        glyph = t.CHIP_GLYPH_SIZE + t.GAP_PILL_ICON if chip.researched else 0
+        """Одна пилюля: оправа, подпись и **две** иконки.
+
+        Иконка исследования — только когда исследования есть; иконка исхода —
+        **всегда, во всех трёх состояниях**. Пустое место на месте второй было бы
+        неотличимо от «иконка не поместилась» (§3 наряда `0030`).
+        """
+        glyphs = t.CHIP_GLYPH_SIZE + t.GAP_PILL_ICON  # исход рисуется всегда
+        if chip.researched:
+            glyphs += t.CHIP_GLYPH_SIZE + t.GAP_PILL_ICON
         text = chip.text()
         width = min(
-            metrics.horizontalAdvance(text) + t.PAD_CELL * 2 + glyph,
+            metrics.horizontalAdvance(text) + t.PAD_CELL * 2 + glyphs,
             max(limit - left, 0),
         )
         box = QRectF(left, top, width, t.CHIP_HEIGHT)
@@ -157,15 +167,18 @@ class FindingChipsDelegate(QStyledItemDelegate):
         painter.setBrush(QColor(t.N_100))
         painter.drawRoundedRect(box, t.RADIUS_PILL, t.RADIUS_PILL)
 
-        text_rect = box.adjusted(t.PAD_CELL, 0, -(t.PAD_CELL + glyph), 0)
+        text_rect = box.adjusted(t.PAD_CELL, 0, -(t.PAD_CELL + glyphs), 0)
         painter.setPen(QColor(t.N_700))
         painter.drawText(
             text_rect,
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
             metrics.elidedText(text, Qt.TextElideMode.ElideRight, int(text_rect.width())),
         )
+        # Исход — крайним справа: он есть у каждой пилюли, и столбик из них
+        # читается взглядом вниз только при общем положении.
+        self._outcome(painter, box, chip.outcome)
         if chip.researched:
-            self._flask(painter, box)
+            self._flask(painter, box.adjusted(0, 0, -(t.CHIP_GLYPH_SIZE + t.GAP_PILL_ICON), 0))
 
     def _flask(self, painter, box: QRectF) -> None:
         """Мензурка — контур, как все значки канона (§5): ни эмодзи, ни дингбат.
@@ -190,6 +203,56 @@ class FindingChipsDelegate(QStyledItemDelegate):
         painter.drawLine(QPointF(left_x + neck, top_y + neck), QPointF(left_x, bottom_y))
         painter.drawLine(QPointF(right - neck, top_y + neck), QPointF(right, bottom_y))
         painter.drawLine(QPointF(left_x, bottom_y), QPointF(right, bottom_y))
+
+    def _outcome(self, painter, box: QRectF, outcome: str | None) -> None:
+        """Исход — **формой**, а не цветом: галочка · крестик · пустой кружок.
+
+        `design-system.md` §1: цвет никогда не несёт смысл в одиночку. Слова в
+        пилюле нет и быть не может — она и заведена ради скана взглядом, — поэтому
+        различать состояния обязан **контур**, а цвет только усиливает то, что уже
+        прочитано. Слово живёт в подсказке ячейки.
+
+        Три разные фигуры, а не три оттенка одной: монохромная печать и читатель
+        с дальтонизмом обязаны видеть ту же разницу, что и все остальные.
+        """
+        size = t.CHIP_GLYPH_SIZE
+        right = box.right() - t.PAD_CELL
+        centre = QPointF(right - size / 2, box.center().y())
+        half = size / 2
+
+        colour = {
+            "permitted": t.OUTCOME_PERMITTED,
+            "not_permitted": t.OUTCOME_REFUSED,
+        }.get(outcome, t.N_400)
+        pen = QPen(QColor(colour), t.OUTCOME_STROKE)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        if outcome == "permitted":
+            # Галочка: две линии, длинная вверх-вправо.
+            painter.drawLine(
+                QPointF(centre.x() - half * 0.8, centre.y()),
+                QPointF(centre.x() - half * 0.2, centre.y() + half * 0.6),
+            )
+            painter.drawLine(
+                QPointF(centre.x() - half * 0.2, centre.y() + half * 0.6),
+                QPointF(centre.x() + half * 0.8, centre.y() - half * 0.7),
+            )
+        elif outcome == "not_permitted":
+            # Крестик: две линии крест-накрест.
+            painter.drawLine(
+                QPointF(centre.x() - half * 0.7, centre.y() - half * 0.7),
+                QPointF(centre.x() + half * 0.7, centre.y() + half * 0.7),
+            )
+            painter.drawLine(
+                QPointF(centre.x() + half * 0.7, centre.y() - half * 0.7),
+                QPointF(centre.x() - half * 0.7, centre.y() + half * 0.7),
+            )
+        else:
+            # Пустой кружок: «ещё не решали» — состояние, а не отсутствие.
+            painter.drawEllipse(centre, half * 0.7, half * 0.7)
 
     def sizeHint(self, option, index):  # noqa: N802 — имя от Qt
         size = super().sizeHint(option, index)

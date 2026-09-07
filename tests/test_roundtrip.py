@@ -78,7 +78,6 @@ def test_full_graph_survives_a_reopen(migrated_url: str) -> None:
         # deviation -> inspection -> finding / type
         insp = dev.inspections[0]
         assert insp.type.name == "Implantation torque test"
-        assert insp.decision_insp == "approval_possible"
         assert insp.finding.characteristic.local_number == "19"
         # Item исследования выводится из отклонения, отдельно не хранится
         assert insp.deviation.item.item_number == "C1-08375A"

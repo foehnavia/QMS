@@ -36,8 +36,8 @@ from .kit.widgets import UnexpectedErrorDialog, in_test_mode, set_test_mode, sho
 __all__ = [
     "DECISION_DEV_LABELS",
     "DECISION_DEV_SHORT",
-    "DECISION_INSP_LABELS",
-    "NO_INSPECTION_RESULT_LABEL",
+    "OUTCOME_LABELS",
+    "NO_OUTCOME_LABEL",
     "DirectionalDelegate",
     "LTR",
     "NO_DECISION_LABEL",
@@ -48,7 +48,7 @@ __all__ = [
     "base_direction",
     "bind_direction",
     "decision_dev_label",
-    "decision_insp_label",
+    "outcome_label",
     "deviation_text",
     "optional_id",
     "dimension_sort_key",
@@ -104,29 +104,32 @@ NO_DECISION_LABEL = "No decision yet"
 #: То же состояние в колонке списка — короткой меткой.
 NO_DECISION_SHORT = "Not decided"
 
-#: Позиция исследования (`Inspection.md` rev 1.01; ратификация В-9, наряд 0010 §11).
+#: Исход **находки** (`Finding.md` rev 1.01, QMS-025).
 #:
-#: Прежнее `Deviation approved` называло объект, к которому исследование **не
-#: привязано** (оно висит на находке), и дословно совпадало с исходом
-#: отклонения `approved` — двумя разными сущностями под одной подписью в одной
-#: карточке. `Finding approved` тоже неверно: находка решения не несёт вовсе.
-#:
-#: Поэтому подпись называет не объект, а **суждение**. Формулировка канона идёт
-#: дальше и называет, что исследование **позволяет**, а не что решили: «approval
-#: possible», не «acceptable». Порядок фиксирован — он же порядок вариантов в
-#: форме исследования.
-DECISION_INSP_LABELS = {
-    "approval_possible": "Approval possible",
-    "approval_not_possible": "Approval not possible",
-    "inconclusive": "Inconclusive",
+#: Отвечает на вопрос «прошёл ли этот размер», а не «что делать с партией», —
+#: поэтому слова не пересекаются с исходами отклонения ни одним: `Permitted`
+#: рядом с `Approved — use as is` в одной карточке должны читаться как два разных
+#: суждения, потому что они и есть два разных суждения.
+OUTCOME_LABELS = {
+    "permitted": "Permitted",
+    "not_permitted": "Not permitted",
 }
 
-#: `decision_insp IS NULL` — протокол прикреплён, читать его ещё не садились.
-#:
-#: От `Inconclusive` отличается по существу, а не оттенком: там исследование
-#: прочли и однозначного ответа в нём нет, здесь его никто не читал. До QMS-018
-#: этих двух состояний не было вовсе — поле было обязательным и бинарным.
-NO_INSPECTION_RESULT_LABEL = "Not assessed yet"
+#: `outcome IS NULL` — по этому размеру ещё не решали. Нормальное состояние
+#: свежей регистрации: находки заводятся при регистрации, суждение приходит позже.
+NO_OUTCOME_LABEL = "Not decided"
+
+
+def outcome_label(outcome: str | None) -> str:
+    """Подпись исхода находки; `None` — «ещё не решали».
+
+    Строится **из кода**, а не разбором текста, и одним хелпером на все экраны:
+    один факт, показанный в пилюле, в панели раскрытия и в карточке, обязан
+    называться там одинаково (`CLAUDE.md` §9а.11).
+    """
+    if outcome is None:
+        return NO_OUTCOME_LABEL
+    return OUTCOME_LABELS.get(outcome, outcome)
 
 
 def optional_id(value: object, field: str) -> int | None:
@@ -164,18 +167,6 @@ def decision_dev_label(decision: str | None, *, short: bool = False) -> str:
         return NO_DECISION_SHORT if short else NO_DECISION_LABEL
     source = DECISION_DEV_SHORT if short else DECISION_DEV_LABELS
     return source.get(decision, decision)
-
-
-def decision_insp_label(decision: str | None) -> str:
-    """Подпись позиции исследования; `None` — «ещё не разбирали».
-
-    Зеркало `decision_dev_label` и по той же причине: подпись строится **из
-    кода**, а не разбором человеческого текста. Один хелпер на все экраны —
-    иначе один и тот же факт назывался бы в карточке и в форме по-разному.
-    """
-    if decision is None:
-        return NO_INSPECTION_RESULT_LABEL
-    return DECISION_INSP_LABELS.get(decision, decision)
 
 
 def signed_label(direction: str, value: float | None) -> str:

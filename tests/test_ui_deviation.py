@@ -503,13 +503,11 @@ def test_inspection_dialog_writes_and_shows_the_finding(engine_with_item) -> Non
     assert "12" in dialog.finding_label.text()
 
     dialog.protocol.setText(r"\\srv\qa\SW-2026-14.docx")
-    dialog.verdict.set_value("approval_not_possible")
     dialog.save()
 
     with session_scope(engine_with_item) as session:
         inspection = session.query(Inspection).one()
         assert inspection.insp_number.startswith("INSP-")
-        assert inspection.decision_insp == "approval_not_possible"
         assert inspection.finding_id == finding_id
 
 
@@ -521,7 +519,6 @@ def test_inspection_dialog_refuses_an_empty_protocol(engine_with_item, monkeypat
 
     dialog = InspectionDialog(engine_with_item, _finding_id(engine_with_item))
     # Вывод выбираем: без него форма отбивается раньше, на самом выводе.
-    dialog.verdict.set_value("approved")
     dialog.protocol.setText("   ")
     dialog.save()
 
@@ -537,7 +534,6 @@ def test_deviation_form_lists_inspections_and_counts_them(engine_with_item) -> N
             session,
             session.get(Finding, finding_id),
             inspection_type=list_values(session, RefInspectionType)[0],
-            decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
             no_protocol=False,
@@ -565,7 +561,6 @@ def test_the_form_refuses_to_remove_a_studied_finding(engine_with_item, monkeypa
             session,
             session.get(Finding, finding_id),
             inspection_type=list_values(session, RefInspectionType)[0],
-            decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
             no_protocol=False,
@@ -620,7 +615,6 @@ def test_view_deletes_a_deviation_with_its_children(engine_with_item, monkeypatc
             session,
             session.get(Finding, finding_id),
             inspection_type=list_values(session, RefInspectionType)[0],
-            decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
             no_protocol=False,
@@ -783,7 +777,6 @@ def test_replacing_findings_keeps_the_inspection_guard(engine_with_item, monkeyp
             session,
             session.get(Finding, finding_id),
             inspection_type=list_values(session, RefInspectionType)[0],
-            decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
             no_protocol=False,
@@ -1049,26 +1042,6 @@ def test_the_deviation_lands_on_the_item_chosen_through_the_filter(
 # --- QMS-018 §3: форма исследования — вывод, пустая позиция, выбор файла ----------
 
 
-def test_the_form_offers_the_empty_position_by_name(engine_with_item) -> None:
-    """Правило `docs/model/Inspection.md` rev 1.01: «Empty means "not assessed yet"
-    and is a legitimate state».
-
-    Проверяются **подписи кнопок**, а не длина списка: список из четырёх кнопок с
-    неверными словами прошёл бы счёт и провалил экран.
-    """
-    from ui.common import strip_iso
-
-    dialog = InspectionDialog(engine_with_item, _finding_id(engine_with_item))
-
-    labels = [strip_iso(button.text()) for button in dialog.verdict.buttons()]
-    assert labels == [
-        "Not assessed yet",
-        "Approval possible",
-        "Approval not possible",
-        "Inconclusive",
-    ]
-
-
 def test_the_form_saves_a_conclusion_and_reads_it_back(engine_with_item) -> None:
     """Короткий вывод пишется и **перечитывается формой** при правке.
 
@@ -1085,7 +1058,6 @@ def test_the_form_saves_a_conclusion_and_reads_it_back(engine_with_item) -> None
 
     dialog = InspectionDialog(engine_with_item, finding_id)
     dialog.protocol.setText("p.docx")
-    dialog.verdict.set_value("approval_possible")
     dialog.conclusion.setPlainText("clearance in the assembled state \u221220 %")
     dialog.save()
 
@@ -1096,7 +1068,6 @@ def test_the_form_saves_a_conclusion_and_reads_it_back(engine_with_item) -> None
 
     again = InspectionDialog(engine_with_item, finding_id, inspection_id)
     assert again.conclusion.toPlainText() == "clearance in the assembled state \u221220 %"
-    assert again.verdict.value() == "approval_possible"
 
 
 def test_the_form_refuses_a_conclusion_over_the_limit(engine_with_item, monkeypatch) -> None:
@@ -1259,7 +1230,6 @@ def test_the_form_saves_a_record_without_a_protocol(engine_with_item) -> None:
     from db.models import Inspection
 
     dialog = _shown_inspection_dialog(engine_with_item)
-    dialog.verdict.set_value("approval_not_possible")
     dialog.conclusion.setPlainText("OD 10.0 vs ID 9.9 — geometry excludes assembly")
     _click(dialog.no_protocol)
 

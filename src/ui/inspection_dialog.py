@@ -5,13 +5,10 @@
 промахнуться. Поэтому находка сюда **передаётся**, а не выбирается, и показана
 в шапке только для сверки.
 
-Позиция `decision_insp` независима от решения по отклонению (`Inspection.md`) —
-никакой связи между двумя списками здесь нет намеренно.
-
-QMS-018 (наряд 0027): позиция стала трёхзначной и **необязательной**. Пустое
-значение стоит вариантом на экране, а не отсутствием выбора: порядок работы —
-сначала крепится файл протокола, позиция и вывод дописываются позже, и «ещё не
-разбирали» это состояние, которое оператор выбирает сознательно.
+**Позиции у исследования нет вовсе** (`Inspection.md` rev 1.03, QMS-025). Форма
+собирает сведения — вид, короткий вывод, протокол — и суждения не спрашивает.
+Суждение по размеру живёт на находке, в её форме; правило «исследование не
+диктует решение» стало структурой, а не предупреждением.
 """
 
 from __future__ import annotations
@@ -27,18 +24,13 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy import Engine
 
-from db.models import DECISION_INSP, Finding, Inspection, RefInspectionType
+from db.models import Finding, Inspection, RefInspectionType
 from db.session import session_scope
 from domain.inspections import CONCLUSION_LIMIT, create_inspection, update_inspection
 from domain.reference import list_values
 
 from . import kit
-from .common import (
-    DECISION_INSP_LABELS,
-    NO_INSPECTION_RESULT_LABEL,
-    bind_direction,
-    joined,
-)
+from .common import bind_direction, joined
 from .kit import tokens
 
 #: Подпись галочки. Названа тем, чего **нет**, а не режимом: оператор принимает
@@ -80,15 +72,6 @@ class InspectionDialog(QDialog):
         self.finding_label.setWordWrap(True)
 
         self.kind = QComboBox()
-        # Взаимоисключающие значения, которые читают перед выбором, — радиокнопки
-        # (канон §4). Пустое стоит **первым вариантом**, а не отсутствием выбора:
-        # «ещё не разбирали» — законное состояние (`Inspection.md` rev 1.01), и
-        # оператор должен видеть его словами, а не догадываться по пустоте.
-        self.verdict = kit.Choice()
-        self.verdict.add(None, NO_INSPECTION_RESULT_LABEL)
-        for code in DECISION_INSP:
-            self.verdict.add(code, DECISION_INSP_LABELS[code])
-        self.verdict.set_value(None)
 
         # Направление здесь не выставляем: у текстовой области оно резолвится
         # **по абзацу** самим Qt, и абзацы разных направлений в одном поле —
@@ -132,9 +115,6 @@ class InspectionDialog(QDialog):
         form = kit.stretching_form()
         form.addRow("Finding:", self.finding_label)
         form.addRow("Inspection type:", self.kind)
-        # Подпись поля — «результат», а не «вердикт по отклонению» (В-9):
-        # исследование висит на находке и на исход отклонения не влияет.
-        form.addRow("Inspection result:", self.verdict)
         self.conclusion_label = QLabel(CONCLUSION_LABEL)
         form.addRow(self.conclusion_label, self.conclusion)
         form.addRow("Protocol:", kit.boxed(protocol_row))
@@ -183,7 +163,6 @@ class InspectionDialog(QDialog):
             if self._inspection_id is not None:
                 inspection = session.get(Inspection, self._inspection_id)
                 _select(self.kind, inspection.type_id)
-                self.verdict.set_value(inspection.decision_insp)
                 self.conclusion.setPlainText(inspection.conclusion or "")
                 # Признак ставим **до** пути: его обработчик гасит и чистит поле,
                 # и обратный порядок стирал бы только что прочитанное значение.
@@ -220,9 +199,6 @@ class InspectionDialog(QDialog):
             self.protocol.setText(path)
 
     def save(self) -> None:
-        # Пустая позиция больше не отказ: до QMS-018 форма требовала полярного
-        # ответа и получала выдуманный. Проверка снята вместе с полем-причиной.
-        verdict = self.verdict.value()
         conclusion = self.conclusion.toPlainText()
         no_protocol = self.no_protocol.isChecked()
         try:
@@ -233,7 +209,6 @@ class InspectionDialog(QDialog):
                         session,
                         session.get(Finding, self._finding_id),
                         inspection_type=kind,
-                        decision_insp=verdict,
                         conclusion=conclusion,
                         protocol=self.protocol.text(),
                         no_protocol=no_protocol,
@@ -243,7 +218,6 @@ class InspectionDialog(QDialog):
                         session,
                         session.get(Inspection, self._inspection_id),
                         inspection_type=kind,
-                        decision_insp=verdict,
                         conclusion=conclusion,
                         protocol=self.protocol.text(),
                         no_protocol=no_protocol,

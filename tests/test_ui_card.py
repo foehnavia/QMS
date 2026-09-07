@@ -9,7 +9,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog
 
-from conftest import count_queries, make_item, rev
+from conftest import count_queries, make_item, permit_findings, rev
 from db.models import (
     CharacteristicGroup,
     Deviation,
@@ -23,7 +23,7 @@ from db.models import (
 from db.session import session_scope
 from domain.characteristics import get_or_create_characteristic
 from domain.deviations import register, set_decision
-from domain.findings import make_finding
+from domain.findings import make_finding, update_finding
 from domain.inspections import create_inspection
 from domain.groups import GPositionSpec, create_group
 from domain.mappings import bind
@@ -89,6 +89,10 @@ def _case(
         deviation_type=deviation_type,
     )
     if decision is not None:
+        # Одобрение требует разрешённых находок (QMS-025); хелпер строит данные,
+        # а не проверяет инвариант — тому есть свои тесты, заходящие мимо формы.
+        if decision == "approved":
+            permit_findings(session, deviation)
         set_decision(session, deviation, decision=decision, explanation=explanation)
     return deviation.deviation_id, finding.finding_id
 
@@ -340,9 +344,11 @@ def test_decision_from_the_card_uses_the_untouched_dialog(engine, monkeypatch) -
         with session_scope(engine_) as session:
             from domain.deviations import set_decision as domain_set_decision
 
+            deviation = session.get(Deviation, dev_id)
+            permit_findings(session, deviation)
             domain_set_decision(
                 session,
-                session.get(Deviation, dev_id),
+                deviation,
                 decision="approved",
                 explanation="обоснование",
             )
@@ -706,7 +712,6 @@ def _inspection(
         session,
         session.get(Finding, finding_id),
         inspection_type=ensure_value(session, RefInspectionType, kind),
-        decision_insp=position,
         conclusion=conclusion,
         protocol=protocol,
         no_protocol=False,
@@ -746,9 +751,6 @@ def test_the_card_lists_the_inspections_of_the_selected_finding(engine) -> None:
     assert _text(card.inspections.item(0, _inspection_column(card, "Type"))) == (
         "Solidworks assembly"
     )
-    assert _text(card.inspections.item(0, _inspection_column(card, "Result"))) == (
-        "Approval possible"
-    )
     assert _text(card.inspections.item(0, _inspection_column(card, "Conclusion"))) == (
         "clearance in the assembled state \u221220 %"
     )
@@ -767,38 +769,44 @@ def test_an_unassessed_inspection_says_so_in_words(engine) -> None:
 
     card = CardDialog(engine, deviation_id)
 
-    assert _text(card.inspections.item(0, _inspection_column(card, "Result"))) == (
-        "Not assessed yet"
-    )
     assert _text(card.inspections.item(0, _inspection_column(card, "Conclusion"))) == ""
 
 
-def test_the_same_position_is_worded_the_same_on_both_screens(engine) -> None:
+def test_the_same_outcome_is_worded_the_same_on_both_screens(engine) -> None:
     """`CLAUDE.md` §9а.11: один факт, показанный на двух экранах, проверяется
     **сравнением экранов**, а не двумя тестами по одному на каждый.
 
-    Позиция исследования видна и в карточке, и в форме отклонения. Два теста,
-    каждый на своём экране, зафиксировали бы по одной подписи и молчали ровно о
-    том, что отличает верное от неверного, — о расхождении между ними.
+    Прежде так сверялась позиция исследования; с QMS-025 её нет, а сверять надо
+    то, что заняло её место, — исход находки. Он виден в таблице находок формы
+    отклонения и в панели раскрытия списка, и два теста, каждый на своём экране,
+    молчали бы ровно о том, что отличает верное от неверного: о расхождении.
     """
-    from ui.deviation_dialog import DeviationDialog
+    from ui.deviation_dialog import FINDING_COLUMNS, DeviationDialog
+    from ui.deviation_view import PANEL_COLUMNS, DeviationView
 
     with session_scope(engine) as session:
         item = make_item(session, "C1-08375A")
-        deviation_id, finding_id = _case(session, item, "12")
-        _inspection(session, finding_id, position="inconclusive")
+        deviation_id, finding_id = _case(session, item, "12", decision=None)
+        finding = session.get(Finding, finding_id)
+        update_finding(
+            session, finding, direction=finding.direction, value=finding.value,
+            dimension_point=None, comment=None, zone=None, deviation_type=None,
+            outcome="not_permitted",
+        )
 
-    card = CardDialog(engine, deviation_id)
     form = DeviationDialog(engine, deviation_id)
+    in_form = _text(form.findings.item(0, FINDING_COLUMNS.index("Outcome")))
 
-    in_card = _text(card.inspections.item(0, _inspection_column(card, "Result")))
-    form_labels = [
-        form.inspections.horizontalHeaderItem(index).text()
-        for index in range(form.inspections.columnCount())
-    ]
-    in_form = _text(form.inspections.item(0, form_labels.index("Result")))
+    view = DeviationView(engine)
+    view.toggle_expansion(0)
+    panel = next(
+        view.panel_at(row)
+        for row in range(view.table.rowCount())
+        if view.panel_at(row) is not None
+    )
+    in_panel = _text(panel.item(0, PANEL_COLUMNS.index("Outcome")))
 
-    assert in_card == in_form == "Inconclusive"
+    assert in_form == in_panel == "Not permitted"
 
 
 def test_a_long_conclusion_is_one_line_with_the_whole_text_in_the_tooltip(engine) -> None:
@@ -830,6 +838,7 @@ def test_switching_the_finding_redraws_the_inspections(engine) -> None:
         second, _ = get_or_create_characteristic(session, rev(item), "19")
         f_first = make_finding(session, deviation, first, direction=Direction.MINUS, value=0.08)
         make_finding(session, deviation, second, direction=Direction.PLUS, value=0.04)
+        permit_findings(session, deviation)
         set_decision(session, deviation, decision="approved", explanation="ok")
         deviation_id = deviation.deviation_id
         _inspection(session, f_first.finding_id, position="approval_not_possible")
@@ -941,7 +950,6 @@ def test_a_record_without_a_protocol_reads_in_full(engine) -> None:
             session,
             session.get(Finding, finding_id),
             inspection_type=ensure_value(session, RefInspectionType, "Tolerances review"),
-            decision_insp="approval_not_possible",
             conclusion="OD 10.0 vs ID 9.9 — geometry excludes assembly",
             protocol=None,
             no_protocol=True,
@@ -951,9 +959,6 @@ def test_a_record_without_a_protocol_reads_in_full(engine) -> None:
 
     assert _text(card.inspections.item(0, _inspection_column(card, "Type"))) == (
         "Tolerances review"
-    )
-    assert _text(card.inspections.item(0, _inspection_column(card, "Result"))) == (
-        "Approval not possible"
     )
     assert "OD 10.0" in _text(card.inspections.item(0, _inspection_column(card, "Conclusion")))
 
@@ -977,7 +982,6 @@ def test_the_open_button_is_inactive_where_there_is_no_file_and_says_why(engine)
             session,
             finding,
             inspection_type=ensure_value(session, RefInspectionType, "Solidworks assembly"),
-            decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
             no_protocol=False,
@@ -986,7 +990,6 @@ def test_the_open_button_is_inactive_where_there_is_no_file_and_says_why(engine)
             session,
             finding,
             inspection_type=ensure_value(session, RefInspectionType, "Tolerances review"),
-            decision_insp="approval_not_possible",
             conclusion="the drawing settles it",
             protocol=None,
             no_protocol=True,

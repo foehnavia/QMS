@@ -66,7 +66,7 @@ from domain.precedents import CANON_NEW, canon_labels_for_item
 from . import kit
 from .common import (
     bind_direction,
-    decision_insp_label,
+    outcome_label,
     dimension_sort_key,
     iso,
     numeric_field,
@@ -84,10 +84,12 @@ from .pickers import choose_cg_for_item
 #: Cowork). Раздельными колонками знак и его величина расходились по краям
 #: соседних столбцов и переставали читаться как одно число; слияние
 #: **отображательное** — таблица read-only, правка идёт диалогом находки.
-#: `Local number` → `Dim.` — язык макета (наряд 0011 §4). Колонки `Result`
-#: здесь нет: она требует вердикта **на находку**, а исследование висит на
-#: находке списком, и колонка появится вместе с раскрытием строки.
-#: `Measurement point` с экрана тоже не снят — снятие сцеплено с раскрытием.
+#: `Local number` → `Dim.` — язык макета (наряд 0011 §4).
+#:
+#: `Outcome` появилась с QMS-025: суждение по размеру живёт на находке, и без
+#: колонки таблица не говорила, **какой размер отклонил партию**. Стоит перед
+#: счётчиком исследований намеренно — это суждение, а исследования лишь сведения
+#: к нему; порядок колонок и есть порядок чтения.
 FINDING_COLUMNS = (
     "Dim.",
     "Canon",
@@ -95,32 +97,56 @@ FINDING_COLUMNS = (
     "Zone",
     "Deviation type",
     "Measurement point",
+    "Outcome",
     "Inspections",
 )
 
-#: Числовые колонки таблицы находок: величина со знаком, точка замера, счётчик.
-#: Зона и тип отклонения сюда не входят потому, что это **текст**, а не число:
-#: направление им считается по содержимому, как любой текстовой ячейке.
-#: Ширины поимённо (§7.3 наряда 0020): max(заголовок, самое длинное реальное
-#: значение) × 1.25; знакоместо — средний знак шрифта канона (§8.3, §9.1).
-#: `kit.FIT_LABEL` — счётчик (§8.3, класс 2): ширина равна заголовку,
-#: запаса нет — не растёт ни содержимое, ни подпись.
+#: Ширины таблицы находок — **пиксели, назначенные замером** (`CLAUDE.md` §9а.12).
 #:
-#: `Canon` — 12, а не 8 (ревью наряда 0022). Восемь считалось от `g13` и от
-#: заголовка, но колонка несёт **и состояние привязки**: «not bound» — девять
-#: знаков, и оно резалось до «not bo…». С запасом в четверть — 12.
-FINDING_WIDTHS = (10, 12, 14, 24, 23, 19, kit.FIT_LABEL)
+#: Переведены со знакомест на замер вместе с появлением колонки `Outcome`
+#: (QMS-025, §4 наряда `0030`): прежняя сетка давала 1051 px при нужных по замеру
+#: 854, и восьмая колонка вывела таблицу за край диалога — появилась
+#: горизонтальная прокрутка, которой у таблицы карточки быть не должно.
+#:
+#: Замер на нативной платформе, «нужно тексту + 27 непечатаемого» (линия сетки,
+#: отступы листа стиля, поля Qt), запас — до круглого числа:
+#:   `Dim.`               53 (`19`; заголовок 46)          ->  64
+#:   `Canon`              88 (`not bound`)                 ->  96
+#:   `Sign · value`       93 (заголовок шире значения)     -> 100
+#:   `Zone`              139 (`Internal Connection`)       -> 148
+#:   `Deviation type`    138 (`Cutting-edge width`)        -> 148
+#:   `Measurement point` 141 (заголовок; значение — цифра) -> 148
+#:   `Outcome`           110 (`Not permitted`)             -> 120
+#:   `Inspections`        92 (заголовок)                   -> 100
+#: Сумма 924 из 1180 диалога; остаток — зона запаса.
+#:
+#: `Inspections` заодно перестала быть `FIT_LABEL`: та формула давала ей 85 px при
+#: нужных 92 — недобор в 7 px, который есть у каждой колонки по заголовку и
+#: чинится задачей **QMS-022**, а не здесь.
+FINDING_WIDTHS = (
+    kit.px(64),
+    kit.px(96),
+    kit.px(100),
+    kit.px(148),
+    kit.px(148),
+    kit.px(148),
+    kit.px(120),
+    kit.px(100),
+)
 
-FINDING_NUMERIC_COLUMNS = (2, 5, 6)
+FINDING_NUMERIC_COLUMNS = tuple(
+    FINDING_COLUMNS.index(name)
+    for name in ("Sign · value", "Measurement point", "Inspections")
+)
 
 #: Из них выравнивается вправо только **величина** (решение Cowork по ревью
 #: наряда 0007): разряды встают в столбик, и разброс виден без чтения.
-FINDING_MAGNITUDE_COLUMNS = (2,)
+FINDING_MAGNITUDE_COLUMNS = (FINDING_COLUMNS.index("Sign · value"),)
 
-#: `Verdict` → `Result` (ратификация В-9): исследование отвечает «можно ли это
-#: принять», а не «что решили», и слово «вердикт» рядом с исходом отклонения
-#: читалось как второе решение по той же записи.
-INSPECTION_COLUMNS = ("Number", "Characteristic", "Type", "Result", "Protocol")
+#: Колонка `Result` снята вместе с позицией исследования (QMS-025): исследование
+#: суждения не несёт вовсе, и показывать было бы нечего. Суждение по размеру —
+#: колонка `Outcome` в таблице находок выше.
+INSPECTION_COLUMNS = ("Number", "Characteristic", "Type", "Protocol")
 
 #: Ширины по правилу §8.3; чисел на эту таблицу §7.3 не давал — считаны здесь по
 #: той же формуле max(заголовок, рекорд) × 1.25 на значениях базы прогона.
@@ -128,7 +154,7 @@ INSPECTION_COLUMNS = ("Number", "Characteristic", "Type", "Result", "Protocol")
 #: стал резаться до «Implantation tor…», а угаданный по подписи класс этого не
 #: покрывает. `Characteristic` — номер размера, счётчиком не является, но и не
 #: растёт: его держит заголовок. `Protocol` — путь к файлу, предел с обрезкой.
-INSPECTION_WIDTHS = (20, kit.FIT_LABEL, 30, 13, 40)
+INSPECTION_WIDTHS = (20, kit.FIT_LABEL, 30, 40)
 
 #: Подсказка пустого поля детали. Прежде это была строка списка со значением
 #: `None`; у поля с отбором пустое состояние показывает сама строка ввода.
@@ -379,6 +405,7 @@ class DeviationDialog(QDialog):
                     deviation_type_id=finding.deviation_type_id,
                     finding_id=finding.finding_id,
                     inspections=counts.get(finding.finding_id, 0),
+                    outcome=finding.outcome,
                 )
                 for finding in findings
             ]
@@ -463,6 +490,7 @@ class DeviationDialog(QDialog):
                 zones.get(row.zone_id, ""),
                 kinds.get(row.deviation_type_id, ""),
                 "" if row.dimension_point is None else iso(str(row.dimension_point)),
+                outcome_label(row.outcome),
                 str(row.inspections),
             )
             for column, value in enumerate(values):
@@ -481,10 +509,6 @@ class DeviationDialog(QDialog):
                     inspection.insp_number,
                     inspection.finding.characteristic.local_number,
                     inspection.type.name,
-                    # Подпись строится **из кода** одним хелпером на все экраны:
-                    # пустая позиция — законное состояние, и `.get` по словарю
-                    # отдавал бы за неё `None` вместо слов (`Inspection.md` 1.01).
-                    decision_insp_label(inspection.decision_insp),
                     inspection.protocol,
                 )
                 for inspection in sorted(
@@ -493,8 +517,8 @@ class DeviationDialog(QDialog):
             ]
 
         self.inspections.setRowCount(len(rows))
-        for index, (inspection_id, number, local, kind, verdict, protocol) in enumerate(rows):
-            cells = (iso(number), iso(local), kind, verdict, iso(protocol))
+        for index, (inspection_id, number, local, kind, protocol) in enumerate(rows):
+            cells = (iso(number), iso(local), kind, iso(protocol or ""))
             for column, value in enumerate(cells):
                 cell = QTableWidgetItem(value)
                 if column == 0:
@@ -781,6 +805,7 @@ class DeviationDialog(QDialog):
                     comment=row.comment,
                     zone=zone,
                     deviation_type=kind,
+                    outcome=row.outcome,
                 )
             else:
                 finding = update_finding(
@@ -792,6 +817,7 @@ class DeviationDialog(QDialog):
                     comment=row.comment,
                     zone=zone,
                     deviation_type=kind,
+                    outcome=row.outcome,
                 )
             # `make_finding` уже сделал flush, так что id проставлен.
             keep.add(finding.finding_id)

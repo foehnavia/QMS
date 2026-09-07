@@ -54,7 +54,6 @@ def test_inspection_is_created_on_a_finding_with_a_business_number(
         seeded_session,
         finding,
         inspection_type=_type(seeded_session, "Solidworks assembly"),
-        decision_insp="approval_possible",
         conclusion=None,
         protocol=r"\\srv\qa\SW-2026-14.docx",
         no_protocol=False,
@@ -77,7 +76,6 @@ def test_business_numbers_are_unique_within_a_day(seeded_session: Session) -> No
             seeded_session,
             finding,
             inspection_type=kind,
-            decision_insp="approval_possible",
             conclusion=None,
             protocol=f"p{index}.docx",
             no_protocol=False,
@@ -97,20 +95,6 @@ def test_a_deviation_may_carry_no_inspections(seeded_session: Session) -> None:
     assert seeded_session.query(Inspection).count() == 0
 
 
-def test_unknown_verdict_is_rejected(seeded_session: Session) -> None:
-    finding = _finding(seeded_session, make_item(seeded_session, "IT-001"))
-    with pytest.raises(ValidationError):
-        create_inspection(
-            seeded_session,
-            finding,
-            inspection_type=_type(seeded_session),
-            decision_insp="maybe",
-            conclusion=None,
-            protocol="p.docx",
-            no_protocol=False,
-        )
-
-
 def test_empty_protocol_is_refused(seeded_session: Session) -> None:
     """Критерий заведения строки — существование письменного анализа."""
     finding = _finding(seeded_session, make_item(seeded_session, "IT-001"))
@@ -120,7 +104,6 @@ def test_empty_protocol_is_refused(seeded_session: Session) -> None:
             seeded_session,
             finding,
             inspection_type=_type(seeded_session),
-            decision_insp="approval_possible",
             conclusion=None,
             protocol="   ",
             no_protocol=False,
@@ -136,24 +119,28 @@ def test_missing_type_is_refused(seeded_session: Session) -> None:
             seeded_session,
             finding,
             inspection_type=None,
-            decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
             no_protocol=False,
         )
 
 
-def test_approved_inspection_under_a_rejected_deviation_is_valid(
+def test_an_inspection_under_a_rejected_deviation_is_valid(
     seeded_session: Session,
 ) -> None:
-    """Критерий 6: `decision_insp` независим от `decision_dev` (`Inspection.md`)."""
+    """Независимость исследования от решения стала **структурной** (rev 1.03).
+
+    До QMS-025 её сторожило правило «`decision_insp` независим от `decision_dev`»,
+    и сторожить приходилось потому, что поле было. Теперь поля нет, и нарушить
+    независимость нечем; проверяется то, что осталось проверяемым: исследование
+    заводится и живёт при любом исходе отклонения.
+    """
     finding = _finding(seeded_session, make_item(seeded_session, "IT-001"))
 
     create_inspection(
         seeded_session,
         finding,
         inspection_type=_type(seeded_session),
-        decision_insp="approval_possible",
         conclusion=None,
         protocol="p.docx",
         no_protocol=False,
@@ -165,7 +152,8 @@ def test_approved_inspection_under_a_rejected_deviation_is_valid(
 
     deviation = seeded_session.query(Deviation).one()
     assert deviation.decision_dev == "rejected"
-    assert [i.decision_insp for i in deviation.inspections] == ["approval_possible"]
+    assert len(deviation.inspections) == 1
+    assert not hasattr(deviation.inspections[0], "decision_insp")
 
 
 # --- Правка и удаление -----------------------------------------------------------
@@ -177,7 +165,6 @@ def test_inspection_is_updated_wholesale(seeded_session: Session) -> None:
         seeded_session,
         finding,
         inspection_type=_type(seeded_session),
-        decision_insp="approval_possible",
         conclusion=None,
         protocol="old.docx",
         no_protocol=False,
@@ -187,7 +174,6 @@ def test_inspection_is_updated_wholesale(seeded_session: Session) -> None:
         seeded_session,
         inspection,
         inspection_type=_type(seeded_session, "Implantation torque test"),
-        decision_insp="approval_not_possible",
         conclusion=None,
         protocol="new.docx",
         no_protocol=False,
@@ -195,7 +181,7 @@ def test_inspection_is_updated_wholesale(seeded_session: Session) -> None:
     seeded_session.commit()
 
     assert inspection.type.name == "Implantation torque test"
-    assert (inspection.decision_insp, inspection.protocol) == ("approval_not_possible", "new.docx")
+    assert inspection.protocol == "new.docx"
 
 
 def test_update_demands_every_field(seeded_session: Session) -> None:
@@ -205,14 +191,13 @@ def test_update_demands_every_field(seeded_session: Session) -> None:
         seeded_session,
         finding,
         inspection_type=_type(seeded_session),
-        decision_insp="approval_possible",
         conclusion=None,
         protocol="p.docx",
         no_protocol=False,
     )
 
     with pytest.raises(TypeError):
-        update_inspection(seeded_session, inspection, decision_insp="approval_not_possible")
+        update_inspection(seeded_session, inspection, conclusion="only one argument")
 
 
 def test_inspection_is_removed_without_touching_the_finding(seeded_session: Session) -> None:
@@ -221,7 +206,6 @@ def test_inspection_is_removed_without_touching_the_finding(seeded_session: Sess
         seeded_session,
         finding,
         inspection_type=_type(seeded_session),
-        decision_insp="approval_possible",
         conclusion=None,
         protocol="p.docx",
         no_protocol=False,
@@ -253,7 +237,6 @@ def test_mirror_search_does_not_mix_two_items_with_the_same_dimension_number(
         seeded_session,
         first_finding,
         inspection_type=kind,
-        decision_insp="approval_possible",
         conclusion=None,
         protocol="first.docx",
         no_protocol=False,
@@ -262,7 +245,6 @@ def test_mirror_search_does_not_mix_two_items_with_the_same_dimension_number(
         seeded_session,
         second_finding,
         inspection_type=kind,
-        decision_insp="approval_not_possible",
         conclusion=None,
         protocol="second.docx",
         no_protocol=False,
@@ -291,7 +273,6 @@ def test_mirror_search_gathers_inspections_across_deviations(seeded_session: Ses
             seeded_session,
             finding,
             inspection_type=kind,
-            decision_insp="approval_possible",
             conclusion=None,
             protocol=f"p{index}.docx",
             no_protocol=False,
@@ -313,7 +294,6 @@ def test_mirror_search_returns_nothing_for_a_mismatched_pair(seeded_session: Ses
         seeded_session,
         finding,
         inspection_type=_type(seeded_session),
-        decision_insp="approval_possible",
         conclusion=None,
         protocol="p.docx",
         no_protocol=False,
@@ -335,83 +315,6 @@ def test_mirror_search_is_empty_for_a_dimension_without_inspections(
 
 # --- QMS-018: позиция трёхзначна и необязательна, рядом — короткий вывод ----------
 
-
-@pytest.mark.parametrize(
-    "position", ["approval_possible", "approval_not_possible", "inconclusive"]
-)
-def test_the_three_positions_of_the_canon_are_accepted(
-    seeded_session: Session, position: str
-) -> None:
-    """Критерий 5 наряда `0027`; правило `docs/model/Inspection.md` rev 1.01:
-    «`decisionInsp` is three-valued and optional. Values: `approval possible` ·
-    `approval not possible` · `inconclusive`».
-    """
-    finding = _finding(seeded_session, make_item(seeded_session, f"IT-{position[:4]}"))
-
-    inspection = create_inspection(
-        seeded_session,
-        finding,
-        inspection_type=_type(seeded_session),
-        decision_insp=position,
-        conclusion=None,
-        protocol="p.docx",
-        no_protocol=False,
-    )
-    seeded_session.commit()
-
-    assert inspection.decision_insp == position
-
-
-@pytest.mark.parametrize("empty", [None, "", "   "])
-def test_an_empty_position_is_accepted_and_stored_as_none(
-    seeded_session: Session, empty
-) -> None:
-    """Правило `Inspection.md` rev 1.01: «**Empty means "not assessed yet"** and is
-    a legitimate state: the protocol is attached first, the reading of it comes
-    later».
-
-    Пустая строка из формы и `None` — **одно** состояние, и хранится оно одним
-    способом: иначе позиции пришлось бы сравнивать двумя.
-    """
-    finding = _finding(seeded_session, make_item(seeded_session, f"IT-e{len(str(empty))}"))
-
-    inspection = create_inspection(
-        seeded_session,
-        finding,
-        inspection_type=_type(seeded_session),
-        decision_insp=empty,
-        conclusion=None,
-        protocol="p.docx",
-        no_protocol=False,
-    )
-    seeded_session.commit()
-
-    assert inspection.decision_insp is None
-
-
-@pytest.mark.parametrize("stale", ["approved", "not_approved"])
-def test_the_old_binary_values_are_refused(seeded_session: Session, stale: str) -> None:
-    """Критерий 5 наряда: старые значения отвергаются доменной валидацией.
-
-    Не косметика: `approved` дословно совпадало с исходом отклонения, и приняв
-    его здесь, база снова хранила бы две разные сущности одним словом.
-    """
-    finding = _finding(seeded_session, make_item(seeded_session, f"IT-{stale[:3]}"))
-
-    with pytest.raises(ValidationError) as excinfo:
-        create_inspection(
-            seeded_session,
-            finding,
-            inspection_type=_type(seeded_session),
-            decision_insp=stale,
-            conclusion=None,
-            protocol="p.docx",
-            no_protocol=False,
-        )
-
-    assert "approval_possible" in str(excinfo.value)
-
-
 def test_a_conclusion_is_kept_and_trimmed(seeded_session: Session) -> None:
     """Правило `Inspection.md` rev 1.01: «`Conclusion` — short free text saying what
     the study found, optional, up to 500 characters».
@@ -422,7 +325,6 @@ def test_a_conclusion_is_kept_and_trimmed(seeded_session: Session) -> None:
         seeded_session,
         finding,
         inspection_type=_type(seeded_session),
-        decision_insp="approval_possible",
         conclusion="  clearance in the assembled state −20 %  ",
         protocol="p.docx",
         no_protocol=False,
@@ -441,7 +343,6 @@ def test_an_empty_conclusion_is_accepted(seeded_session: Session, empty) -> None
         seeded_session,
         finding,
         inspection_type=_type(seeded_session),
-        decision_insp="approval_possible",
         conclusion=empty,
         protocol="p.docx",
         no_protocol=False,
@@ -463,7 +364,6 @@ def test_a_conclusion_longer_than_the_limit_is_refused(seeded_session: Session) 
         seeded_session,
         finding,
         inspection_type=_type(seeded_session),
-        decision_insp="approval_possible",
         conclusion="x" * CONCLUSION_LIMIT,
         protocol="p.docx",
         no_protocol=False,
@@ -475,7 +375,6 @@ def test_a_conclusion_longer_than_the_limit_is_refused(seeded_session: Session) 
             seeded_session,
             at_the_limit,
             inspection_type=_type(seeded_session),
-            decision_insp="approval_possible",
             conclusion="x" * (CONCLUSION_LIMIT + 1),
             protocol="p.docx",
             no_protocol=False,
@@ -499,7 +398,6 @@ def test_the_protocol_link_is_not_checked_for_existence(seeded_session: Session)
         seeded_session,
         finding,
         inspection_type=_type(seeded_session),
-        decision_insp=None,
         conclusion=None,
         protocol=nowhere,
         no_protocol=False,
@@ -525,7 +423,6 @@ def test_an_empty_protocol_is_still_refused_when_the_position_is_empty(
             seeded_session,
             finding,
             inspection_type=_type(seeded_session),
-            decision_insp=None,
             conclusion=None,
             protocol="   ",
             no_protocol=False,
@@ -545,7 +442,6 @@ def test_update_replaces_the_conclusion_wholesale(seeded_session: Session) -> No
         seeded_session,
         finding,
         inspection_type=_type(seeded_session),
-        decision_insp="approval_possible",
         conclusion="first reading",
         protocol="p.docx",
         no_protocol=False,
@@ -555,14 +451,13 @@ def test_update_replaces_the_conclusion_wholesale(seeded_session: Session) -> No
         seeded_session,
         inspection,
         inspection_type=_type(seeded_session),
-        decision_insp=None,
         conclusion=None,
         protocol="p.docx",
         no_protocol=False,
     )
     seeded_session.commit()
 
-    assert (inspection.decision_insp, inspection.conclusion) == (None, None)
+    assert inspection.conclusion is None
 
 
 # --- QMS-024: исследование без протокола, инвариант «файл ИЛИ вывод» --------------
@@ -580,7 +475,6 @@ def _raw_inspection(session, finding, **columns) -> None:
         "deviation_id": finding.deviation_id,
         "finding_id": finding.finding_id,
         "type_id": kind.inspection_type_id,
-        "decision_insp": None,
         "conclusion": None,
         "protocol": None,
         "no_protocol": 0,
@@ -589,9 +483,9 @@ def _raw_inspection(session, finding, **columns) -> None:
     session.execute(
         text(
             "INSERT INTO inspection (insp_number, deviation_id, finding_id, type_id,"
-            " decision_insp, conclusion, protocol, no_protocol)"
+            " conclusion, protocol, no_protocol)"
             " VALUES (:insp_number, :deviation_id, :finding_id, :type_id,"
-            " :decision_insp, :conclusion, :protocol, :no_protocol)"
+            " :conclusion, :protocol, :no_protocol)"
         ),
         values,
     )
@@ -688,7 +582,6 @@ def test_a_verdict_without_a_document_is_recorded_with_its_conclusion(
         seeded_session,
         finding,
         inspection_type=_type(seeded_session, "Tolerances review"),
-        decision_insp="approval_not_possible",
         conclusion="OD 10.0 vs ID 9.9 — no mating clearance, geometry excludes assembly",
         protocol=None,
         no_protocol=True,
@@ -714,21 +607,21 @@ def test_the_domain_explains_what_is_missing_instead_of_an_integrity_error(
     with pytest.raises(ValidationError) as no_file:
         create_inspection(
             seeded_session, finding, inspection_type=_type(seeded_session),
-            decision_insp=None, conclusion=None, protocol="", no_protocol=False,
+            conclusion=None, protocol="", no_protocol=False,
         )
     assert "No protocol" in str(no_file.value)
 
     with pytest.raises(ValidationError) as no_conclusion:
         create_inspection(
             seeded_session, finding, inspection_type=_type(seeded_session),
-            decision_insp=None, conclusion=None, protocol=None, no_protocol=True,
+            conclusion=None, protocol=None, no_protocol=True,
         )
     assert "conclusion" in str(no_conclusion.value)
 
     with pytest.raises(ValidationError) as both:
         create_inspection(
             seeded_session, finding, inspection_type=_type(seeded_session),
-            decision_insp=None, conclusion="settled", protocol="p.docx", no_protocol=True,
+            conclusion="settled", protocol="p.docx", no_protocol=True,
         )
     assert "must be empty" in str(both.value)
 
@@ -746,21 +639,19 @@ def test_the_flag_survives_an_update_in_both_directions(seeded_session: Session)
     finding = _finding(seeded_session, make_item(seeded_session, "IT-N04"))
     inspection = create_inspection(
         seeded_session, finding, inspection_type=_type(seeded_session),
-        decision_insp=None, conclusion=None, protocol="p.docx", no_protocol=False,
+        conclusion=None, protocol="p.docx", no_protocol=False,
     )
 
     update_inspection(
         seeded_session, inspection, inspection_type=_type(seeded_session),
-        decision_insp="approval_not_possible", conclusion="the drawing settles it",
-        protocol=None, no_protocol=True,
+        conclusion="the drawing settles it", protocol=None, no_protocol=True,
     )
     seeded_session.commit()
     assert (inspection.no_protocol, inspection.protocol) == (True, None)
 
     update_inspection(
         seeded_session, inspection, inspection_type=_type(seeded_session),
-        decision_insp="approval_not_possible", conclusion="the drawing settles it",
-        protocol="back.docx", no_protocol=False,
+        conclusion="the drawing settles it", protocol="back.docx", no_protocol=False,
     )
     seeded_session.commit()
     assert (inspection.no_protocol, inspection.protocol) == (False, "back.docx")

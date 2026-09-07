@@ -106,6 +106,7 @@ def test_finding_is_updated_wholesale(seeded_session: Session) -> None:
         comment="GO не проходит",
         zone=zone,
         deviation_type=kind,
+        outcome=None,
     )
     seeded_session.commit()
 
@@ -147,6 +148,7 @@ def test_update_finding_rejects_an_unknown_direction(seeded_session: Session) ->
             comment=None,
             zone=None,
             deviation_type=None,
+        outcome=None,
         )
 
 
@@ -203,7 +205,6 @@ def test_a_finding_with_an_inspection_is_not_removable(seeded_session: Session) 
         seeded_session,
         studied,
         inspection_type=list_values(seeded_session, RefInspectionType)[0],
-        decision_insp="approval_possible",
         conclusion=None,
         protocol="p.docx",
         no_protocol=False,

@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session
 
-from conftest import make_item, rev
+from conftest import make_item, permit_findings, rev
 from db.models import Deviation, Direction, Finding, Inspection, Item, RefInspectionType
 from domain.characteristics import get_or_create_characteristic
 from domain.deviations import (
@@ -126,6 +126,7 @@ def test_registration_can_be_edited(seeded_session: Session) -> None:
 def test_decision_is_a_separate_action(seeded_session: Session) -> None:
     deviation = _register(seeded_session, _item(seeded_session))
 
+    permit_findings(seeded_session, deviation)
     set_decision(
         seeded_session, deviation, decision="approved", explanation="Влияния на сборку нет."
     )
@@ -212,7 +213,6 @@ def test_list_counts_findings_and_inspections(seeded_session: Session) -> None:
         seeded_session,
         finding,
         inspection_type=list_values(seeded_session, RefInspectionType)[0],
-        decision_insp="approval_possible",
         conclusion=None,
         protocol=r"\\srv\qa\p.docx",
         no_protocol=False,
@@ -260,7 +260,6 @@ def test_deleting_a_deviation_takes_findings_and_inspections(seeded_session: Ses
         seeded_session,
         finding,
         inspection_type=list_values(seeded_session, RefInspectionType)[0],
-        decision_insp="approval_not_possible",
         conclusion=None,
         protocol="protocol.docx",
         no_protocol=False,

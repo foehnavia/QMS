@@ -55,7 +55,7 @@ from . import kit
 from .common import (
     UNBOUND_MARK,
     decision_dev_label,
-    decision_insp_label,
+    outcome_label,
     dimension_sort_key,
     iso,
     joined,
@@ -83,12 +83,14 @@ from .pickers import choose_cg_for_item
 #: Колонки «находка» здесь нет намеренно: таблица показывает исследования **одной**
 #: находки — той, что выбрана выше, — и повторять её номер в каждой строке значило
 #: бы объяснять то, что уже сказано выбором.
-INSPECTION_COLUMNS = ("Type", "Result", "Conclusion")
+INSPECTION_COLUMNS = ("Type", "Conclusion")
 
 #: Ширины по правилу §8.3 наряда 0020: `Type` — рекорд справочника
-#: (`Implantation torque test`), `Result` — самая длинная подпись
-#: (`Approval not possible`), `Conclusion` — предел с обрезкой, остальное в подсказке.
-INSPECTION_WIDTHS = (30, 24, 46)
+#: (`Implantation torque test`), `Conclusion` — предел с обрезкой, остальное в
+#: подсказке. Колонка `Result` снята вместе с позицией (QMS-025); её знакоместа
+#: **не отдаются** выводу — вывод и так на своём пределе с обрезкой, а лишняя
+#: ширина у него отняла бы её у таблицы находок, где появилась колонка исхода.
+INSPECTION_WIDTHS = (30, 46)
 
 #: Индекс колонки вывода — адресуем по имени, а не по числу в теле цикла (§9а.9).
 INSPECTION_CONCLUSION_COLUMN = INSPECTION_COLUMNS.index("Conclusion")
@@ -544,6 +546,7 @@ class CardDialog(QDialog):
                     finding.zone.name if finding.zone else "",
                     finding.deviation_type.name if finding.deviation_type else "",
                     counts.get(finding.finding_id, 0),
+                    finding.outcome,
                 )
                 for finding in findings
             ]
@@ -558,6 +561,9 @@ class CardDialog(QDialog):
                 row[6],
                 row[7],
                 "" if row[5] is None else iso(str(row[5])),
+                # Исход — перед счётчиком исследований, тем же порядком, что и в
+                # форме отклонения: суждение, а исследования лишь сведения к нему.
+                outcome_label(row[9]),
                 str(row[8]),
             )
             for column, value in enumerate(values):
@@ -658,7 +664,10 @@ class CardDialog(QDialog):
         )
 
     def _refresh_inspections(self, finding_id: int | None) -> None:
-        """Исследования выбранной находки: тип · позиция · короткий вывод.
+        """Исследования выбранной находки: **тип и короткий вывод**.
+
+        Позиции здесь больше нет (`Inspection.md` rev 1.03): суждение по размеру
+        переехало на находку и живёт колонкой в таблице находок выше.
 
         Читаются на выбор строки, а не на открытие карточки: свёрнутому экрану
         от исследования нужен один признак — счётчик в колонке находок, он уже
@@ -672,9 +681,6 @@ class CardDialog(QDialog):
                     (
                         inspection.inspection_id,
                         inspection.type.name,
-                        # Подпись строится **из кода** тем же хелпером, что и в
-                        # форме отклонения: один факт, одна подпись (§9а.11).
-                        decision_insp_label(inspection.decision_insp),
                         inspection.conclusion or "",
                         bool(inspection.no_protocol),
                     )
@@ -684,8 +690,8 @@ class CardDialog(QDialog):
                 ]
 
         self.inspections.setRowCount(len(rows))
-        for index, (inspection_id, kind, result, conclusion, no_protocol) in enumerate(rows):
-            values = (kind, result, _one_line(conclusion))
+        for index, (inspection_id, kind, conclusion, no_protocol) in enumerate(rows):
+            values = (kind, _one_line(conclusion))
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(value)
                 if column == 0:

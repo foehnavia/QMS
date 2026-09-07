@@ -25,7 +25,7 @@ from db.models import Direction, Finding, RefInspectionType
 from db.session import session_scope
 from domain.characteristics import get_or_create_characteristic
 from domain.deviations import register, set_decision
-from domain.findings import make_finding, research_label
+from domain.findings import make_finding, update_finding
 from domain.inspections import create_inspection
 from domain.reference import ensure_value, list_values
 from ui.common import strip_iso
@@ -74,16 +74,20 @@ def _deviation(session, item, *, wo: str, numbers=("12",), decision: str | None 
             )
         )
     if decision is not None:
+        # Одобрение требует разрешённых находок (QMS-025); хелпер строит данные,
+        # а не проверяет инвариант — тому есть свои тесты, заходящие мимо формы.
+        if decision == "approved":
+            permit_findings(session, deviation)
         set_decision(session, deviation, decision=decision, explanation="ok")
     return deviation, findings
 
 
-def _inspect(session, finding, position, *, kind: str = "Solidworks assembly"):
+def _inspect(session, finding, *, kind: str = "Solidworks assembly"):
+    """Исследование на находке. Позиции у него нет вовсе (`Inspection.md` 1.03)."""
     return create_inspection(
         session,
         finding,
         inspection_type=ensure_value(session, RefInspectionType, kind),
-        decision_insp=position,
         conclusion=None,
         protocol="p.docx",
         no_protocol=False,
@@ -281,7 +285,7 @@ def test_expanding_one_record_adds_exactly_one_query(engine) -> None:
     with session_scope(engine) as session:
         item = make_item(session, "C1-08375A")
         _, findings = _deviation(session, item, wo="W1", numbers=("12", "19"))
-        _inspect(session, findings[0], "approval_possible")
+        _inspect(session, findings[0])
 
     view = DeviationView(engine)
     with count_queries(engine) as collapsed:
@@ -339,8 +343,8 @@ def test_the_panel_applies_those_heights_to_its_rows(engine) -> None:
     with session_scope(engine) as session:
         item = make_item(session, "C1-08375A")
         _, findings = _deviation(session, item, wo="W1", numbers=("12", "19"))
-        for position in ("approval_possible", "inconclusive"):
-            _inspect(session, findings[1], position, kind="Implantation torque test")
+        for _ in range(2):
+            _inspect(session, findings[1], kind="Implantation torque test")
 
     view = DeviationView(engine)
     view.toggle_expansion(0)
@@ -417,67 +421,83 @@ def test_the_service_row_spans_the_whole_width(engine) -> None:
     assert view.table.columnSpan(row, 0) == len(COLUMNS)
 
 
-# --- Критерий 7: сводка Research ---------------------------------------------------
+# --- Критерий 7: колонка исхода замещает сводку Research ---------------------------
 
 
-@pytest.mark.parametrize(
-    ("positions", "expected"),
-    [
-        ((), "Not researched"),
-        (("approval_possible",), "Approval possible"),
-        (("approval_not_possible", "approval_not_possible"), "Approval not possible"),
-        (("inconclusive",), "Inconclusive"),
-        # Позиции разошлись.
-        (("approval_possible", "inconclusive"), "Researched · 2"),
-        # Позиция проставлена не у всех — то же состояние, другая причина.
-        (("approval_possible", None), "Researched · 2"),
-        ((None,), "Researched · 1"),
-    ],
-)
-def test_research_summarises_without_judging(positions, expected: str) -> None:
-    """Правило `docs/decisions.md`, QMS-018 решение 8, и §4.1 наряда: пять
-    состояний, и «`Researched · N` **не выбирает строгейшую позицию** — это было
-    бы решение, принятое экраном за инженера».
+def test_the_panel_shows_the_outcome_of_each_finding(engine) -> None:
+    """Правило наряда `0030` §3: «Колонка `Research` в панели раскрытия
+    **заменяется на `Outcome`** — те же 168 px, сетка не трогается вовсе».
 
-    Два последних случая — то, ради чего состояние вообще заведено: расхождение
-    позиций и непроставленная позиция дают **одну** сводку, потому что обе значат
-    «открой и прочитай».
-    """
-    assert research_label(positions) == expected
+    `Research` была сводкой того, что говорят исследования; после снятия позиции
+    (`Inspection.md` rev 1.03) сводить нечего, а её место занимает то, ради чего
+    колонка и смотрелась: суждение по размеру.
 
-
-def test_the_panel_shows_the_research_summary_it_computed(engine) -> None:
-    """Та же сводка, но **на экране**, и рядом — пустое состояние соседней ячейки.
-
-    §4.2 наряда: «Пустое состояние ячейки — `No inspections`… оно согласовано с
-    `Not researched` в соседней колонке и не дублирует его словами».
+    Три состояния сразу, в одной панели: тест на одно был бы зелёным и на экране,
+    который всем находкам пишет одно и то же.
     """
     with session_scope(engine) as session:
         item = make_item(session, "C1-08375A")
-        _, findings = _deviation(session, item, wo="W1", numbers=("12", "19"))
-        _inspect(session, findings[1], "approval_possible")
-        _inspect(session, findings[1], None, kind="Implantation torque test")
+        _, findings = _deviation(session, item, wo="W1", numbers=("12", "19", "77"))
+        update_finding(
+            session, findings[0], direction=findings[0].direction, value=findings[0].value,
+            dimension_point=None, comment=None, zone=None, deviation_type=None,
+            outcome="permitted",
+        )
+        update_finding(
+            session, findings[1], direction=findings[1].direction, value=findings[1].value,
+            dimension_point=None, comment=None, zone=None, deviation_type=None,
+            outcome="not_permitted",
+        )
+        # Третья остаётся пустой — «ещё не решали», нормальное состояние.
 
     view = DeviationView(engine)
     view.toggle_expansion(0)
     _, panel = _first_panel(view)
 
     dim = _panel_column(panel, "Dim.")
-    research = _panel_column(panel, "Research")
-    inspections = _panel_column(panel, "Inspections")
+    outcome = _panel_column(panel, "Outcome")
     rows = {
-        strip_iso(panel.item(row, dim).text()): (
-            panel.item(row, research).text(),
-            panel.item(row, inspections).text(),
-        )
+        strip_iso(panel.item(row, dim).text()): panel.item(row, outcome).text()
         for row in range(panel.rowCount())
     }
 
-    assert rows["12"] == ("Not researched", "No inspections")
-    assert rows["19"][0] == "Researched · 2"
-    # Тип и позиция — по строке на исследование; вывод в ячейку не попадает.
-    assert "Solidworks assembly" in rows["19"][1]
-    assert "Not assessed yet" in rows["19"][1]
+    assert rows == {"12": "Permitted", "19": "Not permitted", "77": "Not decided"}
+    # Колонки сводки больше нет — она не спрятана, а замещена.
+    labels = [
+        panel.horizontalHeaderItem(index).text() for index in range(panel.columnCount())
+    ]
+    assert "Research" not in labels
+
+
+def test_the_inspections_cell_shows_the_type_and_nothing_else(engine) -> None:
+    """Правило §3 наряда: «Ячейка `Inspections` показывает **тип** исследования;
+    полный вывод — в подсказке. Позиции там больше нет».
+
+    Проверяется и **отсутствие**: прежняя ячейка несла «тип · позиция», и тест на
+    одно лишь наличие типа остался бы зелёным, если бы позиция никуда не делась.
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        _, findings = _deviation(session, item, wo="W1", numbers=("12", "19"))
+        _inspect(session, findings[1])
+        _inspect(session, findings[1], kind="Implantation torque test")
+
+    view = DeviationView(engine)
+    view.toggle_expansion(0)
+    _, panel = _first_panel(view)
+
+    dim = _panel_column(panel, "Dim.")
+    inspections = _panel_column(panel, "Inspections")
+    rows = {
+        strip_iso(panel.item(row, dim).text()): panel.item(row, inspections).text()
+        for row in range(panel.rowCount())
+    }
+
+    assert rows["12"] == "No inspections"
+    assert "Solidworks assembly" in rows["19"]
+    assert "Implantation torque test" in rows["19"]
+    for gone in ("Approval possible", "Not assessed yet", "Inconclusive"):
+        assert gone not in rows["19"]
 
 
 def test_the_conclusion_lives_in_the_tooltip_not_in_the_cell(engine) -> None:
@@ -493,7 +513,6 @@ def test_the_conclusion_lives_in_the_tooltip_not_in_the_cell(engine) -> None:
             session,
             findings[0],
             inspection_type=list_values(session, RefInspectionType)[0],
-            decision_insp="approval_possible",
             conclusion=whole,
             protocol="p.docx",
             no_protocol=False,
@@ -609,33 +628,47 @@ def test_the_footer_counts_deviations_and_findings_as_different_numbers(engine) 
 # --- Критерий 10: значок мензурки ---------------------------------------------------
 
 
-def test_the_flask_marks_presence_of_inspections_not_their_position(engine) -> None:
-    """Правило §2 наряда и `design-system.md` §10: «значок мензурки 13 px только
-    тогда, когда у этой находки есть исследования… Значок — признак наличия,
-    **не вердикт**: он не меняется от позиции исследования».
+def test_the_two_icons_do_not_depend_on_each_other(engine) -> None:
+    """**Критерий 6 наряда `0030`:** «иконка исследования не зависит от исхода и
+    наоборот».
 
-    Проверяется на трёх позициях подряд и на пустой: если бы значок зависел от
-    позиции, один из четырёх случаев разошёлся бы с остальными.
+    Проверяется **перекрёстно**, на всех четырёх сочетаниях: исследования есть или
+    нет × исход разрешён, не разрешён или пуст. Тест на одно сочетание был бы
+    зелёным и на делегате, который рисует мензурку по исходу, — а именно эту
+    ошибку канон запрещает прямо: «Значок — признак наличия, **не вердикт**»
+    (`design-system.md` §10).
     """
-    positions = ("approval_possible", "approval_not_possible", "inconclusive", None)
+    cases = (
+        ("11", True, "permitted"),
+        ("12", True, "not_permitted"),
+        ("13", True, None),
+        ("14", False, "permitted"),
+        ("15", False, None),
+    )
     with session_scope(engine) as session:
         item = make_item(session, "C1-08375A")
-        numbers = tuple(str(11 + index) for index in range(len(positions) + 1))
-        _, findings = _deviation(session, item, wo="W1", numbers=numbers)
-        for finding, position in zip(findings, positions):
-            _inspect(session, finding, position)
-        bare = findings[-1]
+        _, findings = _deviation(
+            session, item, wo="W1", numbers=tuple(number for number, _, _ in cases)
+        )
+        for finding, (_, researched, outcome) in zip(findings, cases):
+            if researched:
+                _inspect(session, finding)
+            update_finding(
+                session, finding, direction=finding.direction, value=finding.value,
+                dimension_point=None, comment=None, zone=None, deviation_type=None,
+                outcome=outcome,
+            )
 
     view = DeviationView(engine)
-    chips = view.table.item(0, _column("Findings")).data(CHIPS_ROLE)
-    marked = {chip.dimension: chip.researched for chip in chips}
+    chips = {
+        chip.dimension: chip
+        for chip in view.table.item(0, _column("Findings")).data(CHIPS_ROLE)
+    }
 
-    # Четыре находки с исследованиями — помечены все четыре, независимо от позиции.
-    assert sum(marked.values()) == len(positions)
-    # Пятая, без исследований, — не помечена.
-    with session_scope(engine) as session:
-        number = session.get(Finding, bare.finding_id).characteristic.local_number
-    assert marked[f"Dim. {number}"] is False
+    for number, researched, outcome in cases:
+        chip = chips[f"Dim. {number}"]
+        assert chip.researched is researched, (number, "мензурка")
+        assert chip.outcome == outcome, (number, "исход")
 
 
 def test_the_flask_is_actually_drawn_and_a_bare_chip_is_not(qt_app) -> None:
@@ -860,3 +893,149 @@ def test_a_click_outside_the_arrow_does_not_expand(shown_view) -> None:
     assert shown_view.expanded() == set()
     # Но выбор строки клик менять обязан — это обычная строка списка.
     assert shown_view._selected_id() is not None
+
+
+# --- Критерии 6 и 7 наряда 0030: иконки исхода и неизменная сетка -----------------
+
+
+def _painted(outcome, *, researched: bool = False) -> dict:
+    """Отрисовать одну пилюлю и вернуть карту «цвет → координаты его точек».
+
+    Считаются **пиксели**, а не флаг: `design-system.md` §1 требует, чтобы исход
+    различался **формой**, и проверить это можно только по нарисованному.
+    Координаты, а не количество: галочка и крестик при одной толщине пера дают
+    поровну точек (замерено: 38 и 38), и счётчик их не различал бы вовсе.
+    """
+    from PySide6.QtGui import QColor, QPainter, QPixmap
+    from PySide6.QtWidgets import QStyleOptionViewItem
+
+    from ui.kit.chips import Chip, FindingChipsDelegate
+
+    kit.apply_theme(QApplication.instance())
+    pixmap = QPixmap(360, tokens.ROW_TWO_FINDINGS)
+    pixmap.fill(QColor(tokens.WHITE))
+    painter = QPainter(pixmap)
+    option = QStyleOptionViewItem()
+    option.rect = pixmap.rect()
+    option.font = painter.font()
+    chip = Chip(
+        dimension="Dim. 19", value="+ 0.03", kind="", researched=researched, outcome=outcome
+    )
+    FindingChipsDelegate()._chip(painter, painter.fontMetrics(), chip, 10, 7, 340)
+    painter.end()
+
+    image = pixmap.toImage()
+    painted: dict[tuple[int, int, int], set] = {}
+    for y in range(image.height()):
+        for x in range(image.width()):
+            colour = QColor(image.pixel(x, y))
+            key = (colour.red(), colour.green(), colour.blue())
+            painted.setdefault(key, set()).add((x, y))
+    return painted
+
+
+def _near(painted: dict, colour: str, tolerance: int = 40) -> set:
+    """Точки, нарисованные **этим** цветом, с допуском на сглаживание."""
+    from PySide6.QtGui import QColor
+
+    wanted = QColor(colour)
+    found: set = set()
+    for (r, g, b), points in painted.items():
+        if max(abs(r - wanted.red()), abs(g - wanted.green()), abs(b - wanted.blue())) < tolerance:
+            found |= points
+    return found
+
+
+def test_the_three_outcomes_are_three_different_shapes(qt_app) -> None:
+    """**Критерий 6 наряда `0030`:** «три состояния исхода дают **три разные
+    фигуры**».
+
+    Правило `design-system.md` §1: цвет никогда не несёт смысл в одиночку. Места
+    на слово в пилюле нет — она заведена ради скана взглядом, — поэтому различать
+    состояния обязан **контур**, а цвет только усиливает уже прочитанное.
+
+    Различающая величина здесь — **число закрашенных точек контура**: галочка,
+    крестик и кружок при одной толщине пера дают разную длину линии, и совпадение
+    любых двух означало бы, что нарисована одна фигура в двух цветах. Именно эта
+    ошибка и была бы естественной: `permitted` зелёной галочкой, `not_permitted`
+    зелёной же галочкой другого оттенка.
+    """
+    permitted = _painted("permitted")
+    refused = _painted("not_permitted")
+    undecided = _painted(None)
+
+    tick = _near(permitted, tokens.OUTCOME_PERMITTED)
+    cross = _near(refused, tokens.OUTCOME_REFUSED)
+    circle = _near(undecided, tokens.N_400)
+
+    assert tick, "галочка не нарисована"
+    assert cross, "крестик не нарисован"
+    assert circle, "пустой кружок не нарисован"
+
+    # Три **разные** фигуры: сравниваются занятые координаты, а не их число —
+    # галочка и крестик при одной толщине пера дают поровну точек (38 и 38), и
+    # счётчик объявил бы их одинаковыми. Совпадение любых двух означало бы одну
+    # фигуру в двух цветах — ровно ту ошибку, которую канон запрещает прямо.
+    assert tick != cross
+    assert tick != circle
+    assert cross != circle
+    # И расходятся они существенно, а не на пиксель сглаживания.
+    for first, second in ((tick, cross), (tick, circle), (cross, circle)):
+        overlap = len(first & second) / min(len(first), len(second))
+        assert overlap < 0.6, overlap
+
+
+def test_the_undecided_outcome_is_drawn_and_not_left_blank(qt_app) -> None:
+    """Правило §3 наряда: «Пустой кружок для «не решено» показывается **всегда**:
+    пустое место неотличимо от «иконка не поместилась»».
+
+    Сравнивается с пилюлей, у которой исхода нет вовсе — так выглядел бы экран,
+    если бы третье состояние решили не рисовать.
+    """
+    undecided = _painted(None)
+
+    # Кружок нейтрального цвета есть, и он не совпадает с заливкой пилюли.
+    assert _near(undecided, tokens.N_400)
+    assert _near(undecided, tokens.N_100)
+
+
+def test_the_flask_and_the_outcome_are_drawn_side_by_side(qt_app) -> None:
+    """**Критерий 6, вторая половина:** две иконки уживаются в одной пилюле.
+
+    Пилюля с исследованием и без него обязана нести исход одинаково: если бы
+    мензурка занимала место исхода, у исследованной находки исход пропадал бы —
+    и именно это скрыл бы тест, рисующий только один случай.
+    """
+    lonely = _painted("permitted")
+    together = _painted("permitted", researched=True)
+
+    alone = _near(lonely, tokens.OUTCOME_PERMITTED)
+    beside = _near(together, tokens.OUTCOME_PERMITTED)
+
+    assert beside, "исход исчез рядом с мензуркой"
+    assert _near(together, tokens.N_500), "мензурка не нарисована"
+
+    # Сравнивается **фигура**, приведённая к собственной рамке, а не абсолютные
+    # координаты: пилюля с мензуркой шире, исход в ней стоит правее — и обязан,
+    # он крайний справа. Разъехалась бы именно фигура, если бы мензурка легла
+    # поверх исхода или сжала его.
+    def normalised(points: set) -> set:
+        left = min(x for x, _ in points)
+        top = min(y for _, y in points)
+        return {(x - left, y - top) for x, y in points}
+
+    assert normalised(alone) == normalised(beside)
+
+
+def test_the_panel_grid_did_not_change_when_the_column_was_replaced() -> None:
+    """**Критерий 7 наряда `0030`:** «сумма панели раскрытия не изменилась —
+    колонка **замещена**, не добавлена».
+
+    Правило §3: «Колонка `Research` в панели раскрытия заменяется на `Outcome` —
+    **те же 168 px, сетка не трогается вовсе**». Сумма — то, что отличает
+    замещение от добавления: колонка, добавленная рядом, дала бы 1312.
+    """
+    assert sum(PANEL_WIDTHS.values()) == 1144
+    assert PANEL_WIDTHS["Outcome"] == 168
+    assert "Research" not in PANEL_WIDTHS
+    assert tuple(PANEL_WIDTHS) == PANEL_COLUMNS

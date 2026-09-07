@@ -93,6 +93,18 @@ POSITIONS = (
 )
 
 
+def permit_findings(session, deviation) -> None:
+    """Проставить всем находкам отклонения `outcome = permitted`.
+
+    С QMS-025 исход `approved` требует, чтобы прошли все размеры. Демо-база
+    показывает одобренные отклонения, значит их находки обязаны быть разрешены —
+    иначе инструмент собирал бы состояние, которого приложение не допускает.
+    """
+    for finding in deviation.findings:
+        finding.outcome = "permitted"
+    session.flush()
+
+
 def _drawing_png(width: int = 1400, height: int = 620) -> bytes:
     """Чертёж группы **как он приходит из конструкторского отдела**.
 
@@ -249,6 +261,7 @@ def build_database():
             zone=zone,
             deviation_type=kind,
         )
+        permit_findings(session, past)
         set_decision(
             session,
             past,
@@ -265,9 +278,23 @@ def build_database():
             machine="CNC-3",
             ncr="NCR-118",
         )
-        for number, value in (("12", 0.08), ("19", 0.03)):
+        # Три находки, а не две: исходов три состояния, и снимок обязан показать
+        # все — иначе «пустой кружок показывается всегда» проверить нечем.
+        # Исход ставится **сразу и по имени размера**, а не позицией в списке:
+        # порядок находок — величина, общая у кода и снимка, и добавление
+        # четвёртой молча переназначило бы исходы (`CLAUDE.md` §9а.9).
+        #
+        # Порядок состояний выбран так, чтобы **свёрнутая** строка показала два
+        # разных: видны первые две пилюли, третья уходит под `+N findings`.
+        # Третье состояние показывает соседнее отклонение — `Dim. 77` разрешена.
+        findings = {}
+        for number, value, outcome in (
+            ("12", 0.08, None),
+            ("19", 0.03, "not_permitted"),
+            ("32", 0.05, "permitted"),
+        ):
             characteristic, _ = get_or_create_characteristic(session, item_rev, number)
-            finding = make_finding(
+            findings[number] = make_finding(
                 session,
                 current,
                 characteristic,
@@ -275,7 +302,11 @@ def build_database():
                 value=value,
                 zone=zone,
                 deviation_type=kind,
+                outcome=outcome,
             )
+        # Исследования вешаются на **названную** находку: `finding` из цикла — это
+        # его последнее значение, и добавление размера уносило бы мензурку туда.
+        finding = findings["19"]
         # Тип берётся **по имени**, а не по номеру в справочнике (`CLAUDE.md`
         # §9а.9): третий тип, приехавший стартовым набором в QMS-024, сдвинул
         # позиционный `[-1]` и молча переназначил вид второму исследованию.
@@ -283,7 +314,6 @@ def build_database():
             session,
             finding,
             inspection_type=ref(session, RefInspectionType, "Solidworks assembly"),
-            decision_insp="approval_possible",
             conclusion="Clearance in the assembled state drops by 20 %.",
             protocol=r"\\srv\qa\SW-2026-14.docx",
             no_protocol=False,
@@ -294,7 +324,6 @@ def build_database():
             session,
             finding,
             inspection_type=ref(session, RefInspectionType, "Implantation torque test"),
-            decision_insp=None,
             conclusion=None,
             protocol=r"\\srv\qa\torque-2026-03.docx",
             no_protocol=False,
@@ -306,7 +335,6 @@ def build_database():
             session,
             finding,
             inspection_type=ref(session, RefInspectionType, "Tolerances review"),
-            decision_insp="approval_not_possible",
             conclusion="OD 10.0 vs ID 9.9 — no mating clearance, geometry excludes assembly",
             protocol=None,
             no_protocol=True,
@@ -652,6 +680,7 @@ def build_cross_revision_scenario(engine) -> dict:
             direction=Direction.MINUS,
             value=0.03,
         )
+        permit_findings(session, past)
         set_decision(
             session,
             past,
@@ -873,7 +902,6 @@ def main() -> int:
     # тот, ради которого наряд и сделан.
     without = InspectionDialog(engine, ids["finding_id"])
     without.kind.setCurrentText("Tolerances review")
-    without.verdict.set_value("approval_not_possible")
     without.conclusion.setPlainText(
         "OD 10.0 vs ID 9.9 — no mating clearance, geometry excludes assembly"
     )
