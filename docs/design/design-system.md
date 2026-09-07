@@ -5,7 +5,7 @@ status: ratified
 task: QMS-016
 branch: run/qms-016
 updated: 2026-09-07
-revision: 1.9
+revision: 1.10
 ---
 
 # MIS-QMS design system — tokens and rules
@@ -280,9 +280,26 @@ sentence) and the inspection result (two). A dropdown stays for open-ended lists
 values, items, groups — where the count is unbounded and the choice is by name, not by
 comparison.
 
+**Every control kind that appears in the application has its sub-style described here, and a
+control kind appearing for the first time is verified by a screenshot.** Qt draws an undeclared
+sub-style with the platform default, and against this palette that can come out as *nothing at
+all*: the first checkbox in the application, `No protocol`, rendered as a bare caption with no
+box to click — the stylesheet described `QRadioButton::indicator` (from naryad `0019`) but never
+`QCheckBox::indicator`. The defect had existed since naryad `0011` and simply waited for a
+checkbox to exist. Two consequences: a new control kind is a **theme** change, not a screen
+change, and it is signed off by a picture — no test asserts that a widget is visible in the
+sense a person means.
+
 **A choice that carries consequence has no default.** Neither the outcome of a deviation nor
 the result of an inspection is preselected: a preselected radio is an answer the operator never
 gave, and both of these end up in a document.
+
+**Required fields are marked with `*` in the caption, and the mark is live.** It reflects
+whether the field is required **right now**, not a static property of the form: `Conclusion *:`
+gains its asterisk when `No protocol` is set and loses it when the flag is cleared. A static
+mark on every mandatory field would put an asterisk almost everywhere and stop being read; a
+live one answers the only question the operator has at that moment — what does this form want
+from me before it will save. Introduced 2026-09-07 (QMS-024).
 
 ## 5. Icons
 

@@ -3,8 +3,8 @@ part_of: MIS-QMS/docs/model
 entity: reference-data
 order: 110
 canon: true
-rev: "1.00"
-updated: 2026-08-10
+rev: "1.01"
+updated: 2026-09-07
 ---
 
 # Reference data — prepared in advance vs. created on the fly
@@ -38,9 +38,13 @@ is the normal working path, not an exception.
   length, inner diameter, cutting-edge width, angle, …). Together with zone, this is
   the **second search level** (`Search.md`). Both zone and deviation-type are populated
   by the operator at entry and cleaned by the administrator.
-- **Inspection (research) types** — the list of research kinds (initially, e.g.
-  `Solidworks assembly` and `Implantation torque test`; extended as needed;
-  `Inspection.md`).
+- **Inspection (research) types** — the list of research kinds. The starting set ships with
+  a new database and is **`Solidworks assembly`, `Implantation torque test`,
+  `Tolerances review`**; extended by the administrator as needed (`Inspection.md`).
+  `Tolerances review` joined the starting set in rev 1.01 (2026-09-07, QMS-024): with
+  `No protocol` it is the named case of a verdict the drawing settles on its own, and a
+  starting set that omits it makes the first such deviation wait for a dictionary entry
+  typed by hand.
 
 ## Related
 

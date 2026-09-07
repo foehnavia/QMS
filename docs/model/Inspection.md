@@ -87,9 +87,9 @@ updated: 2026-09-07
 ## Fields (minimum)
 
 - `Inspection ID`
-- `Type` (from an admin dictionary — initially `Solidworks assembly`,
-  `Implantation torque test`; for growth: `Drilling force test`, functional checks;
-  see `reference/reference-data.md`)
+- `Type` (from an admin dictionary — the starting set is `Solidworks assembly`,
+  `Implantation torque test`, `Tolerances review`; for growth: `Drilling force test`,
+  functional checks; see `reference/reference-data.md`)
 - link to the finding (`Finding.md`)
 - `Inspection Result` (`decisionInsp` = `approval possible` / `approval not possible` /
   `inconclusive`; **optional** — empty means not assessed yet)
