@@ -6,8 +6,9 @@ import pathlib
 from datetime import date, timedelta
 
 import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QDialog, QStyle
 
 from conftest import count_queries, make_item, permit_findings, rev
 from db.models import (
@@ -1008,3 +1009,249 @@ def test_the_open_button_is_inactive_where_there_is_no_file_and_says_why(engine)
     assert card.protocol_button.toolTip() == NO_PROTOCOL_HINT
     # И сама строка объясняет себя, а не только кнопка.
     assert card.inspections.item(rows["Tolerances review"], 0).toolTip() == NO_PROTOCOL_HINT
+
+
+# --- Доводка `0030`, Д-1: исход находки проставляется из карточки -------------------
+#
+# `CLAUDE.md` §9а.6 — события доставляются **через приложение**, а не прямой посылкой
+# в виджет; §9а.5 — тест поведения виджета обязан виджет **показывать**: у скрытого
+# часть механики Qt не запускается вовсе. Обе кнопки на этом пути (вход в находку и
+# принятие формы) и сам выбор исхода нажимаются мышью.
+
+
+@pytest.fixture
+def slot_errors(monkeypatch):
+    """Исключения, вылетевшие **из слота Qt**.
+
+    `CLAUDE.md` §9а.2: PySide6 не пробрасывает исключение слота вызывающему — оно
+    уходит в `sys.excepthook`, и прогон идёт дальше. Тест, который **нажимает**
+    кнопку, без этой ловушки зелёный на любой сборке.
+    """
+    import sys as _sys
+
+    caught: list[BaseException] = []
+    monkeypatch.setattr(_sys, "excepthook", lambda kind, value, trace: caught.append(value))
+    return caught
+
+
+def _shown_card(engine, deviation_id) -> CardDialog:
+    card = CardDialog(engine, deviation_id)
+    card.show()
+    QApplication.processEvents()
+    return card
+
+
+def _press(button) -> None:
+    """Клик мышью по кнопке — через приложение, а не `button.click()`."""
+    QTest.mouseClick(
+        button,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        button.rect().center(),
+    )
+    QApplication.processEvents()
+
+
+def _tick(radio) -> None:
+    """Клик по **индикатору** радиокнопки — туда, куда целится оператор."""
+    QTest.mouseClick(
+        radio,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        QPoint(
+            radio.style().pixelMetric(QStyle.PixelMetric.PM_ExclusiveIndicatorWidth) // 2,
+            radio.height() // 2,
+        ),
+    )
+    QApplication.processEvents()
+
+
+def _drive_finding_form(monkeypatch, act):
+    """Показать форму находки вместо `exec()` и провести по ней настоящие клики.
+
+    Подменяется **только** `exec()`, и по единственной причине: модальный цикл под
+    offscreen ждёт ответа вечно и вешает прогон, а не роняет тест (`CLAUDE.md` §9).
+    Всё остальное — та самая форма, что открывает карточка: её собственные виджеты,
+    её `save()`, её `FindingRow`. Возвращается список открытых форм — тест обязан
+    убедиться, что форма вообще открылась, иначе «ничего не произошло» неотличимо
+    от «прошло успешно».
+    """
+    from ui.finding_dialog import FindingDialog
+
+    opened: list = []
+
+    def fake_exec(dialog) -> int:
+        dialog.show()
+        QApplication.processEvents()
+        opened.append(dialog)
+        act(dialog)
+        QApplication.processEvents()
+        return dialog.result()
+
+    monkeypatch.setattr(FindingDialog, "exec", fake_exec)
+    return opened
+
+
+def _choose_outcome(dialog, label: str) -> None:
+    from PySide6.QtWidgets import QRadioButton
+
+    radio = next(
+        button
+        for button in dialog.outcome.findChildren(QRadioButton)
+        if label in button.text()
+    )
+    _tick(radio)
+
+
+def _accept(dialog) -> None:
+    from PySide6.QtWidgets import QDialogButtonBox
+
+    _press(dialog.buttons.button(QDialogButtonBox.StandardButton.Save))
+
+
+def _finding_column(card, header: str) -> int:
+    """Колонка таблицы находок **по заголовку** (`CLAUDE.md` §9а.9)."""
+    labels = [
+        card.findings.horizontalHeaderItem(index).text()
+        for index in range(card.findings.columnCount())
+    ]
+    assert header in labels, labels
+    return labels.index(header)
+
+
+def test_the_findings_section_has_a_way_into_the_finding(engine) -> None:
+    """**Критерий 1 доводки.** Кнопка `Finding…` стоит рядом с `Inspection…` и
+    `Mapping…` и без выбранной строки ведёт себя как они.
+
+    Повод (доводка `0030`, Д-1, прогон руками): колонка `Outcome` показывала
+    `Not decided`, а входа в саму находку из карточки не было — только через
+    закрытие карточки, `Open…` и форму отклонения.
+
+    Сравнением с соседями, а не утверждением про одну кнопку: правило доводки —
+    «ведёт себя **как соседние**», и различает верное от неверного именно
+    совпадение с ними.
+    """
+    from PySide6.QtWidgets import QPushButton
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, _ = _case(session, item, "12", decision=None)
+
+    card = _shown_card(engine, deviation_id)
+    labels = [_text(button) for button in card.findings_box.findChildren(QPushButton)]
+    assert labels == ["Finding…", "Inspection…", "Mapping…"]
+
+    card.findings.setCurrentCell(-1, -1)
+    assert card.finding_button.isEnabled() is False
+    assert card.inspect_button.isEnabled() is False
+
+    card.findings.setCurrentCell(0, 0)
+    assert card.finding_button.isEnabled() is True
+
+
+def test_the_outcome_is_set_from_the_card_by_real_clicks(
+    engine, monkeypatch, slot_errors
+) -> None:
+    """**Критерий 3 доводки — главный тест.** Настоящий клик по кнопке, не вызов
+    метода: между кнопкой и обработчиком есть промежуток, и дефекты живут в нём.
+
+    Правило доводки Cowork: «смысл карточки — посмотрел прецеденты по этой находке
+    и решил по ней; ввод обязан стоять там же, где происходит рассуждение».
+    Проверяется весь путь целиком: клик по `Finding…` → форма → клик по варианту
+    исхода → клик по `Save` → значение **в базе** и в таблице карточки.
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12", decision=None)
+
+    card = _shown_card(engine, deviation_id)
+    card.findings.setCurrentCell(0, 0)
+    opened = _drive_finding_form(
+        monkeypatch, lambda dialog: (_choose_outcome(dialog, "Permitted"), _accept(dialog))
+    )
+
+    _press(card.finding_button)
+
+    assert slot_errors == []
+    assert len(opened) == 1, "форма находки не открылась"
+    with session_scope(engine) as session:
+        assert session.get(Finding, finding_id).outcome == "permitted"
+    # И карточка перечитана: значение, оставшееся только в базе, инженеру не видно.
+    assert _text(card.findings.item(0, _finding_column(card, "Outcome"))) == "Permitted"
+
+
+def test_the_outcome_set_from_the_card_reaches_the_pill_in_the_list(
+    engine, monkeypatch, slot_errors
+) -> None:
+    """**Критерий 2 доводки, вторая половина.** Исход виден в таблице карточки **и**
+    в пилюле списка после перечитывания.
+
+    Один факт на двух экранах — сверяется сравнением экранов, а не двумя тестами по
+    одному на каждый (`CLAUDE.md` §9а.11): молчали бы они ровно о том, что отличает
+    верное от неверного, — о расхождении между ними.
+    """
+    from ui.kit.chips import CHIPS_ROLE
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, _ = _case(session, item, "12", decision=None)
+
+    card = _shown_card(engine, deviation_id)
+    card.findings.setCurrentCell(0, 0)
+    _drive_finding_form(
+        monkeypatch,
+        lambda dialog: (_choose_outcome(dialog, "Not permitted"), _accept(dialog)),
+    )
+
+    _press(card.finding_button)
+    assert slot_errors == []
+
+    view = DeviationView(engine)
+    columns = [
+        view.table.horizontalHeaderItem(index).text()
+        for index in range(view.table.columnCount())
+    ]
+    chips = view.table.item(0, columns.index("Findings")).data(CHIPS_ROLE)
+
+    assert [chip.outcome for chip in chips] == ["not_permitted"]
+    assert _text(card.findings.item(0, _finding_column(card, "Outcome"))) == "Not permitted"
+
+
+def test_the_card_refuses_to_void_a_decision_that_has_gone_into_a_document(
+    engine, monkeypatch, slot_errors
+) -> None:
+    """**Точка 2 инварианта, теперь и через карточку.** Правило `Deviation.md`
+    rev 1.03: «a finding cannot be changed to `not permitted` while its deviation
+    stands `approved` — the edit is refused with an explanation».
+
+    Проверяется именно то, что добавила доводка: запись из карточки идёт **через
+    домен** (`CLAUDE.md` §9а.18), а не мимо него. Мимо домена инвариант обходился бы
+    молча — и это был бы худший исход правки, чем её отсутствие.
+
+    Отказ обязан **дойти до оператора окном**: проглоченный отказ неотличим от
+    успеха, а находка при этом осталась бы прежней без единого слова.
+    """
+    shown: list = []
+    monkeypatch.setattr(
+        card_dialog.kit, "show_error", lambda parent, error, title="": shown.append(error)
+    )
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12", decision="approved")
+
+    card = _shown_card(engine, deviation_id)
+    card.findings.setCurrentCell(0, 0)
+    _drive_finding_form(
+        monkeypatch,
+        lambda dialog: (_choose_outcome(dialog, "Not permitted"), _accept(dialog)),
+    )
+
+    _press(card.finding_button)
+
+    assert slot_errors == []
+    assert len(shown) == 1
+    assert "Withdraw the decision" in str(shown[0])
+    # Правка не применилась: отказ — это отказ, а не предупреждение поверх записи.
+    with session_scope(engine) as session:
+        assert session.get(Finding, finding_id).outcome == "permitted"

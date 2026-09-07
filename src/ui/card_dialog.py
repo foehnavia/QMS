@@ -39,9 +39,17 @@ from PySide6.QtWidgets import (
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import selectinload
 
-from db.models import Characteristic, Deviation, Finding, Inspection, Item
+from db.models import (
+    Characteristic,
+    Deviation,
+    Finding,
+    Inspection,
+    Item,
+    RefDeviationType,
+    RefZone,
+)
 from db.session import session_scope
-from domain.findings import inspection_counts
+from domain.findings import inspection_counts, update_finding
 from domain.precedents import (
     CANON_NEW,
     CANON_UNBOUND,
@@ -74,6 +82,7 @@ from .deviation_dialog import (
     FINDING_WIDTHS,
     DeviationDialog,
 )
+from .finding_dialog import FindingDialog, FindingRow
 from .inspection_dialog import InspectionDialog
 from .item_dialog import open_mapping
 from .pickers import choose_cg_for_item
@@ -373,14 +382,22 @@ class CardDialog(QDialog):
         )
         self.findings.currentCellChanged.connect(lambda *_: self.refresh_precedents())
 
+        # Три кнопки названы по объекту, который открывают, и стоят в порядке
+        # рассуждения: сама находка → её исследование → её привязка к канону.
+        # `Edit…` для находки не годится — он уже занят наверху отклонением, и
+        # два `Edit…` на одном экране значили бы разное (доводка `0030`, Д-1).
+        self.finding_button = kit.secondary("Finding…")
         self.inspect_button = kit.secondary("Inspection…")
         self.map_button = kit.secondary("Mapping…")
+        self.finding_button.clicked.connect(self.open_finding)
         self.inspect_button.clicked.connect(self.open_inspection)
         self.map_button.clicked.connect(self.bind_canon)
 
-        finding_buttons = kit.button_row(self.inspect_button, self.map_button)
+        finding_buttons = kit.button_row(
+            self.finding_button, self.inspect_button, self.map_button
+        )
 
-        findings_box = QGroupBox(
+        self.findings_box = findings_box = QGroupBox(
             "Findings — pick a characteristic; precedents are searched by it"
         )
         findings_layout = QVBoxLayout(findings_box)
@@ -763,6 +780,7 @@ class CardDialog(QDialog):
 
     def _refresh_buttons(self, finding_id: int | None) -> None:
         """Действия по находке — только при выбранной строке (закрытие Δ S4-в)."""
+        self.finding_button.setEnabled(finding_id is not None)
         self.inspect_button.setEnabled(finding_id is not None)
         self.map_button.setEnabled(finding_id is not None)
 
@@ -783,6 +801,76 @@ class CardDialog(QDialog):
         """Тот же `DecisionDialog`, что и в списке, — без единой правки."""
         if DecisionDialog.run(self._engine, self._deviation_id, self):
             self.reload()
+
+    def open_finding(self) -> None:
+        """Правка находки прямо отсюда — **та же** форма, что и в форме отклонения.
+
+        Повод (доводка `0030`, Д-1): колонка `Outcome` показывала `Not decided`, а
+        проставить исход из карточки было нечем — путь шёл через закрытие карточки,
+        `Open…`, поиск находки и вход в неё. Четыре действия и уход с экрана, на
+        котором инженер как раз изучает прецеденты; смысл карточки в том, чтобы
+        ввод стоял там же, где происходит рассуждение.
+
+        Второй формы не заводится — `FindingDialog` уже умеет сохранённую находку:
+        номер размера она запирает, потому что другой размер это другая находка.
+        Отличие от формы отклонения одно и существенное: там правки копятся в
+        таблице и уходят в базу разом при сохранении отклонения, а здесь запись
+        **немедленная**, и идёт она через `update_finding` — единственный путь в
+        базу проходит доменом (`CLAUDE.md` §9а.18), иначе инвариант, который
+        держит домен, обходится молча.
+
+        Он же здесь и срабатывает: перевод находки в `not_permitted` под
+        `approved` отбивается доменом, и отказ обязан дойти до оператора окном, а
+        не пропасть — правка при этом не применяется.
+        """
+        finding_id = self._selected_finding_id()
+        if finding_id is None:
+            return
+
+        with session_scope(self._engine) as session:
+            finding = session.get(Finding, finding_id)
+            item_id = finding.deviation.item_id
+            row = FindingRow(
+                local_number=finding.characteristic.local_number,
+                direction=finding.direction,
+                value=finding.value,
+                dimension_point=finding.dimension_point,
+                comment=finding.comment,
+                zone_id=finding.zone_id,
+                deviation_type_id=finding.deviation_type_id,
+                finding_id=finding.finding_id,
+                inspections=len(finding.inspections),
+                outcome=finding.outcome,
+            )
+
+        dialog = FindingDialog(self._engine, item_id, row, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.row is None:
+            return
+
+        edited = dialog.row
+        try:
+            with session_scope(self._engine) as session:
+                update_finding(
+                    session,
+                    session.get(Finding, finding_id),
+                    direction=edited.direction,
+                    value=edited.value,
+                    dimension_point=edited.dimension_point,
+                    comment=edited.comment,
+                    zone=(
+                        session.get(RefZone, edited.zone_id) if edited.zone_id else None
+                    ),
+                    deviation_type=(
+                        session.get(RefDeviationType, edited.deviation_type_id)
+                        if edited.deviation_type_id
+                        else None
+                    ),
+                    outcome=edited.outcome,
+                )
+        except Exception as error:
+            kit.show_error(self, error, title="Finding not saved")
+            return
+        self.reload()
 
     def open_inspection(self) -> None:
         finding_id = self._selected_finding_id()
