@@ -5,7 +5,7 @@ status: ratified
 task: QMS-016
 branch: run/qms-016
 updated: 2026-09-07
-revision: 1.10
+revision: 1.11
 ---
 
 # MIS-QMS design system — tokens and rules
@@ -289,6 +289,14 @@ box to click — the stylesheet described `QRadioButton::indicator` (from naryad
 checkbox to exist. Two consequences: a new control kind is a **theme** change, not a screen
 change, and it is signed off by a picture — no test asserts that a widget is visible in the
 sense a person means.
+
+**The primary button of a form names the action it performs, not the screen it was opened
+from.** A record being created — `Add <object>`; an existing one being edited — `Save`. The
+label follows the form's **mode**, not the call site: one form serving both modes must tell the
+truth about itself in each. Introduced 2026-09-07 (QMS-025, doving of `0030`): the finding form
+said `Add finding` while editing a saved finding, and by then that button recorded a judgement.
+A label that is right on one form and lying on the next is worse than one uniformly wrong —
+the operator stops reading labels at all.
 
 **A choice that carries consequence has no default.** Neither the outcome of a deviation nor
 the result of an inspection is preselected: a preselected radio is an answer the operator never
