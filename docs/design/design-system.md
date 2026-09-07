@@ -5,7 +5,7 @@ status: ratified
 task: QMS-016
 branch: run/qms-016
 updated: 2026-09-07
-revision: 1.7
+revision: 1.8
 ---
 
 # MIS-QMS design system — tokens and rules
@@ -178,11 +178,25 @@ right-aligned columns of §6 rest on this.
 | Spacing | screen padding 20 · ribbon padding 16/0 · cell padding 10 · control gap 8 · nav icon gap 9 · pill icon gap 6 |
 | Window | minimum 1280 × 760 |
 | Dialog heights | short 320 · medium 620 · tall 820 · **card 960** |
+| Table width | at most 90 % of the window, **and never narrower than 1216** — 1728 at 1920, **1216** at 1280 |
 | Focus | 1 px `blue-600` border + 3 px `blue-halo` — **never a size change**, so nothing shifts by a pixel on focus |
 
 Row height 40 is a deliberate compromise: Airtable's short row is 32, but Hebrew ascenders and
 descenders need the extra 8 px to avoid clipping at 13 px type. **One state, one number**
 (C-3): 40 is the row everywhere.
+
+**The table-width floor of 1216 was added 2026-09-07 (QMS-018), and it is a revision of empty
+space, not of the 90 % rule's intent.** At 1920 the rule donates 192 px of ground, which reads
+as air around a working surface. At the 1280 minimum the same percentage donates 128 px while
+the columns starve — and columns are what the operator came for. The floor keeps a 32 px margin
+each side at the minimum window and returns 64 px to the grid; the 90 % rule keeps governing
+every wider window.
+
+**A declared column width is not a drawn column width** (QMS-018, naryad `0028`). Qt applies its
+own section minimum, the stylesheet subtracts cell padding, and the drawn text area comes out
+6–8 px narrower than the number set. So a width is **valid only once measured on the native
+platform** with the real font: a sum of declared numbers can balance perfectly while a value on
+screen is clipped. Every width in a screen grid is a measured value or it is a guess.
 
 **Dialog heights belong here, not to `tokens.py` alone** (added 2026-09-07, QMS-018). A dialog
 takes the **smallest of the four that holds its content without clipping** — the height is a
@@ -195,8 +209,17 @@ invisible to a test that only asserts the widget exists.
 
 **The one exception to the 40 px row is the deviations list, and it is the exception the rule
 was written around** (QMS-018, 2026-09-07). There the row carries the finding chips themselves, so it
-grows with them: **40 / 66 / 82** for one / two / three-or-more findings (chip 22, gap 4,
-padding 7 top and bottom). Inside an expanded record the finding sub-row is **28 / 43 / 58**
+grows with them: **40 / 66 / 82** for one / two / three-or-more findings. The composition,
+corrected 2026-09-07 after naryad `0028` (the earlier prose did not close arithmetically):
+
+| Findings | Height | Made of |
+|---|---|---|
+| 1 | **40** | the ordinary row minimum — one chip fits inside it |
+| 2 | **66** | `40 + (chip 22 + gap 4)` |
+| 3 or more | **82** | `66 + 16` — the **`+N findings` line**, not a third chip |
+
+There is no third chip at any count: two are shown and the rest become one text line.
+Inside an expanded record the finding sub-row is **28 / 43 / 58**
 by the number of inspections listed. Everywhere else the row stays 40, and no other screen
 inherits these numbers — the mechanics of the reference screen are not tiled onto the others
 (naryad `0010` §3а, ratified by the user 2026-09-01).
@@ -357,7 +380,7 @@ has left the design system, and the guard in `tests/test_ui_kit.py` fails on it.
 | `status_bar` | the 26 px status bar | carries counts and the database path |
 | `ribbon` | the 44 px navigation strip | always 44; captions leave before pixels do |
 | `picker` | a modal choice out of a list | one substring filter row, **hidden at 12 values or fewer**; it narrows the choice, never the list underneath |
-| `finding_chip` | the 20 px chip carrying one finding inside a deviation row | `Dim. N` · signed value · deviation type, plus a 13 px flask glyph **only** when that finding has inspections; the glyph is a presence mark, never a verdict |
+| `finding_chip` | the **22 px** chip carrying one finding inside a deviation row (same height as `pill` in §3 Controls) | `Dim. N` · signed value · deviation type, plus a 13 px flask glyph **only** when that finding has inspections; the glyph is a presence mark, never a verdict |
 | `expansion_panel` | the full-width block under an expanded deviation row | its own 24 px header and its own column grid — it is not a continuation of the table above; it never takes selection and never receives arrow-key focus, because the unit of action stays the deviation |
 
 ## 11. Related
