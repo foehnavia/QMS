@@ -42,7 +42,7 @@ line, and a corrupt mirror must not be indistinguishable from a typo.
 
 Usage:
     # regenerate into the repo, then hand the artefact over the bridge
-    python tools/build_mirror.py --out build/mirror/CONCEPT_full_rev1.00_EN.md
+    python tools/build_mirror.py --out build/mirror/CONCEPT_mirror_EN.md
 
     # verify an existing mirror against the current canon (no writes)
     python tools/build_mirror.py --check <path-to-mirror>

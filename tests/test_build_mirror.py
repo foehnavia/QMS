@@ -179,7 +179,7 @@ def test_check_writes_nothing(canon: Path, tmp_path: Path) -> None:
 def test_main_writes_the_artefact_and_creates_the_directory(
     canon: Path, tmp_path: Path, capsys
 ) -> None:
-    out = tmp_path / "build" / "mirror" / "CONCEPT_full_rev1.00_EN.md"
+    out = tmp_path / "build" / "mirror" / "CONCEPT_mirror_EN.md"
 
     code = main(["--model", str(canon), "--out", str(out)])
 

@@ -40,7 +40,7 @@ def test_canon_is_separated_from_the_rest_of_the_cowork_layer() -> None:
     assert layer_of("docs/worklog/0023-mirror-body-hash.md") == "docs"
     assert layer_of("docs/decisions.md") == "docs"
     assert layer_of("tools/build_mirror.py") == "code"
-    assert layer_of("build/mirror/CONCEPT_full_rev1.00_EN.md") == "other"
+    assert layer_of("build/mirror/CONCEPT_mirror_EN.md") == "other"
 
 
 def test_paths_are_grouped_and_sorted() -> None:
