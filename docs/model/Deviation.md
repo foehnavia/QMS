@@ -3,8 +3,8 @@ part_of: MIS-QMS/docs/model
 entity: Deviation
 order: 50
 canon: true
-rev: "1.01"
-updated: 2026-09-06
+rev: "1.02"
+updated: 2026-09-07
 ---
 
 # Deviation
@@ -72,9 +72,12 @@ auto-derived.
 
 - The term is **`repair`**, not `rework` (the part is not returned to full drawing
   conformance).
-- **`decisionInsp` stays binary** (`approved` / `not approved`) and is independent of
-  `decisionDev` (`Inspection.md`): an inspection answers "can this deviation be
-  accepted", not "what to do with the batch".
+- **`decisionInsp` is three-valued and optional** (`approval possible` / `approval not
+  possible` / `inconclusive`; empty = not assessed yet) and is independent of
+  `decisionDev` (`Inspection.md`): an inspection answers "does this study permit
+  accepting the deviation", not "what to do with the batch" — **and it is allowed to
+  answer neither.** Revised 2026-09-07 (QMS-018); until rev 1.01 the field was binary
+  and mandatory, which forced a polar answer out of studies that do not have one.
 - **The sorting/repair forms are not modeled**: filled manually in ~95 % of cases;
   the sorting criterion is not stored.
 
