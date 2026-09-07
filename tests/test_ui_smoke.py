@@ -709,3 +709,82 @@ def test_every_dialog_action_survives_being_pressed(qt_app, deaf, slot_errors, f
         dialog.close()
 
     assert slot_errors == [], [repr(error) for error in slot_errors]
+
+
+# --- механизм `show_error` в тестовом режиме (QMS-021, наряд 0027 §1) -------------
+
+
+def test_show_error_raises_instead_of_showing_a_window_in_test_mode() -> None:
+    """Критерий 3 наряда `0027`.
+
+    Правило `CLAUDE.md` §9: «в тестовом режиме `ui.common.show_error` **бросает
+    исключение вместо показа окна**. Тогда та же ошибка даёт красный тест с
+    текстом отказа, а не бесшумное зависание». Режим включает `conftest.py`
+    явным `set_test_mode(True)`, поэтому здесь его не трогаем — проверяем ровно
+    то состояние, в котором идёт весь прогон.
+    """
+    from domain.errors import ValidationError
+
+    assert ui.kit.in_test_mode(), "conftest обязан включить режим на всю сессию"
+
+    with pytest.raises(ui.kit.UnexpectedErrorDialog) as raised:
+        ui.kit.show_error(None, ValidationError("Protocol is required."), title="Not saved")
+
+    # В тексте обязаны быть обе половины: заголовок и сообщение исходной ошибки —
+    # иначе красный тест не говорит, что именно отказало.
+    assert "Not saved" in str(raised.value)
+    assert "Protocol is required." in str(raised.value)
+
+
+def test_the_raised_dialog_is_not_swallowed_by_a_broad_except() -> None:
+    """Требование §1.2 наряда: «не поглощаться первым же широким `except`».
+
+    `show_error` зовут **изнутри** `except Exception as error:` — из такого места
+    обычное исключение поймал бы первый же обработчик выше по стеку, и отказ снова
+    стал бы невидимым. Поэтому тип наследует `BaseException`.
+    """
+    from domain.errors import ValidationError
+
+    caught = None
+    try:
+        try:
+            raise ValidationError("Inspection type is required.")
+        except Exception as error:  # ровно так устроены слоты сохранения в формах
+            ui.kit.show_error(None, error, title="Inspection not saved")
+    except ui.kit.UnexpectedErrorDialog as escaped:
+        caught = escaped
+
+    assert caught is not None
+    assert "Inspection type is required." in str(caught)
+
+
+def test_test_mode_is_off_by_default_and_switches_both_ways(monkeypatch) -> None:
+    """Режим — **явный флаг**, а не угадывание по окружению (§1.1 наряда).
+
+    Проверяется переключением, а не чтением константы: значение по умолчанию в
+    модуле — `False`, и включает его только вызов `set_test_mode`.
+    """
+    monkeypatch.setattr(ui.kit.widgets, "_TEST_MODE", False, raising=True)
+    assert ui.kit.in_test_mode() is False
+
+    ui.kit.set_test_mode(True)
+    assert ui.kit.in_test_mode() is True
+    ui.kit.set_test_mode(False)
+    assert ui.kit.in_test_mode() is False
+
+
+def test_patching_show_error_still_wins_over_the_test_mode(monkeypatch) -> None:
+    """Критерий 4 наряда: правило перехвата `CLAUDE.md` §9 остаётся в силе.
+
+    Тесты **пути отказа** подменяют `ui.kit.show_error` целиком; подмена стоит
+    раньше режима, и до броска дело не доходит. Если бы режим ломал перехват,
+    зелёными перестали бы быть все тесты, проверяющие показ ошибки оператору.
+    """
+    from domain.errors import ValidationError
+
+    shown: list[Exception] = []
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
+
+    ui.kit.show_error(None, ValidationError("Protocol is required."), title="Not saved")
+
+    assert [str(error) for error in shown] == ["Protocol is required."]
