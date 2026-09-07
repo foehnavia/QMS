@@ -4,8 +4,8 @@ doc: design-system
 status: ratified
 task: QMS-016
 branch: run/qms-016
-updated: 2026-09-01
-revision: 1.5
+updated: 2026-09-07
+revision: 1.7
 ---
 
 # MIS-QMS design system — tokens and rules
@@ -177,12 +177,29 @@ right-aligned columns of §6 rest on this.
 | Strokes | border 1 px `n-200` · inner rule 1 px `n-100` · selection bar 2 px `blue-600` inset left |
 | Spacing | screen padding 20 · ribbon padding 16/0 · cell padding 10 · control gap 8 · nav icon gap 9 · pill icon gap 6 |
 | Window | minimum 1280 × 760 |
+| Dialog heights | short 320 · medium 620 · tall 820 · **card 960** |
 | Focus | 1 px `blue-600` border + 3 px `blue-halo` — **never a size change**, so nothing shifts by a pixel on focus |
 
 Row height 40 is a deliberate compromise: Airtable's short row is 32, but Hebrew ascenders and
 descenders need the extra 8 px to avoid clipping at 13 px type. **One state, one number**
-(C-3): 40 is the row everywhere, and the three-level 40 / 66 / 82 of the reference canvas
-belongs to row expansion, which is not built.
+(C-3): 40 is the row everywhere.
+
+**Dialog heights belong here, not to `tokens.py` alone** (added 2026-09-07, QMS-018). A dialog
+takes the **smallest of the four that holds its content without clipping** — the height is a
+choice among declared values, never a number invented at the screen. `card 960` was added when
+the deviation card gained the inspections section: with four stacked sections at `tall 820` the
+precedent list — the deliverable the whole screen exists for — collapsed to a scrollbar. Both
+`tall` and `card` are measured values, not estimates, and both defects were found by a
+screenshot rather than by a green test (§9а.8 of the repo `CLAUDE.md`): a layout that clips is
+invisible to a test that only asserts the widget exists.
+
+**The one exception to the 40 px row is the deviations list, and it is the exception the rule
+was written around** (QMS-018, 2026-09-07). There the row carries the finding chips themselves, so it
+grows with them: **40 / 66 / 82** for one / two / three-or-more findings (chip 22, gap 4,
+padding 7 top and bottom). Inside an expanded record the finding sub-row is **28 / 43 / 58**
+by the number of inspections listed. Everywhere else the row stays 40, and no other screen
+inherits these numbers — the mechanics of the reference screen are not tiled onto the others
+(naryad `0010` §3а, ratified by the user 2026-09-01).
 
 **Every number here is a logical pixel** at 100 % Windows scaling — not a point. Declared as
 points they come out a third larger (13 pt ≈ 17 px), which is how the chrome grew until five
@@ -340,6 +357,8 @@ has left the design system, and the guard in `tests/test_ui_kit.py` fails on it.
 | `status_bar` | the 26 px status bar | carries counts and the database path |
 | `ribbon` | the 44 px navigation strip | always 44; captions leave before pixels do |
 | `picker` | a modal choice out of a list | one substring filter row, **hidden at 12 values or fewer**; it narrows the choice, never the list underneath |
+| `finding_chip` | the 20 px chip carrying one finding inside a deviation row | `Dim. N` · signed value · deviation type, plus a 13 px flask glyph **only** when that finding has inspections; the glyph is a presence mark, never a verdict |
+| `expansion_panel` | the full-width block under an expanded deviation row | its own 24 px header and its own column grid — it is not a continuation of the table above; it never takes selection and never receives arrow-key focus, because the unit of action stays the deviation |
 
 ## 11. Related
 
