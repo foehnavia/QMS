@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from db.models import (
+    OUTCOME,
     Characteristic,
     Deviation,
     Direction,
@@ -70,13 +71,21 @@ def make_finding(
     comment: str | None = None,
     zone=None,
     deviation_type=None,
+    outcome: str | None = None,
 ) -> Finding:
-    """Создать находку, проверив инвариант принадлежности и знак направления."""
+    """Создать находку, проверив инвариант принадлежности и знак направления.
+
+    `outcome` по умолчанию пуст: находки заводятся при регистрации, а суждение по
+    размеру приходит позже (`Finding.md` rev 1.01). Это **не** послабление правила
+    §9 о `update_*` — там умолчаний нет и не появляется; здесь умолчание выражает
+    нормальное состояние новой записи, а не «поле не трогаем».
+    """
     ensure_finding_target(deviation, characteristic)
     if direction not in Direction.ALL:
         raise ValidationError(
             f"Direction must be {Direction.PLUS} or {Direction.MINUS}."
         )
+    outcome = check_outcome(outcome)
 
     finding = Finding(
         deviation=deviation,
@@ -87,6 +96,7 @@ def make_finding(
         comment=comment,
         zone=zone,
         deviation_type=deviation_type,
+        outcome=outcome,
     )
     session.add(finding)
     session.flush()
@@ -103,6 +113,7 @@ def update_finding(
     comment: str | None,
     zone,
     deviation_type,
+    outcome: str | None,
 ) -> Finding:
     """Заменить измерительные поля находки **целиком** (правило S3).
 
@@ -112,11 +123,18 @@ def update_finding(
 
     Размер и отклонение не меняются: смена размера — это другая находка, а
     перенос в другое отклонение сломал бы инвариант принадлежности.
+
+    **Точка 2 связывающего инварианта** (`Deviation.md` rev 1.03): исход нельзя
+    перевести в `not_permitted`, пока отклонение стоит `approved`. Молча снять
+    чужое решение нельзя — оно ушло в документ; отказ говорит, что сделать
+    сначала.
     """
     if direction not in Direction.ALL:
         raise ValidationError(
             f"Direction must be {Direction.PLUS} or {Direction.MINUS}."
         )
+    outcome = check_outcome(outcome)
+    _refuse_to_void_a_decision(finding, outcome)
 
     finding.direction = direction
     finding.value = value
@@ -124,8 +142,46 @@ def update_finding(
     finding.comment = comment
     finding.zone = zone
     finding.deviation_type = deviation_type
+    finding.outcome = outcome
     session.flush()
     return finding
+
+
+def check_outcome(outcome: str | None) -> str | None:
+    """Исход находки — пусто или одно из двух (`Finding.md` rev 1.01).
+
+    Пусто нормализуется к `None`: «не решено» и «пустая строка из формы» — одно
+    состояние, и хранить его двумя способами значило бы сравнивать исходы двумя
+    способами (тот же довод, что у позиции исследования в QMS-018).
+    """
+    cleaned = (outcome or "").strip()
+    if not cleaned:
+        return None
+    if cleaned not in OUTCOME:
+        raise ValidationError(
+            f"The finding outcome must be empty or one of: {', '.join(OUTCOME)}."
+        )
+    return cleaned
+
+
+def _refuse_to_void_a_decision(finding: Finding, outcome: str | None) -> None:
+    """Точка 2 инварианта: `not_permitted` под одобренным отклонением — отказ.
+
+    Проверяется **переход**, а не состояние: находка, уже стоящая
+    `not_permitted` под `approved`, могла попасть туда только в обход домена, и
+    запирать её правку значило бы запирать единственный выход из этого положения.
+    """
+    if outcome != "not_permitted":
+        return
+    if finding.outcome == "not_permitted":
+        return
+    deviation = finding.deviation
+    if deviation is not None and deviation.decision_dev == "approved":
+        raise InvariantViolation(
+            f"Deviation {deviation.dev_number} stands “approved — use as is”, and that "
+            "outcome requires every finding to be permitted. Withdraw the decision on "
+            "the deviation first, then mark this dimension as not permitted."
+        )
 
 
 def inspection_count(session: Session, finding: Finding) -> int:
@@ -211,9 +267,12 @@ class FindingRow:
     value: float | None
     zone: str | None
     deviation_type: str | None
-    #: Сколько исследований висит на находке. Признак наличия, **не вердикт**:
-    #: значок мензурки в пилюле ставится по нему и от позиции не зависит.
+    #: Сколько исследований висит на находке. Признак наличия, **не суждение**:
+    #: значок мензурки в пилюле ставится по нему и от исхода не зависит.
     inspections: int
+    #: Исход находки: `permitted` · `not_permitted` · `None` («ещё не решали»).
+    #: Именно он показывается пилюлей и колонкой раскрытия (QMS-025).
+    outcome: str | None
 
 
 def findings_for_deviations(
@@ -253,6 +312,7 @@ def findings_for_deviations(
             RefZone.name,
             RefDeviationType.name,
             func.coalesce(counts.c.n, 0),
+            Finding.outcome,
         )
         .join(Characteristic, Finding.characteristic_id == Characteristic.characteristic_id)
         .outerjoin(Mapping, Mapping.characteristic_id == Characteristic.characteristic_id)
@@ -284,6 +344,7 @@ def findings_for_deviations(
                 zone=row[6],
                 deviation_type=row[7],
                 inspections=row[8],
+                outcome=row[9],
             )
         )
     return grouped
@@ -296,17 +357,15 @@ def findings_for_deviations(
 class InspectionRow:
     """Исследование так, как его показывает ячейка `Inspections` панели.
 
-    В ячейке — **тип · позиция**; короткий вывод в 340 px не помещается и живёт
-    в подсказке (§4.2 наряда), поэтому он здесь есть, но отдельной колонкой не
-    становится.
+    В ячейке — **тип**; короткий вывод в 340 px не помещается и живёт в подсказке
+    (§4.2 наряда `0028`), поэтому он здесь есть, но отдельной колонкой не
+    становится. Позиции у исследования больше нет вовсе (`Inspection.md` rev 1.03).
     """
 
     inspection_id: int
     finding_id: int
     #: Вид исследования из справочника (`Solidworks assembly`, …).
     type_name: str
-    #: Позиция; `None` — «ещё не разбирали» (`Inspection.md` rev 1.01).
-    position: str | None
     conclusion: str | None
 
 
@@ -328,7 +387,6 @@ def inspections_of_deviation(
             Inspection.inspection_id,
             Inspection.finding_id,
             RefInspectionType.name,
-            Inspection.decision_insp,
             Inspection.conclusion,
         )
         .join(
@@ -346,46 +404,7 @@ def inspections_of_deviation(
                 inspection_id=row[0],
                 finding_id=row[1],
                 type_name=row[2],
-                position=row[3],
-                conclusion=row[4],
+                conclusion=row[3],
             )
         )
     return grouped
-
-
-#: У находки нет исследований. **Норма, а не пустое поле**: рутинная сверка с
-#: чертежом строки исследования не создаёт (`Inspection.md`).
-NOT_RESEARCHED = "Not researched"
-
-
-def research_label(positions: Sequence[str | None]) -> str:
-    """Сводка позиций исследований одной находки — пять состояний (§4.1 наряда).
-
-    Правило `docs/decisions.md`, QMS-018 решение 8: `Not researched` · одна из
-    трёх позиций, **когда она проставлена у всех исследований находки и
-    совпадает** · `Researched \u00b7 N`, когда позиции разошлись **или**
-    проставлены не у всех.
-
-    **Ни одно состояние не является суждением экрана.** `Researched \u00b7 N`
-    намеренно не выбирает строгейшую позицию: выбор был бы решением, принятым
-    экраном за инженера, а канон говорит, что исследование накапливает сведения
-    и решения не диктует (`Inspection.md`, «Decision independence»).
-    """
-    values = list(positions)
-    if not values:
-        return NOT_RESEARCHED
-    distinct = set(values)
-    if len(distinct) == 1 and None not in distinct:
-        return INSPECTION_POSITION_LABELS[values[0]]
-    return f"Researched \u00b7 {len(values)}"
-
-
-#: Подписи позиции — те же слова, что на всех прочих экранах. Английские подписи
-#: живут в UI (`ui.common.DECISION_INSP_LABELS`), но сводка `Research` считается
-#: **в домене**: это правило канона, а не оформление, и проверяться оно должно
-#: без поднятия Qt. Совпадение двух наборов сторожит тест.
-INSPECTION_POSITION_LABELS = {
-    "approval_possible": "Approval possible",
-    "approval_not_possible": "Approval not possible",
-    "inconclusive": "Inconclusive",
-}

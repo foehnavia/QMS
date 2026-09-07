@@ -43,16 +43,20 @@ from .base import Base
 #: `decision_dev` — исход отклонения (`docs/model/Deviation.md`, Outcomes).
 DECISION_DEV = ("approved", "rejected", "sorting", "repair")
 
-#: `decision_insp` — позиция исследования (`docs/model/Inspection.md` rev 1.01).
+#: `outcome` — исход **находки** (`docs/model/Finding.md` rev 1.01, QMS-025).
 #:
-#: Три значения вместо прежних двух и **необязательное**: исследование само по
-#: себе полярного вывода не несёт, «полезный зазор в сборе уменьшился на 20 %» —
-#: измерение, а не приговор. Пусто = «ещё не разбирали»; `inconclusive` =
-#: «разобрали, однозначного ответа нет». Это разные состояния.
+#: Отвечает на вопрос «прошёл ли этот размер», тогда как `decision_dev` отвечает
+#: «что делать с партией». Это **вход** для второго, а не замена: отклонение с
+#: двумя находками, одна разрешена, другая нет, идёт в сортировку — по критерию
+#: второй. Пусто = «ещё не решено», нормальное состояние свежей регистрации:
+#: находки заводятся при регистрации, суждение приходит позже.
+OUTCOME = ("permitted", "not_permitted")
+
+#: Позиции у исследования больше нет (`Inspection.md` rev 1.03, QMS-025).
 #:
-#: Независимость от `decision_dev` не изменилась: поле говорит, что исследование
-#: **позволяет**, а не что решили.
-DECISION_INSP = ("approval_possible", "approval_not_possible", "inconclusive")
+#: Правило «исследование не диктует решение» перестало быть предупреждением и
+#: стало **структурой**: поля, которым его нарушают, попросту нет. Суждение, за
+#: которое позиция стояла, переехало на находку — `OUTCOME` выше.
 
 
 class Direction:
@@ -444,11 +448,21 @@ class Deviation(Base):
 
 
 class Finding(Base):
-    """Отклонение по одному размеру внутри Deviation. Решений и количеств не несёт."""
+    """Отклонение по одному размеру внутри Deviation.
+
+    rev 0.6 (QMS-025): **несёт собственный исход**. До неё решений не несла вовсе, и
+    отклонение с двумя находками не говорило, **какой размер его отклонил** — инженер
+    шёл открывать записи, то есть делал ровно ту работу, ради устранения которой база
+    и заведена (`Finding.md` rev 1.01). Количеств по-прежнему не несёт.
+    """
 
     __tablename__ = "finding"
     __table_args__ = (
         CheckConstraint("direction IN ('+', '-')", name="direction"),
+        CheckConstraint(
+            "outcome IS NULL OR outcome IN ('permitted', 'not_permitted')",
+            name="outcome",
+        ),
     )
 
     finding_id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -466,6 +480,10 @@ class Finding(Base):
     deviation_type_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("ref_deviation_type.deviation_type_id")
     )
+    #: Пусто = «ещё не решено». Форма находки ничего не блокирует: любое из трёх
+    #: состояний законно в любой момент. Связь с исходом отклонения держит **домен**
+    #: в двух точках — инвариант межтабличный, `CHECK` его не выражает.
+    outcome: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
 
     deviation: Mapped[Deviation] = relationship(back_populates="findings")
     characteristic: Mapped[Characteristic] = relationship(back_populates="findings")
@@ -485,15 +503,12 @@ class Inspection(Base):
     короткий вывод `conclusion`, `protocol` по смыслу — ссылка на файл.
     rev 0.5 (QMS-024): запись бывает **без файла протокола** — по признаку
     `no_protocol`, и тогда вывод обязателен.
+    rev 0.6 (QMS-025): позиции нет вовсе. Исследование поставляет сведения — вид,
+    вывод, протокол — и ничего больше.
     """
 
     __tablename__ = "inspection"
     __table_args__ = (
-        CheckConstraint(
-            "decision_insp IS NULL OR decision_insp IN "
-            "('approval_possible', 'approval_not_possible', 'inconclusive')",
-            name="decision_insp",
-        ),
         #: **Файл ИЛИ вывод — инвариант держит схема, а не форма** (`Inspection.md`
         #: rev 1.02). Запись, не несущая ни того ни другого, невидима для поиска
         #: прецедентов, то есть бесполезна ровно в том, ради чего таблица заведена.
@@ -521,10 +536,6 @@ class Inspection(Base):
     type_id: Mapped[int] = mapped_column(
         ForeignKey("ref_inspection_type.inspection_type_id"), nullable=False
     )
-    # Пусто — законное состояние: протокол крепится первым, чтение его приходит
-    # позже (`Inspection.md` rev 1.01). Длина под самое длинное значение —
-    # `approval_not_possible`, 21 знак; прежних 16 не хватало.
-    decision_insp: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     #: Короткий вывод словами — чтобы находку читали списком, не открывая файл.
     #: Не заменяет протокол и структуры не имеет: «−20 % полезного зазора» в
     #: рамку «величина + единица» не лезет (`Inspection.md` rev 1.01).

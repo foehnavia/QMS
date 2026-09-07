@@ -153,7 +153,7 @@ def test_rev04_carries_the_old_outcome_values_over(db_url: str) -> None:
     engine = create_db_engine(db_url)
     _seed_rev03_inspections(engine)
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "rev04")
 
     with engine.connect() as connection:
         rows = connection.execute(
@@ -180,7 +180,7 @@ def test_rev04_adds_the_conclusion_empty_and_lets_the_outcome_be_empty(db_url: s
     engine = create_db_engine(db_url)
     _seed_rev03_inspections(engine)
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "rev04")
 
     with engine.connect() as connection:
         assert connection.execute(
@@ -214,7 +214,7 @@ def test_rev04_still_refuses_a_value_outside_the_canon(db_url: str) -> None:
     engine = create_db_engine(db_url)
     _seed_rev03_inspections(engine)
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "rev04")
 
     with pytest.raises(IntegrityError):
         with engine.begin() as connection:
@@ -237,7 +237,7 @@ def test_rev04_downgrade_converts_back_and_drops_what_has_no_polar_equivalent(
     command.upgrade(config, "rev03")
     engine = create_db_engine(db_url)
     _seed_rev03_inspections(engine)
-    command.upgrade(config, "head")
+    command.upgrade(config, "rev04")
     with engine.begin() as connection:
         connection.execute(
             text("UPDATE inspection SET decision_insp = NULL WHERE inspection_id = 2")
@@ -264,7 +264,7 @@ def test_rev04_downgrade_is_silent_when_every_row_is_polar(db_url: str, capsys) 
     command.upgrade(config, "rev03")
     engine = create_db_engine(db_url)
     _seed_rev03_inspections(engine)
-    command.upgrade(config, "head")
+    command.upgrade(config, "rev04")
     capsys.readouterr()
 
     command.downgrade(config, "rev03")
@@ -274,13 +274,15 @@ def test_rev04_downgrade_is_silent_when_every_row_is_polar(db_url: str, capsys) 
     assert "dropping" not in capsys.readouterr().out
 
 
-def test_rev04_adds_a_column_not_a_table(migrated_url: str) -> None:
-    """Критерий 9 наряда: перечень таблиц схемы не изменился.
+def test_rev04_adds_a_column_not_a_table(db_url: str) -> None:
+    """Критерий 9 наряда `0027`: перечень таблиц схемы не изменился.
 
-    `ALL_TABLES` сторожит `test_upgrade_head_creates_all_tables` выше; здесь
-    проверяется вторая половина утверждения — что поля действительно добавлены.
+    Целится в **`rev04`**, а не в `head`: `decision_insp` снят миграцией `rev06`
+    (QMS-025), и тест про свою ревизию не должен ломаться от следующей. Тот же
+    довод, что и у остальных тестов этой ревизии.
     """
-    columns = {c["name"] for c in inspect(create_db_engine(migrated_url)).get_columns("inspection")}
+    command.upgrade(alembic_config(db_url), "rev04")
+    columns = {c["name"] for c in inspect(create_db_engine(db_url)).get_columns("inspection")}
 
     assert {"decision_insp", "conclusion", "protocol"} <= columns
     assert len(ALL_TABLES) == 16
@@ -336,7 +338,7 @@ def test_rev05_keeps_every_existing_row_and_marks_it_as_documented(db_url: str) 
     engine = create_db_engine(db_url)
     _seed_rev04_inspections(engine)
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "rev05")
 
     with engine.connect() as connection:
         rows = connection.execute(
@@ -359,7 +361,7 @@ def test_rev05_admits_a_row_without_a_protocol_and_refuses_an_empty_one(db_url: 
     command.upgrade(config, "rev04")
     engine = create_db_engine(db_url)
     _seed_rev04_inspections(engine)
-    command.upgrade(config, "head")
+    command.upgrade(config, "rev05")
 
     with engine.begin() as connection:
         connection.execute(
@@ -394,7 +396,7 @@ def test_rev05_downgrade_drops_what_the_old_schema_cannot_hold(db_url: str, caps
     command.upgrade(config, "rev04")
     engine = create_db_engine(db_url)
     _seed_rev04_inspections(engine)
-    command.upgrade(config, "head")
+    command.upgrade(config, "rev05")
     with engine.begin() as connection:
         connection.execute(
             text(
@@ -422,7 +424,7 @@ def test_rev05_downgrade_is_silent_when_every_row_carries_a_file(db_url: str, ca
     command.upgrade(config, "rev04")
     engine = create_db_engine(db_url)
     _seed_rev04_inspections(engine)
-    command.upgrade(config, "head")
+    command.upgrade(config, "rev05")
     capsys.readouterr()
 
     command.downgrade(config, "rev04")

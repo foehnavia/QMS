@@ -249,6 +249,8 @@ def set_decision(
         raise ValidationError(
             "Approval requires an explanation: the text goes into אישור חריגה."
         )
+    if decision == "approved":
+        _require_every_finding_permitted(deviation)
 
     deviation.decision_dev = decision
     deviation.explanation = explanation
@@ -257,6 +259,46 @@ def set_decision(
         deviation.ncr = _clean(ncr)
     session.flush()
     return deviation
+
+
+def _require_every_finding_permitted(deviation: Deviation) -> None:
+    """**Точка 1 связывающего инварианта** (`Deviation.md` rev 1.03).
+
+    «Отклонение может нести `approved — use as is` **только** когда у каждой его
+    находки `outcome = permitted`.» Любое другое состояние находки — **включая
+    пустое** — этот исход закрывает: пустое значит «ещё не решено», а одобрить
+    партию по нерешённому размеру нельзя.
+
+    Остальные три исхода не требуют ничего: `rejected`, `sorting` и `repair` —
+    ровно то, что инженер выбирает, **пока** разбирается.
+
+    Инвариант межтабличный — зависит от набора дочерних строк, — и `CHECK` его не
+    выражает; триггер выражает, но в SQLite молча теряется при пересборке таблицы
+    миграцией. Поэтому он здесь, а надёжность даёт тест, заходящий **мимо формы**,
+    прямо в домен (наряд `0030` §2).
+
+    Текст отказа называет **размеры поимённо**: «какая-то находка не прошла» —
+    это ровно та работа по открыванию записей, ради устранения которой исход и
+    переехал на находку.
+    """
+    blocking = [
+        finding
+        for finding in deviation.findings
+        if finding.outcome != "permitted"
+    ]
+    if not blocking:
+        return
+
+    numbers = ", ".join(
+        f"no. {finding.characteristic.local_number}"
+        + ("" if finding.outcome else " (not decided)")
+        for finding in blocking
+    )
+    raise InvariantViolation(
+        f"“Approved — use as is” requires every finding to be permitted, and these are "
+        f"not: {numbers}. Set their outcome on the finding, or pick another decision — "
+        "sorting is what a mixed deviation usually gets."
+    )
 
 
 def list_deviations(session: Session, *, item: Item | None = None) -> list[DeviationRow]:

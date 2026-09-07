@@ -418,3 +418,17 @@ def focus_field(field) -> None:
     assert QApplication.focusWidget() is field.lineEdit(), (
         "приложение не видит фокуса в поле — доставлять нажатия будет некому"
     )
+
+
+def permit_findings(session, deviation) -> None:
+    """Проставить всем находкам отклонения `outcome = permitted`.
+
+    Нужен там, где тест **одобряет** отклонение: с QMS-025 исход `approved`
+    требует, чтобы прошли все размеры, и пустой исход его закрывает наравне с
+    `not_permitted`. Хелпер общий, а не по месту, потому что это подготовка
+    данных, а не проверяемое поведение: инвариант проверяется своими тестами,
+    заходящими **мимо формы** прямо в домен.
+    """
+    for finding in deviation.findings:
+        finding.outcome = "permitted"
+    session.flush()

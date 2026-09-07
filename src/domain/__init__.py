@@ -23,7 +23,6 @@ from .errors import (
     ValueInUse,
 )
 from .findings import (
-    NOT_RESEARCHED,
     FindingRow,
     InspectionRow,
     ensure_finding_target,
@@ -32,7 +31,6 @@ from .findings import (
     inspections_of_deviation,
     make_finding,
     remove_finding,
-    research_label,
     update_finding,
 )
 from .groups import (
@@ -124,13 +122,11 @@ __all__ = [
     "ensure_finding_target",
     "get_or_create_characteristic",
     "groups_of",
-    "NOT_RESEARCHED",
     "FindingRow",
     "InspectionRow",
     "findings_for_deviations",
     "inspection_count",
     "inspections_of_deviation",
-    "research_label",
     "CONCLUSION_LIMIT",
     "inspections_for",
     "is_complete",

@@ -5,14 +5,14 @@
 исследования. Отсюда обязательный непустой `protocol` — вся «наука» живёт в нём,
 а не в полях.
 
-`decision_insp` **независим** от `decision_dev`: исследование отвечает на вопрос
-«можно ли принять это отклонение», а не «что делать с партией». `approval not
-possible` на исследовании при `approved — use as is` на отклонении — валидная
-комбинация, и никакой проверки, связывающей их, здесь нет и быть не должно.
+**Позиции у исследования нет вовсе** (`Inspection.md` rev 1.03, QMS-025). Правило
+«исследование не диктует решение» перестало быть предупреждением и стало
+структурой: поля, которым его нарушают, попросту нет. Суждение, за которое позиция
+стояла, живёт на находке — `findings.update_finding`, поле `outcome`.
 
-Позиция трёхзначна и **необязательна** (`Inspection.md` rev 1.01, QMS-018): пусто
-= «ещё не разбирали», `inconclusive` = «разобрали, однозначного ответа нет». Рядом
-живёт `conclusion` — короткий вывод словами, тоже необязательный.
+Исследование поставляет **сведения**: вид, короткий вывод, протокол. Инвариант
+«файл ИЛИ вывод» (QMS-024) при этом не тронут — он о том, что запись вообще что-то
+оставляет после себя, а не о том, что она решает.
 
 Привязка — к находке **и** к паре (Item, размер). Пара **выводится** через
 находку (`finding → characteristic → item`); отдельных полей в схеме нет и не
@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from db.ids import next_insp_number
-from db.models import DECISION_INSP, Characteristic, Finding, Inspection, Item, ItemRevision
+from db.models import Characteristic, Finding, Inspection, Item, ItemRevision
 
 from .errors import ValidationError
 
@@ -38,7 +38,6 @@ def create_inspection(
     finding: Finding,
     *,
     inspection_type,
-    decision_insp: str | None,
     conclusion: str | None,
     protocol: str | None,
     no_protocol: bool,
@@ -48,7 +47,6 @@ def create_inspection(
         raise ValidationError("An inspection is created on a finding — the finding is required.")
 
     _check_type(inspection_type)
-    decision_insp = _check_position(decision_insp)
     conclusion = _check_conclusion(conclusion)
     protocol = _check_record(protocol, conclusion, no_protocol)
 
@@ -59,7 +57,6 @@ def create_inspection(
         deviation=finding.deviation,
         finding=finding,
         type=inspection_type,
-        decision_insp=decision_insp,
         conclusion=conclusion,
         protocol=protocol,
         no_protocol=bool(no_protocol),
@@ -74,7 +71,6 @@ def update_inspection(
     inspection: Inspection,
     *,
     inspection_type,
-    decision_insp: str | None,
     conclusion: str | None,
     protocol: str | None,
     no_protocol: bool,
@@ -86,16 +82,14 @@ def update_inspection(
 
     **Значений по умолчанию здесь нет и не появляется** (`CLAUDE.md` §9): поля
     заменяются целиком, и пропущенный аргумент стирал бы значение, выглядя как
-    «это поле не трогаем». `decision_insp` и `conclusion` необязательны **по
-    содержанию** (пусто — законное значение), но обязательны **по вызову**.
+    «это поле не трогаем». `conclusion` необязателен **по содержанию** (пусто —
+    законное значение), но обязателен **по вызову**.
     """
     _check_type(inspection_type)
-    decision_insp = _check_position(decision_insp)
     conclusion = _check_conclusion(conclusion)
     protocol = _check_record(protocol, conclusion, no_protocol)
 
     inspection.type = inspection_type
-    inspection.decision_insp = decision_insp
     inspection.conclusion = conclusion
     inspection.protocol = protocol
     inspection.no_protocol = bool(no_protocol)
@@ -148,23 +142,6 @@ def _check_type(inspection_type) -> None:
         raise ValidationError(
             "Inspection type is required — pick a value from the reference list."
         )
-
-
-def _check_position(decision_insp: str | None) -> str | None:
-    """Позиция — пусто или одно из трёх (`Inspection.md` rev 1.01).
-
-    Пусто нормализуется к `None`: «не заполнено» и «пустая строка из формы» —
-    одно состояние, и хранить его двумя способами значило бы сравнивать позиции
-    двумя способами.
-    """
-    cleaned = (decision_insp or "").strip()
-    if not cleaned:
-        return None
-    if cleaned not in DECISION_INSP:
-        raise ValidationError(
-            f"The inspection result must be empty or one of: {', '.join(DECISION_INSP)}."
-        )
-    return cleaned
 
 
 def _check_conclusion(conclusion: str | None) -> str | None:
