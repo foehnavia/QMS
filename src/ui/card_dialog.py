@@ -181,6 +181,16 @@ DESCRIPTIVE_TAB = "Descriptive precedents (L2)"
 #: Пустая секция исследований. Две причины пустоты — «находка не выбрана» и
 #: «исследований нет» — здесь **не** разводятся: обе секции стоят под таблицей
 #: находок, и вторая фраза объясняет ровно то, что оператор и так видит.
+#: Роль, под которой строка исследования несёт признак «файла нет».
+#: Кнопку красит **код**, а не разбор текста ячейки (тот же приём, что у пилюли).
+NO_PROTOCOL_ROLE = Qt.ItemDataRole.UserRole + 4
+
+#: Почему у этой записи нечего открывать. Стоит и на строке, и на самой кнопке:
+#: неактивная кнопка без объяснения читается как поломка (§4 наряда 0029).
+NO_PROTOCOL_HINT = (
+    "No protocol file — the drawing settles this one; the conclusion is the record."
+)
+
 NO_INSPECTIONS_TITLE = "No inspections"
 NO_INSPECTIONS_HINT = (
     "an inspection is recorded only when a written, reusable analysis exists"
@@ -666,6 +676,7 @@ class CardDialog(QDialog):
                         # форме отклонения: один факт, одна подпись (§9а.11).
                         decision_insp_label(inspection.decision_insp),
                         inspection.conclusion or "",
+                        bool(inspection.no_protocol),
                     )
                     for inspection in sorted(
                         finding.inspections, key=lambda i: i.insp_number
@@ -673,7 +684,7 @@ class CardDialog(QDialog):
                 ]
 
         self.inspections.setRowCount(len(rows))
-        for index, (inspection_id, kind, result, conclusion) in enumerate(rows):
+        for index, (inspection_id, kind, result, conclusion, no_protocol) in enumerate(rows):
             values = (kind, result, _one_line(conclusion))
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(value)
@@ -683,14 +694,34 @@ class CardDialog(QDialog):
                     # Вывод в строке урезан, целиком — в подсказке: тот же приём,
                     # что у обоснования решения, отдельного механизма нет.
                     cell.setToolTip(conclusion)
+                if column == 0:
+                    cell.setData(NO_PROTOCOL_ROLE, no_protocol)
                 self.inspections.setItem(index, column, cell)
+            if no_protocol:
+                # Запись без протокола читается **полноценно** (§4 наряда 0029):
+                # тип, позиция, вывод. Пометка ставится приглушённой подсказкой у
+                # типа, а не отдельной колонкой: колонка ради признака у одной
+                # записи из десяти — это счётчик там, где показано содержимое.
+                self.inspections.item(index, 0).setToolTip(NO_PROTOCOL_HINT)
 
         self.inspections.setVisible(bool(rows))
         self.inspections_empty.setVisible(not rows)
         self._refresh_protocol_button()
 
     def _refresh_protocol_button(self) -> None:
-        self.protocol_button.setEnabled(self._selected_inspection_id() is not None)
+        """Кнопка неактивна там, где **файла нет**, а не там, где выбор пуст.
+
+        §4 наряда 0029: у записи без протокола открывать нечего, и это не отказ, а
+        отсутствие. Причину неактивности объясняет подсказка самой кнопки —
+        неактивная кнопка без слов читается как поломка.
+        """
+        row = self.inspections.currentRow()
+        cell = self.inspections.item(row, 0) if row >= 0 else None
+        without = bool(cell.data(NO_PROTOCOL_ROLE)) if cell is not None else False
+        self.protocol_button.setEnabled(
+            self._selected_inspection_id() is not None and not without
+        )
+        self.protocol_button.setToolTip(NO_PROTOCOL_HINT if without else "")
 
     def _selected_inspection_id(self) -> int | None:
         # На видимость таблицы не смотрим: у ребёнка непоказанного окна

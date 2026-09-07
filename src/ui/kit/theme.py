@@ -219,6 +219,35 @@ QRadioButton::indicator:checked {{
 QRadioButton:disabled {{ color: {t.N_450}; }}
 QRadioButton::indicator:disabled {{ background: {t.N_50}; border-color: {t.N_250}; }}
 
+/* Checkbox: the same rule as the radio above, and for the same reason (the
+   sixth finding of the QMS-016 run). Once any QSS rule lands on the widget the native style stops
+   drawing, and an **undescribed** indicator disappears entirely: on the first
+   snapshot of the `No protocol` box the unchecked state showed no indicator at
+   all — the control read as a caption, and there was nothing to click at.
+   Square rather than round: a checkbox is a switch, a radio is a choice among
+   several, and the shapes must not be swapped. The tick is drawn by the fill,
+   not by a glyph — a glyph would come out differently on every machine (§5). */
+QCheckBox {{
+    background: transparent;
+    spacing: {t.GAP_PILL_ICON}px;
+    color: {t.N_900};
+}}
+QCheckBox::indicator {{
+    width: {t.INDICATOR_SIZE}px;
+    height: {t.INDICATOR_SIZE}px;
+    border-radius: {t.RADIUS_ROW_ACTION}px;
+    border: {t.BORDER_WIDTH}px solid {t.N_250};
+    background: {t.WHITE};
+}}
+QCheckBox::indicator:hover {{ border-color: {t.N_400}; }}
+QCheckBox::indicator:checked {{
+    border: {t.BORDER_WIDTH}px solid {t.BLUE_600};
+    border-radius: {t.RADIUS_ROW_ACTION}px;
+    background: {t.BLUE_600};
+}}
+QCheckBox:disabled {{ color: {t.N_450}; }}
+QCheckBox::indicator:disabled {{ background: {t.N_50}; border-color: {t.N_250}; }}
+
 /* --- table: the row is the unit of selection, a cell never takes focus --- */
 /* The field around the table is a **sunken surface**: the table is as wide as
    its columns add up to, and when that is narrower than the area, the spare

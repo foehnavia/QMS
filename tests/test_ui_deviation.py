@@ -11,8 +11,9 @@ from datetime import date
 import pytest
 
 import ui.kit
-from PySide6.QtCore import QDate
-from PySide6.QtWidgets import QDialogButtonBox
+from PySide6.QtCore import QDate, QPoint, Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QDialogButtonBox, QStyle
 
 from conftest import make_item, rev
 from db.models import (
@@ -539,6 +540,7 @@ def test_deviation_form_lists_inspections_and_counts_them(engine_with_item) -> N
             decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
+            no_protocol=False,
         )
 
     dialog = DeviationDialog(engine_with_item, _deviation_id(engine_with_item))
@@ -566,6 +568,7 @@ def test_the_form_refuses_to_remove_a_studied_finding(engine_with_item, monkeypa
             decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
+            no_protocol=False,
         )
 
     dialog = DeviationDialog(engine_with_item, _deviation_id(engine_with_item))
@@ -620,6 +623,7 @@ def test_view_deletes_a_deviation_with_its_children(engine_with_item, monkeypatc
             decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
+            no_protocol=False,
         )
 
     asked: list[str] = []
@@ -782,6 +786,7 @@ def test_replacing_findings_keeps_the_inspection_guard(engine_with_item, monkeyp
             decision_insp="approval_possible",
             conclusion=None,
             protocol="p.docx",
+            no_protocol=False,
         )
 
     dialog = DeviationDialog(engine_with_item, _deviation_id(engine_with_item))
@@ -1141,3 +1146,174 @@ def test_cancelling_the_file_dialog_keeps_what_was_typed(engine_with_item, monke
     dialog.pick_protocol()
 
     assert dialog.protocol.text() == "typed-by-hand.docx"
+
+
+# --- QMS-024 §3: галочка `No protocol` — настоящими событиями ---------------------
+#
+# `CLAUDE.md` §9а.6: «события доставляются через приложение, а не прямой посылкой
+# в виджет», и §9а.5: тест поведения виджета обязан виджет **показывать** — у
+# скрытого часть механики Qt не запускается вовсе.
+
+
+def _shown_inspection_dialog(engine):
+    """Форма исследования, показанная на экране."""
+    from ui.inspection_dialog import InspectionDialog
+
+    dialog = InspectionDialog(engine, _finding_id(engine))
+    dialog.show()
+    QApplication.processEvents()
+    return dialog
+
+
+def _click(box) -> None:
+    """Клик мышью по флажку — **через приложение**, не `setChecked`.
+
+    Между флажком и обработчиком есть промежуток, и дефекты живут ровно в нём.
+    Точка — центр индикатора: клик мимо него по подписи тоже переключает флажок,
+    но проверять надо то место, куда целится оператор.
+    """
+    QTest.mouseClick(
+        box,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        QPoint(box.style().pixelMetric(QStyle.PixelMetric.PM_IndicatorWidth) // 2,
+               box.height() // 2),
+    )
+    QApplication.processEvents()
+
+
+def test_the_no_protocol_box_is_unticked_by_default(engine_with_item) -> None:
+    """Правило `docs/model/Inspection.md` rev 1.02: «**Unmarked by default**: the
+    ordinary inspection is a documented one, and waiving the document is a decision
+    the engineer takes on purpose».
+
+    Проверяется и **следствие**: поле пути активно, а подпись вывода без признака
+    обязательности. Один лишь снятый флажок ничего не говорит о состоянии формы.
+    """
+    from ui.inspection_dialog import CONCLUSION_LABEL
+
+    dialog = _shown_inspection_dialog(engine_with_item)
+
+    assert dialog.no_protocol.isChecked() is False
+    assert dialog.protocol.isEnabled() is True
+    assert dialog.browse.isEnabled() is True
+    assert dialog.conclusion_label.text() == CONCLUSION_LABEL
+    dialog.close()
+
+
+def test_a_real_click_on_the_box_disables_and_clears_the_protocol_field(
+    engine_with_item,
+) -> None:
+    """Критерий 6 наряда: «клик по галочке блокирует поле протокола и **очищает**
+    его. Не вызовом метода — кликом».
+
+    Очищает, а не просто гасит: «файл есть, но он не нужен» схема прямо запрещает
+    (`CHECK` «файл ИЛИ вывод»), и гасшее, но заполненное поле обещало бы оператору,
+    что путь сохранится.
+    """
+    from ui.inspection_dialog import CONCLUSION_LABEL_REQUIRED
+
+    dialog = _shown_inspection_dialog(engine_with_item)
+    dialog.protocol.setText(r"\\srv\qa\SW-2026-14.docx")
+
+    _click(dialog.no_protocol)
+
+    assert dialog.no_protocol.isChecked() is True
+    assert dialog.protocol.isEnabled() is False
+    assert dialog.browse.isEnabled() is False
+    assert dialog.protocol.text() == ""
+    # Обязательность вывода видна **до** сохранения, а не только в тексте отказа.
+    assert dialog.conclusion_label.text() == CONCLUSION_LABEL_REQUIRED
+    dialog.close()
+
+
+def test_a_second_real_click_gives_the_protocol_field_back(engine_with_item) -> None:
+    """Критерий 6, вторая половина: «повторный клик возвращает поле активным».
+
+    И **вывод при этом не теряется**: снятие галочки не должно стирать уже
+    написанное — это была бы потеря работы за один промах мышью.
+    """
+    from ui.inspection_dialog import CONCLUSION_LABEL
+
+    dialog = _shown_inspection_dialog(engine_with_item)
+    dialog.conclusion.setPlainText("the drawing settles it")
+
+    _click(dialog.no_protocol)
+    _click(dialog.no_protocol)
+
+    assert dialog.no_protocol.isChecked() is False
+    assert dialog.protocol.isEnabled() is True
+    assert dialog.browse.isEnabled() is True
+    assert dialog.protocol.text() == ""
+    assert dialog.conclusion.toPlainText() == "the drawing settles it"
+    assert dialog.conclusion_label.text() == CONCLUSION_LABEL
+    dialog.close()
+
+
+def test_the_form_saves_a_record_without_a_protocol(engine_with_item) -> None:
+    """Критерий 4 наряда: галочка отмечена + вывод → сохраняется.
+
+    `show_error` **не** подменяется намеренно: это тест успешного пути, и отказ
+    формы обязан порвать его текстом ошибки, а не пройти незамеченным (QMS-021).
+    """
+    from db.models import Inspection
+
+    dialog = _shown_inspection_dialog(engine_with_item)
+    dialog.verdict.set_value("approval_not_possible")
+    dialog.conclusion.setPlainText("OD 10.0 vs ID 9.9 — geometry excludes assembly")
+    _click(dialog.no_protocol)
+
+    dialog.save()
+
+    with session_scope(engine_with_item) as session:
+        stored = session.query(Inspection).one()
+        assert stored.no_protocol is True
+        assert stored.protocol is None
+        assert stored.conclusion.startswith("OD 10.0")
+    dialog.close()
+
+
+def test_the_form_refuses_a_ticked_box_without_a_conclusion(
+    engine_with_item, monkeypatch
+) -> None:
+    """Критерий 4: галочка отмечена без вывода → отказ **с человеческим текстом**.
+
+    Путь отказа — с перехватом `show_error` (`CLAUDE.md` §9). Текст обязан назвать,
+    чего не хватает, а не сослаться на нарушенное ограничение: `IntegrityError`
+    оператору ничего не говорит.
+    """
+    from db.models import Inspection
+
+    shown: list[Exception] = []
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
+
+    dialog = _shown_inspection_dialog(engine_with_item)
+    _click(dialog.no_protocol)
+
+    dialog.save()
+
+    assert len(shown) == 1
+    assert "conclusion" in str(shown[0])
+    assert "constraint" not in str(shown[0]).lower()
+    with session_scope(engine_with_item) as session:
+        assert session.query(Inspection).count() == 0
+    dialog.close()
+
+
+def test_the_form_still_refuses_an_unticked_box_without_a_protocol(
+    engine_with_item, monkeypatch
+) -> None:
+    """Критерий 4: галочка снята без протокола → отказ, как и до наряда.
+
+    Правило не ослаблено: обычное исследование по-прежнему требует документа, и
+    текст отказа теперь **называет выход** — отметить галочку и написать вывод.
+    """
+    shown: list[Exception] = []
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
+
+    dialog = _shown_inspection_dialog(engine_with_item)
+    dialog.save()
+
+    assert len(shown) == 1
+    assert "No protocol" in str(shown[0])
+    dialog.close()

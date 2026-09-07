@@ -17,6 +17,7 @@ QMS-018 (наряд 0027): позиция стала трёхзначной и *
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QLabel,
@@ -39,6 +40,17 @@ from .common import (
     joined,
 )
 from .kit import tokens
+
+#: Подпись галочки. Названа тем, чего **нет**, а не режимом: оператор принимает
+#: решение «документа не будет», а не «включить режим без документа». Хвост
+#: подписи называет единственный случай, ради которого признак заведён.
+NO_PROTOCOL_LABEL = "No protocol — the drawing settles it"
+
+#: Подпись вывода и она же с признаком обязательности. Признак — звёздочка рядом
+#: с подписью, а не второй виджет: место в форме то же, а обязательность видна
+#: **до** сохранения, а не только в тексте отказа.
+CONCLUSION_LABEL = "Conclusion:"
+CONCLUSION_LABEL_REQUIRED = "Conclusion *:"
 
 
 class InspectionDialog(QDialog):
@@ -92,15 +104,25 @@ class InspectionDialog(QDialog):
         browse = kit.secondary("Choose file…")
         browse.clicked.connect(self.pick_protocol)
 
+        self.browse = browse
         protocol_row = kit.button_row(self.protocol, browse, stretch_at_end=False)
         protocol_row.setStretch(0, 1)
 
+        # Галочка — **решение инженера**, а не вывод из пустого поля
+        # (`Inspection.md` rev 1.02). Пустое поле протокола это незаконченная
+        # запись; поднятый признак — сознательный отказ от документа. Снята по
+        # умолчанию: обычное исследование документировано, и отказ от документа
+        # оператор принимает нарочно.
+        self.no_protocol = QCheckBox(NO_PROTOCOL_LABEL)
+        self.no_protocol.toggled.connect(self._on_no_protocol)
+
         self.hint = kit.hint(
-            "A row is created only when a written, reusable analysis exists; "
-            "a routine check against the drawing is not an inspection. "
-            "The result says what the study permits — the outcome of the "
-            "deviation is a separate decision. Leave it unassessed until the "
-            "protocol has been read; the file itself is required."
+            "A row is recorded when it leaves something reusable behind: an "
+            "attached protocol, or a conclusion worth reading again on the next "
+            "identical deviation. The result says what the study permits — the "
+            "outcome of the deviation is a separate decision. Some verdicts need "
+            "no document: an outer diameter against a smaller inner one is "
+            "settled by the drawing, and “No protocol” records exactly that."
         )
 
         self.buttons = kit.dialog_buttons(accept="Add inspection")
@@ -113,8 +135,15 @@ class InspectionDialog(QDialog):
         # Подпись поля — «результат», а не «вердикт по отклонению» (В-9):
         # исследование висит на находке и на исход отклонения не влияет.
         form.addRow("Inspection result:", self.verdict)
-        form.addRow("Conclusion:", self.conclusion)
+        self.conclusion_label = QLabel(CONCLUSION_LABEL)
+        form.addRow(self.conclusion_label, self.conclusion)
         form.addRow("Protocol:", kit.boxed(protocol_row))
+        # Галочка под полем протокола, без своей подписи слева: она относится к
+        # полю над ней, а вторая подпись читалась бы как ещё одно поле. Прижата
+        # влево: в колонке поля она иначе встаёт по центру и читается заголовком
+        # секции, а не управляющим элементом.
+        checkbox_row = kit.button_row(self.no_protocol)
+        form.addRow("", kit.boxed(checkbox_row))
 
         layout = kit.dialog_layout(self)
         layout.addLayout(form)
@@ -156,7 +185,31 @@ class InspectionDialog(QDialog):
                 _select(self.kind, inspection.type_id)
                 self.verdict.set_value(inspection.decision_insp)
                 self.conclusion.setPlainText(inspection.conclusion or "")
-                self.protocol.setText(inspection.protocol)
+                # Признак ставим **до** пути: его обработчик гасит и чистит поле,
+                # и обратный порядок стирал бы только что прочитанное значение.
+                self.no_protocol.setChecked(bool(inspection.no_protocol))
+                self.protocol.setText(inspection.protocol or "")
+
+    def _on_no_protocol(self, checked: bool) -> None:
+        """Признак поднят — поле пути блокируется и **очищается** (§3 наряда).
+
+        Очищается, а не просто гаснет: «файл есть, но он не нужен» — состояние без
+        смысла, и схема его прямо запрещает (`CHECK` «файл ИЛИ вывод»). Гасшее, но
+        заполненное поле обещало бы оператору, что путь сохранится, а он бы не
+        сохранился.
+
+        Вывод при этом **не трогаем ни в какую сторону**: снятие галочки не должно
+        стирать уже написанное — это была бы потеря работы за один промах мышью.
+        """
+        self.protocol.setEnabled(not checked)
+        self.browse.setEnabled(not checked)
+        if checked:
+            self.protocol.clear()
+        # Обязательность вывода видна на подписи, а не только в тексте отказа:
+        # оператор узнаёт о ней до сохранения, а не после.
+        self.conclusion_label.setText(
+            CONCLUSION_LABEL_REQUIRED if checked else CONCLUSION_LABEL
+        )
 
     def pick_protocol(self) -> None:
         """Путь к протоколу вставляем строкой: файлы в базу не копируются."""
@@ -171,6 +224,7 @@ class InspectionDialog(QDialog):
         # ответа и получала выдуманный. Проверка снята вместе с полем-причиной.
         verdict = self.verdict.value()
         conclusion = self.conclusion.toPlainText()
+        no_protocol = self.no_protocol.isChecked()
         try:
             with session_scope(self._engine) as session:
                 kind = session.get(RefInspectionType, self.kind.currentData())
@@ -182,6 +236,7 @@ class InspectionDialog(QDialog):
                         decision_insp=verdict,
                         conclusion=conclusion,
                         protocol=self.protocol.text(),
+                        no_protocol=no_protocol,
                     )
                 else:
                     update_inspection(
@@ -191,6 +246,7 @@ class InspectionDialog(QDialog):
                         decision_insp=verdict,
                         conclusion=conclusion,
                         protocol=self.protocol.text(),
+                        no_protocol=no_protocol,
                     )
         except Exception as error:
             kit.show_error(self, error, title="Inspection not saved")

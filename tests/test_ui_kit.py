@@ -1079,3 +1079,108 @@ def test_the_empty_state_says_what_why_and_a_way_out() -> None:
     assert any("decided" in text for text in labels)
     assert action.parent() is not None
 
+
+
+def test_the_checkbox_indicator_is_visible_in_both_states(qt_app) -> None:
+    """§9 В-6 и находка наряда `0029`: **индикатор обязан быть виден на экране**.
+
+    Флажок `No protocol` на первом снимке выглядел подписью: как только на виджет
+    лёг лист стиля, отрисовка перешла к нему, а `QCheckBox::indicator` описан не
+    был — и в снятом состоянии не рисовалось **ничего**, кликать было не по чему.
+    Радиокнопка этого не показывала: её подстиль описан с наряда `0019`.
+
+    Считаются **пиксели**, а не наличие правила в листе (`CLAUDE.md` §9). И оба
+    состояния сразу: тест на одно отмеченное был бы зелёным ровно на том экране,
+    который сломался, — там отмеченный флажок рисовался галочкой, а снятый
+    исчезал.
+    """
+    from PySide6.QtWidgets import QCheckBox, QVBoxLayout, QWidget
+
+    # Тему применяем сами: без листа стиля индикатор рисует родной стиль, и тест
+    # мерил бы не то, что чинил наряд (наблюдение наряда 0019).
+    kit.apply_theme(qt_app)
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    checked = QCheckBox("checked")
+    unchecked = QCheckBox("unchecked")
+    layout.addWidget(checked)
+    layout.addWidget(unchecked)
+    host.resize(220, 80)
+    host.layout().activate()
+    checked.setChecked(True)
+
+    image = host.grab().toImage()
+    marked = _indicator_box(
+        image, checked.y(), checked.y() + checked.height(), tokens.BLUE_600
+    )
+    plain = _indicator_box(
+        image, unchecked.y(), unchecked.y() + unchecked.height(), tokens.N_250
+    )
+
+    assert marked is not None, "отмеченный флажок не нарисован"
+    assert plain is not None, "снятый флажок не нарисован — кликать не по чему"
+
+    def size(box):
+        return box[2] - box[0] + 1, box[3] - box[1] + 1
+
+    drawn = tokens.INDICATOR_SIZE + 2 * tokens.BORDER_WIDTH
+    # **Высота**, а не ширина: отмеченный залит целиком, снятый виден только
+    # кольцом рамки, и по горизонтали скруглённый угол съедает у кольца крайние
+    # столбцы точек ровно своего цвета (замерено: 15 против 12). Высота от этого
+    # не страдает — прямой участок рамки там полной длины.
+    assert size(marked)[1] == size(plain)[1] == drawn, (size(marked), size(plain))
+    # Левый край один: индикатор, съезжающий при переключении, читается как
+    # подпрыгивающая строка.
+    assert marked[0] == plain[0]
+
+
+def test_the_checkbox_is_square_and_the_radio_is_round(qt_app) -> None:
+    """Обратная сторона: описав подстиль, легко получить **не ту фигуру**.
+
+    Флажок — переключатель, радиокнопка — выбор одного из нескольких, и формы
+    менять местами нельзя: круглый флажок читается как радиокнопка, из которой
+    нельзя выйти. Различает их **доля закрашенного** в рамке индикатора: у
+    квадрата ≈ 1, у круга ≈ π/4 ≈ 0.79.
+    """
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QCheckBox, QRadioButton, QVBoxLayout, QWidget
+
+    kit.apply_theme(qt_app)
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    box = QCheckBox("box")
+    radio = QRadioButton("radio")
+    layout.addWidget(box)
+    layout.addWidget(radio)
+    host.resize(220, 80)
+    host.layout().activate()
+    box.setChecked(True)
+    radio.setChecked(True)
+
+    image = host.grab().toImage()
+
+    def filled(widget) -> float:
+        frame = _indicator_box(
+            image, widget.y(), widget.y() + widget.height(), tokens.BLUE_600
+        )
+        assert frame is not None
+        left, top, right, bottom = frame
+        area = (right - left + 1) * (bottom - top + 1)
+        wanted = QColor(tokens.BLUE_600).rgb() & 0xFFFFFF
+        painted = sum(
+            1
+            for y in range(top, bottom + 1)
+            for x in range(left, right + 1)
+            if image.pixel(x, y) & 0xFFFFFF == wanted
+        )
+        return painted / area
+
+    # Порог между 0.79 (круг) и 1.0 (квадрат) — замерено: флажок 0.867,
+    # радиокнопка 0.776. Скруглённый угол флажка не даёт ровной единицы, и
+    # порог поставлен между измеренными значениями, а не у идеальных.
+    square, round_one = filled(box), filled(radio)
+    assert square > 0.85, f"флажок вышел не квадратным: {square}"
+    assert round_one < 0.85, f"радиокнопка вышла не круглой: {round_one}"
+    assert square > round_one, (square, round_one)

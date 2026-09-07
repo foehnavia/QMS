@@ -709,6 +709,7 @@ def _inspection(
         decision_insp=position,
         conclusion=conclusion,
         protocol=protocol,
+        no_protocol=False,
     )
 
 
@@ -921,3 +922,86 @@ def test_a_protocol_that_is_not_there_says_so_instead_of_failing_silently(
     assert opened == []
     assert len(no_modals) == 1
     assert missing in str(no_modals[0])
+
+
+# --- QMS-024: запись без протокола в карточке (наряд 0029 §4) ---------------------
+
+
+def test_a_record_without_a_protocol_reads_in_full(engine) -> None:
+    """§4 наряда `0029`: «запись без протокола читается как полноценная: тип,
+    позиция, вывод».
+
+    Проверяются **все три** ячейки: запись, у которой пуст вывод или позиция,
+    прошла бы проверку «строка есть», ничего оператору не сказав.
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12")
+        create_inspection(
+            session,
+            session.get(Finding, finding_id),
+            inspection_type=ensure_value(session, RefInspectionType, "Tolerances review"),
+            decision_insp="approval_not_possible",
+            conclusion="OD 10.0 vs ID 9.9 — geometry excludes assembly",
+            protocol=None,
+            no_protocol=True,
+        )
+
+    card = CardDialog(engine, deviation_id)
+
+    assert _text(card.inspections.item(0, _inspection_column(card, "Type"))) == (
+        "Tolerances review"
+    )
+    assert _text(card.inspections.item(0, _inspection_column(card, "Result"))) == (
+        "Approval not possible"
+    )
+    assert "OD 10.0" in _text(card.inspections.item(0, _inspection_column(card, "Conclusion")))
+
+
+def test_the_open_button_is_inactive_where_there_is_no_file_and_says_why(engine) -> None:
+    """§4 наряда: «Кнопка открытия протокола для неё **неактивна** — и это не
+    отказ, а отсутствие файла».
+
+    Вторая половина существеннее первой: неактивная кнопка без объяснения читается
+    как поломка, поэтому проверяется и **подсказка**. Обе записи в одном тесте —
+    сравнением, а не двумя тестами по одной: различает верное от неверного именно
+    разница между ними (`CLAUDE.md` §9а.11).
+    """
+    from ui.card_dialog import NO_PROTOCOL_HINT
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12")
+        finding = session.get(Finding, finding_id)
+        create_inspection(
+            session,
+            finding,
+            inspection_type=ensure_value(session, RefInspectionType, "Solidworks assembly"),
+            decision_insp="approval_possible",
+            conclusion=None,
+            protocol="p.docx",
+            no_protocol=False,
+        )
+        create_inspection(
+            session,
+            finding,
+            inspection_type=ensure_value(session, RefInspectionType, "Tolerances review"),
+            decision_insp="approval_not_possible",
+            conclusion="the drawing settles it",
+            protocol=None,
+            no_protocol=True,
+        )
+
+    card = CardDialog(engine, deviation_id)
+    kind = _inspection_column(card, "Type")
+    rows = {_text(card.inspections.item(r, kind)): r for r in range(card.inspections.rowCount())}
+
+    card.inspections.setCurrentCell(rows["Solidworks assembly"], 0)
+    assert card.protocol_button.isEnabled() is True
+    assert card.protocol_button.toolTip() == ""
+
+    card.inspections.setCurrentCell(rows["Tolerances review"], 0)
+    assert card.protocol_button.isEnabled() is False
+    assert card.protocol_button.toolTip() == NO_PROTOCOL_HINT
+    # И сама строка объясняет себя, а не только кнопка.
+    assert card.inspections.item(rows["Tolerances review"], 0).toolTip() == NO_PROTOCOL_HINT

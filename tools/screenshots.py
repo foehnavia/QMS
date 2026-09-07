@@ -183,6 +183,10 @@ def build_database():
         for name in ("inner diameter", "thread root", "אזור הברגה"):
             ensure_value(session, RefZone, name)
         ensure_value(session, RefDeviationType, "thread depth")
+        # Тип, к которому документа не прилагается вовсе, — повод наряда 0029:
+        # часть отклонений решается одним чертежом, и такой вердикт стоит
+        # записать прецедентом, хотя протокола к нему нет.
+        ensure_value(session, RefInspectionType, "Tolerances review")
 
         group = create_group(session, "Implant_Con_375_C1", POSITIONS)
         set_drawing(session, group, _drawing_png(), "implant.png")
@@ -279,6 +283,7 @@ def build_database():
             decision_insp="approval_possible",
             conclusion="Clearance in the assembled state drops by 20 %.",
             protocol=r"\\srv\qa\SW-2026-14.docx",
+            no_protocol=False,
         )
         # Второе — без позиции и без вывода: «ещё не разбирали» тоже состояние
         # экрана (`Inspection.md` rev 1.01), и снимок обязан показывать оба.
@@ -289,6 +294,7 @@ def build_database():
             decision_insp=None,
             conclusion=None,
             protocol=r"\\srv\qa\torque-2026-03.docx",
+            no_protocol=False,
         )
 
         ids = dict(
@@ -835,6 +841,19 @@ def main() -> int:
     shoot(DeviationDialog(engine), "07-dialog-deviation-new")
     shoot(FindingDialog(engine, ids["item_id"]), "08-dialog-finding")
     shoot(InspectionDialog(engine, ids["finding_id"]), "09-dialog-inspection")
+    # Форма исследования **без протокола** (наряд 0029, критерий 7): галочка
+    # отмечена, поле пути погашено и пусто, подпись вывода несёт признак
+    # обязательности. Свёрнутый снимок 09 показывает обычный случай, этот —
+    # тот, ради которого наряд и сделан.
+    without = InspectionDialog(engine, ids["finding_id"])
+    without.kind.setCurrentText("Tolerances review")
+    without.verdict.set_value("approval_not_possible")
+    without.conclusion.setPlainText(
+        "OD 10.0 vs ID 9.9 — no mating clearance, geometry excludes assembly"
+    )
+    without.no_protocol.setChecked(True)
+    shoot(without, "22-dialog-inspection-no-protocol")
+
     shoot(DecisionDialog(engine, ids["current_id"]), "10-dialog-decision")
     shoot(CardDialog(engine, ids["current_id"]), "11-dialog-card")
     # Карточка с выбранной находкой, у которой исследования есть: при пустом
