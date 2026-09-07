@@ -41,6 +41,7 @@ from .groups import (
     update_position,
 )
 from .inspections import (
+    CONCLUSION_LIMIT,
     create_inspection,
     inspections_for,
     remove_inspection,
@@ -118,6 +119,7 @@ __all__ = [
     "get_or_create_characteristic",
     "groups_of",
     "inspection_count",
+    "CONCLUSION_LIMIT",
     "inspections_for",
     "is_complete",
     "items_by_position",

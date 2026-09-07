@@ -239,7 +239,8 @@ def test_row_carries_the_whole_deviation_not_just_the_finding(
         seeded_session,
         finding,
         inspection_type=list_values(seeded_session, RefInspectionType)[0],
-        decision_insp="approved",
+        decision_insp="approval_possible",
+        conclusion=None,
         protocol="p.docx",
     )
     seeded_session.commit()

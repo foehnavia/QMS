@@ -220,16 +220,32 @@ def build_synthetic(session: Session) -> dict[str, object]:
     session.add(dev4)
     session.flush()
 
-    # --- Исследование: привязано к deviation + finding, вердикт независим ---
+    # --- Исследование: привязано к deviation + finding, позиция независима ---
     insp = Inspection(
         insp_number=next_insp_number(session),
         deviation=dev1,
         finding=f1_19,
         type=ref(session, RefInspectionType, "Implantation torque test"),
-        decision_insp="approved",
+        decision_insp="approval_possible",
+        conclusion="Insertion torque stays within the range of the reference batch.",
         protocol=r"\\fileserver\QC\protocols\2026\torque-C1-08375A-19.docx",
     )
     session.add(insp)
+    # Второе исследование на той же находке — **без позиции и без вывода**:
+    # протокол прикреплён, читать его ещё не садились. Состояние законное
+    # (`Inspection.md` rev 1.01), и база прогона обязана его показывать — иначе
+    # экраны рисуются только на заполненных данных и пустое поле никто не видит.
+    session.add(
+        Inspection(
+            insp_number=next_insp_number(session),
+            deviation=dev1,
+            finding=f1_19,
+            type=ref(session, RefInspectionType, "Solidworks assembly"),
+            decision_insp=None,
+            conclusion=None,
+            protocol=r"\\fileserver\QC\protocols\2026\assembly-C1-08375A-19.docx",
+        )
+    )
     session.flush()
 
     return {

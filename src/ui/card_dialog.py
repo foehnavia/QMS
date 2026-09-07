@@ -21,7 +21,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QDialog,
     QGroupBox,
@@ -36,7 +39,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import selectinload
 
-from db.models import Characteristic, Deviation, Finding, Item
+from db.models import Characteristic, Deviation, Finding, Inspection, Item
 from db.session import session_scope
 from domain.findings import inspection_counts
 from domain.precedents import (
@@ -52,6 +55,7 @@ from . import kit
 from .common import (
     UNBOUND_MARK,
     decision_dev_label,
+    decision_insp_label,
     dimension_sort_key,
     iso,
     joined,
@@ -73,6 +77,21 @@ from .deviation_dialog import (
 from .inspection_dialog import InspectionDialog
 from .item_dialog import open_mapping
 from .pickers import choose_cg_for_item
+
+#: Исследования выбранной находки — тип · позиция · короткий вывод (наряд 0027 §3).
+#:
+#: Колонки «находка» здесь нет намеренно: таблица показывает исследования **одной**
+#: находки — той, что выбрана выше, — и повторять её номер в каждой строке значило
+#: бы объяснять то, что уже сказано выбором.
+INSPECTION_COLUMNS = ("Type", "Result", "Conclusion")
+
+#: Ширины по правилу §8.3 наряда 0020: `Type` — рекорд справочника
+#: (`Implantation torque test`), `Result` — самая длинная подпись
+#: (`Approval not possible`), `Conclusion` — предел с обрезкой, остальное в подсказке.
+INSPECTION_WIDTHS = (30, 24, 46)
+
+#: Индекс колонки вывода — адресуем по имени, а не по числу в теле цикла (§9а.9).
+INSPECTION_CONCLUSION_COLUMN = INSPECTION_COLUMNS.index("Conclusion")
 
 PRECEDENT_COLUMNS = (
     "Deviation",
@@ -158,6 +177,14 @@ NO_SELECTION_SHORT = "pick a finding above; precedents are searched by its chara
 EXACT_TAB = "Exact precedents (L1)"
 #: Счётчика у второй вкладки нет: считать нечего, пока запрос не собран человеком.
 DESCRIPTIVE_TAB = "Descriptive precedents (L2)"
+
+#: Пустая секция исследований. Две причины пустоты — «находка не выбрана» и
+#: «исследований нет» — здесь **не** разводятся: обе секции стоят под таблицей
+#: находок, и вторая фраза объясняет ровно то, что оператор и так видит.
+NO_INSPECTIONS_TITLE = "No inspections"
+NO_INSPECTIONS_HINT = (
+    "an inspection is recorded only when a written, reusable analysis exists"
+)
 
 NO_PRECEDENTS_TITLE = "No precedents yet"
 #: Компактная секция говорит одной фразой: читатель просматривает вкладку, а не
@@ -262,7 +289,7 @@ class CardDialog(QDialog):
         # хватить на любом наперёд заданном размере. Минимум — чтобы окно не
         # сжали в нечитаемое; область прецедентов ниже прокручивается.
         self.setMinimumSize(tokens.DIALOG_WIDE, tokens.WINDOW_MIN_HEIGHT)
-        self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_TALL)
+        self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_CARD)
 
         # --- шапка ---
         self.number = QLabel()
@@ -350,6 +377,26 @@ class CardDialog(QDialog):
         kit.inline_table_height(self.findings)
         self.findings.setMinimumHeight(kit.tokens.INLINE_TABLE_HEIGHT)
 
+        # --- исследования выбранной находки ---
+        self.inspections = kit.data_table(INSPECTION_COLUMNS, widths=INSPECTION_WIDTHS)
+        self.inspections.currentCellChanged.connect(lambda *_: self._refresh_protocol_button())
+        # Двойной клик открывает протокол — та же идиома, что у прецедентов ниже:
+        # строка таблицы открывается двойным кликом, кнопка рядом делает то же
+        # для тех, кто её ищет глазами.
+        self.inspections.doubleClicked.connect(lambda *_: self.open_protocol())
+        self.protocol_button = kit.secondary("Open protocol…")
+        self.protocol_button.clicked.connect(self.open_protocol)
+
+        self.inspections_empty = kit.empty_state(
+            NO_INSPECTIONS_TITLE, NO_INSPECTIONS_HINT, compact=True
+        )
+        inspections_box = QGroupBox("Inspections of the selected characteristic")
+        inspections_layout = QVBoxLayout(inspections_box)
+        inspections_layout.addWidget(self.inspections, 1)
+        inspections_layout.addWidget(self.inspections_empty)
+        inspections_layout.addLayout(kit.button_row(self.protocol_button))
+        kit.inline_table_height(self.inspections, short=True)
+
         # --- прецеденты ---
         self.same_dimension = PrecedentTable()
         self.same_position = PrecedentTable()
@@ -426,7 +473,16 @@ class CardDialog(QDialog):
 
         layout = kit.dialog_layout(self)
         layout.addWidget(header_box)
+        # Вкладки прецедентов — главный deliverable карточки, и вертикаль им
+        # достаётся первой. Секция исследований (QMS-018) добавилась к уже
+        # полному экрану, и без этого минимума она съедала у прецедентов всё до
+        # полосы прокрутки — видно на снимке, не в тесте. Минимум поднимает и
+        # минимальную высоту окна: карточка изменяема по высоте (ревью 0011,
+        # О-6), поэтому запрошенные `DIALOG_HEIGHT_TALL` Qt увеличит до влезающих.
+        self.tabs.setMinimumHeight(tokens.INLINE_TABLE_HEIGHT)
+
         layout.addWidget(findings_box)
+        layout.addWidget(inspections_box)
         layout.addWidget(self.tabs, 1)
         layout.addWidget(self.status)
         layout.addLayout(footer)
@@ -507,9 +563,10 @@ class CardDialog(QDialog):
         self.refresh_precedents()
 
     def refresh_precedents(self) -> None:
-        """Перерисовать обе вкладки под выбранную находку."""
+        """Перерисовать обе вкладки и таблицу исследований под выбранную находку."""
         finding_id = self._selected_finding_id()
         self._refresh_buttons(finding_id)
+        self._refresh_inspections(finding_id)
 
         if finding_id is None:
             for table in (self.same_dimension, self.same_position):
@@ -589,6 +646,83 @@ class CardDialog(QDialog):
             f"Exact matches: {exact_total}. "
             "Only deviations that already carry a decision are listed."
         )
+
+    def _refresh_inspections(self, finding_id: int | None) -> None:
+        """Исследования выбранной находки: тип · позиция · короткий вывод.
+
+        Читаются на выбор строки, а не на открытие карточки: свёрнутому экрану
+        от исследования нужен один признак — счётчик в колонке находок, он уже
+        посчитан пакетом (решение 7 QMS-018).
+        """
+        rows: list[tuple[int, str, str, str]] = []
+        if finding_id is not None:
+            with session_scope(self._engine) as session:
+                finding = session.get(Finding, finding_id)
+                rows = [
+                    (
+                        inspection.inspection_id,
+                        inspection.type.name,
+                        # Подпись строится **из кода** тем же хелпером, что и в
+                        # форме отклонения: один факт, одна подпись (§9а.11).
+                        decision_insp_label(inspection.decision_insp),
+                        inspection.conclusion or "",
+                    )
+                    for inspection in sorted(
+                        finding.inspections, key=lambda i: i.insp_number
+                    )
+                ]
+
+        self.inspections.setRowCount(len(rows))
+        for index, (inspection_id, kind, result, conclusion) in enumerate(rows):
+            values = (kind, result, _one_line(conclusion))
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                if column == 0:
+                    cell.setData(Qt.ItemDataRole.UserRole, inspection_id)
+                if column == INSPECTION_CONCLUSION_COLUMN and conclusion:
+                    # Вывод в строке урезан, целиком — в подсказке: тот же приём,
+                    # что у обоснования решения, отдельного механизма нет.
+                    cell.setToolTip(conclusion)
+                self.inspections.setItem(index, column, cell)
+
+        self.inspections.setVisible(bool(rows))
+        self.inspections_empty.setVisible(not rows)
+        self._refresh_protocol_button()
+
+    def _refresh_protocol_button(self) -> None:
+        self.protocol_button.setEnabled(self._selected_inspection_id() is not None)
+
+    def _selected_inspection_id(self) -> int | None:
+        # На видимость таблицы не смотрим: у ребёнка непоказанного окна
+        # `isVisible()` ложно всегда, и кнопка «открыть протокол» оказалась бы
+        # мёртвой в любом тесте (`CLAUDE.md` §9а.5). Пустая таблица и так даёт
+        # `currentRow() == -1`.
+        row = self.inspections.currentRow()
+        if row < 0:
+            return None
+        cell = self.inspections.item(row, 0)
+        return None if cell is None else cell.data(Qt.ItemDataRole.UserRole)
+
+    def open_protocol(self) -> None:
+        """Открыть файл протокола системным приложением.
+
+        Существование проверяется **здесь**, а не при вводе: канон запрещает
+        проверку на входе (протокол может лежать на недоступном в тот момент
+        ресурсе, `Inspection.md` rev 1.01), но ссылка, которую нельзя открыть и
+        которая об этом молчит, — просто текст.
+        """
+        inspection_id = self._selected_inspection_id()
+        if inspection_id is None:
+            return
+        with session_scope(self._engine) as session:
+            protocol = session.get(Inspection, inspection_id).protocol
+
+        path = Path(protocol)
+        if not path.exists():
+            kit.show_error(self, _protocol_missing(protocol), title="Protocol not opened")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            kit.show_error(self, _protocol_not_opened(protocol), title="Protocol not opened")
 
     def _refresh_buttons(self, finding_id: int | None) -> None:
         """Действия по находке — только при выбранной строке (закрытие Δ S4-в)."""
@@ -729,6 +863,28 @@ def _scrolling(content: QWidget) -> QScrollArea:
 def _one_line(text: str | None) -> str:
     """Обоснование в одну строку — в таблице многострочный текст рвёт вёрстку."""
     return " ".join((text or "").split())
+
+
+def _protocol_missing(protocol: str) -> Exception:
+    """Файла нет по записанному пути — говорим это словами, а не молчим."""
+    from domain.errors import ValidationError
+
+    return ValidationError(
+        f"The protocol file is not there:\n{protocol}\n\n"
+        "The path is stored as it was typed and is never checked on entry — the "
+        "file may have moved, or the share may be unreachable from this machine. "
+        "Open the inspection and correct the link."
+    )
+
+
+def _protocol_not_opened(protocol: str) -> Exception:
+    """Файл на месте, но система его не открыла — обычно нечем."""
+    from domain.errors import ValidationError
+
+    return ValidationError(
+        f"The system could not open this file:\n{protocol}\n\n"
+        "There is probably no application associated with this file type."
+    )
 
 
 __all__ = ["CANON_NEW", "CANON_UNBOUND", "CardDialog", "PrecedentTable"]

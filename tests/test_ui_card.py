@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pathlib
 from datetime import date, timedelta
 
 import pytest
@@ -16,16 +17,20 @@ from db.models import (
     Finding,
     Item,
     RefDeviationType,
+    RefInspectionType,
     RefZone,
 )
 from db.session import session_scope
 from domain.characteristics import get_or_create_characteristic
 from domain.deviations import register, set_decision
 from domain.findings import make_finding
+from domain.inspections import create_inspection
 from domain.groups import GPositionSpec, create_group
 from domain.mappings import bind
 from domain.precedents import CANON_UNBOUND
 from domain.reference import ensure_value, list_values
+import ui.kit
+from ui import card_dialog
 from ui.card_dialog import (
     NOT_BUILT_HINT,
     NO_SELECTION_HINT,
@@ -670,3 +675,249 @@ def test_findings_are_ordered_numerically(engine) -> None:
     card = CardDialog(engine, current_id)
 
     assert [_text(card.findings.item(r, 0)) for r in range(3)] == ["2", "9", "10"]
+
+
+# --- QMS-018 §3: исследования выбранной находки и открытие протокола --------------
+
+
+@pytest.fixture
+def no_modals(monkeypatch):
+    """Ловушка модальных окон: тест обязан увидеть их, а не повиснуть на них.
+
+    `CLAUDE.md` §9: тест, утверждающий, что операция **проходит**, перехватывает
+    `show_error` и проверяет, что диалогов не было. Подмена стоит раньше
+    тестового режима и потому его не отменяет — она и есть путь отказа.
+    """
+    shown: list[Exception] = []
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
+    return shown
+
+
+def _inspection(
+    session,
+    finding_id: int,
+    *,
+    position: str | None,
+    conclusion: str | None = None,
+    protocol: str = "p.docx",
+    kind: str = "Solidworks assembly",
+):
+    return create_inspection(
+        session,
+        session.get(Finding, finding_id),
+        inspection_type=ensure_value(session, RefInspectionType, kind),
+        decision_insp=position,
+        conclusion=conclusion,
+        protocol=protocol,
+    )
+
+
+def _inspection_column(card, header: str) -> int:
+    """Колонка **по заголовку**, а не по номеру (`CLAUDE.md` §9а.9).
+
+    Номер — величина, общая у кода и теста: сдвигая колонку, автор сдвигает
+    индекс и здесь, и тест остаётся зелёным ровно там, где обязан покраснеть.
+    """
+    labels = [
+        card.inspections.horizontalHeaderItem(index).text()
+        for index in range(card.inspections.columnCount())
+    ]
+    assert header in labels, labels
+    return labels.index(header)
+
+
+def test_the_card_lists_the_inspections_of_the_selected_finding(engine) -> None:
+    """§3 наряда: таблица показывает тип · позицию · вывод."""
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12")
+        _inspection(
+            session,
+            finding_id,
+            position="approval_possible",
+            conclusion="clearance in the assembled state \u221220 %",
+            kind="Solidworks assembly",
+        )
+
+    card = CardDialog(engine, deviation_id)
+
+    assert card.inspections.rowCount() == 1
+    assert _text(card.inspections.item(0, _inspection_column(card, "Type"))) == (
+        "Solidworks assembly"
+    )
+    assert _text(card.inspections.item(0, _inspection_column(card, "Result"))) == (
+        "Approval possible"
+    )
+    assert _text(card.inspections.item(0, _inspection_column(card, "Conclusion"))) == (
+        "clearance in the assembled state \u221220 %"
+    )
+
+
+def test_an_unassessed_inspection_says_so_in_words(engine) -> None:
+    """Правило `docs/model/Inspection.md` rev 1.01: «Empty means "not assessed yet"».
+
+    Проверяется **отрисованный** текст ячейки, а не поле записи: пустая позиция в
+    базе и пустая ячейка на экране — разные утверждения, и второе оператор читает.
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12")
+        _inspection(session, finding_id, position=None, conclusion=None)
+
+    card = CardDialog(engine, deviation_id)
+
+    assert _text(card.inspections.item(0, _inspection_column(card, "Result"))) == (
+        "Not assessed yet"
+    )
+    assert _text(card.inspections.item(0, _inspection_column(card, "Conclusion"))) == ""
+
+
+def test_the_same_position_is_worded_the_same_on_both_screens(engine) -> None:
+    """`CLAUDE.md` §9а.11: один факт, показанный на двух экранах, проверяется
+    **сравнением экранов**, а не двумя тестами по одному на каждый.
+
+    Позиция исследования видна и в карточке, и в форме отклонения. Два теста,
+    каждый на своём экране, зафиксировали бы по одной подписи и молчали ровно о
+    том, что отличает верное от неверного, — о расхождении между ними.
+    """
+    from ui.deviation_dialog import DeviationDialog
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12")
+        _inspection(session, finding_id, position="inconclusive")
+
+    card = CardDialog(engine, deviation_id)
+    form = DeviationDialog(engine, deviation_id)
+
+    in_card = _text(card.inspections.item(0, _inspection_column(card, "Result")))
+    form_labels = [
+        form.inspections.horizontalHeaderItem(index).text()
+        for index in range(form.inspections.columnCount())
+    ]
+    in_form = _text(form.inspections.item(0, form_labels.index("Result")))
+
+    assert in_card == in_form == "Inconclusive"
+
+
+def test_a_long_conclusion_is_one_line_with_the_whole_text_in_the_tooltip(engine) -> None:
+    """Тот же приём, что у обоснования решения, — отдельного механизма нет (§3)."""
+    whole = "first sentence.\n\nsecond sentence, after a blank line."
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12")
+        _inspection(session, finding_id, position="approval_possible", conclusion=whole)
+
+    card = CardDialog(engine, deviation_id)
+    cell = card.inspections.item(0, _inspection_column(card, "Conclusion"))
+
+    assert "\n" not in cell.text()
+    assert cell.toolTip() == whole
+
+
+def test_switching_the_finding_redraws_the_inspections(engine) -> None:
+    """Исследования принадлежат находке, а не отклонению целиком.
+
+    Читаются они на выбор строки, а не на открытие карточки (решение 7 QMS-018):
+    свёрнутому экрану от исследования нужен один признак — счётчик в колонке
+    находок, и он уже посчитан пакетом.
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation = register(session, item=item, wo="W1", quantity=5, date=TODAY)
+        first, _ = get_or_create_characteristic(session, rev(item), "12")
+        second, _ = get_or_create_characteristic(session, rev(item), "19")
+        f_first = make_finding(session, deviation, first, direction=Direction.MINUS, value=0.08)
+        make_finding(session, deviation, second, direction=Direction.PLUS, value=0.04)
+        set_decision(session, deviation, decision="approved", explanation="ok")
+        deviation_id = deviation.deviation_id
+        _inspection(session, f_first.finding_id, position="approval_not_possible")
+
+    card = CardDialog(engine, deviation_id)
+    rows = [_text(card.findings.item(index, 0)) for index in range(card.findings.rowCount())]
+
+    card.findings.setCurrentCell(rows.index("12"), 0)
+    assert card.inspections.rowCount() == 1
+    assert card.inspections.isHidden() is False
+
+    card.findings.setCurrentCell(rows.index("19"), 0)
+    assert card.inspections.rowCount() == 0
+    # Пустая таблица без объяснения — то, как оператор заключает «их не было»
+    # из экрана, который просто ничего не показал (канон §8).
+    assert card.inspections_empty.isHidden() is False
+    assert card.inspections.isHidden() is True
+
+
+def test_the_protocol_button_needs_a_selected_inspection(engine) -> None:
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12")
+        _inspection(session, finding_id, position="approval_possible")
+
+    card = CardDialog(engine, deviation_id)
+
+    assert not card.protocol_button.isEnabled()
+    card.inspections.setCurrentCell(0, 0)
+    assert card.protocol_button.isEnabled()
+
+
+def test_clicking_the_protocol_opens_the_file(engine, tmp_path, monkeypatch, no_modals) -> None:
+    """§3 наряда: открытие протокола из карточки.
+
+    `QDesktopServices` подменён — тест проверяет, что открывают **тот** файл, а не
+    что у машины прогона есть чем его открыть.
+    """
+    protocol = tmp_path / "SW-2026-14.docx"
+    protocol.write_text("x", encoding="utf-8")
+    opened: list[str] = []
+    monkeypatch.setattr(
+        card_dialog.QDesktopServices,
+        "openUrl",
+        staticmethod(lambda url: opened.append(url.toLocalFile()) or True),
+    )
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12")
+        _inspection(session, finding_id, position=None, protocol=str(protocol))
+
+    card = CardDialog(engine, deviation_id)
+    card.inspections.setCurrentCell(0, 0)
+    card.open_protocol()
+
+    # Сравниваем путями, а не строками: `QUrl.toLocalFile` отдаёт прямые слэши
+    # и на Windows строка не совпала бы при верно открытом файле.
+    assert [pathlib.Path(path) for path in opened] == [protocol]
+    assert no_modals == []
+
+
+def test_a_protocol_that_is_not_there_says_so_instead_of_failing_silently(
+    engine, tmp_path, monkeypatch, no_modals
+) -> None:
+    """§3 наряда: «Файла нет по пути — понятное сообщение оператору, а не молчание
+    и не падение».
+
+    Существование проверяется **при открытии**, а не при вводе: канон запрещает
+    проверку на входе (`Inspection.md` rev 1.01, решение 4 QMS-018), но ссылка,
+    которую нельзя открыть и которая об этом молчит, — просто текст.
+    """
+    opened: list[str] = []
+    monkeypatch.setattr(
+        card_dialog.QDesktopServices,
+        "openUrl",
+        staticmethod(lambda url: opened.append(url.toLocalFile()) or True),
+    )
+    missing = str(tmp_path / "never-written.docx")
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12")
+        _inspection(session, finding_id, position=None, protocol=missing)
+
+    card = CardDialog(engine, deviation_id)
+    card.inspections.setCurrentCell(0, 0)
+    card.open_protocol()
+
+    assert opened == []
+    assert len(no_modals) == 1
+    assert missing in str(no_modals[0])

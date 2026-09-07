@@ -30,7 +30,7 @@ from domain.revisions import current_revision
 from domain.deviations import register
 from domain.findings import make_finding
 from domain.groups import GPositionSpec, create_group
-from domain.inspections import create_inspection
+from domain.inspections import CONCLUSION_LIMIT, create_inspection
 from domain.mappings import bind
 from domain.reference import list_values
 from ui.decision_dialog import NOT_DECIDED, DecisionDialog
@@ -502,13 +502,13 @@ def test_inspection_dialog_writes_and_shows_the_finding(engine_with_item) -> Non
     assert "12" in dialog.finding_label.text()
 
     dialog.protocol.setText(r"\\srv\qa\SW-2026-14.docx")
-    dialog.verdict.set_value("not_approved")
+    dialog.verdict.set_value("approval_not_possible")
     dialog.save()
 
     with session_scope(engine_with_item) as session:
         inspection = session.query(Inspection).one()
         assert inspection.insp_number.startswith("INSP-")
-        assert inspection.decision_insp == "not_approved"
+        assert inspection.decision_insp == "approval_not_possible"
         assert inspection.finding_id == finding_id
 
 
@@ -536,7 +536,8 @@ def test_deviation_form_lists_inspections_and_counts_them(engine_with_item) -> N
             session,
             session.get(Finding, finding_id),
             inspection_type=list_values(session, RefInspectionType)[0],
-            decision_insp="approved",
+            decision_insp="approval_possible",
+            conclusion=None,
             protocol="p.docx",
         )
 
@@ -562,7 +563,8 @@ def test_the_form_refuses_to_remove_a_studied_finding(engine_with_item, monkeypa
             session,
             session.get(Finding, finding_id),
             inspection_type=list_values(session, RefInspectionType)[0],
-            decision_insp="approved",
+            decision_insp="approval_possible",
+            conclusion=None,
             protocol="p.docx",
         )
 
@@ -606,7 +608,8 @@ def test_view_deletes_a_deviation_with_its_children(engine_with_item, monkeypatc
             session,
             session.get(Finding, finding_id),
             inspection_type=list_values(session, RefInspectionType)[0],
-            decision_insp="approved",
+            decision_insp="approval_possible",
+            conclusion=None,
             protocol="p.docx",
         )
 
@@ -759,7 +762,8 @@ def test_replacing_findings_keeps_the_inspection_guard(engine_with_item, monkeyp
             session,
             session.get(Finding, finding_id),
             inspection_type=list_values(session, RefInspectionType)[0],
-            decision_insp="approved",
+            decision_insp="approval_possible",
+            conclusion=None,
             protocol="p.docx",
         )
 
@@ -1018,3 +1022,105 @@ def test_the_deviation_lands_on_the_item_chosen_through_the_filter(
     with session_scope(engine_with_item) as session:
         deviation = session.query(Deviation).one()
         assert deviation.item_id == second
+
+
+# --- QMS-018 §3: форма исследования — вывод, пустая позиция, выбор файла ----------
+
+
+def test_the_form_offers_the_empty_position_by_name(engine_with_item) -> None:
+    """Правило `docs/model/Inspection.md` rev 1.01: «Empty means "not assessed yet"
+    and is a legitimate state».
+
+    Проверяются **подписи кнопок**, а не длина списка: список из четырёх кнопок с
+    неверными словами прошёл бы счёт и провалил экран.
+    """
+    from ui.common import strip_iso
+
+    dialog = InspectionDialog(engine_with_item, _finding_id(engine_with_item))
+
+    labels = [strip_iso(button.text()) for button in dialog.verdict.buttons()]
+    assert labels == [
+        "Not assessed yet",
+        "Approval possible",
+        "Approval not possible",
+        "Inconclusive",
+    ]
+
+
+def test_the_form_saves_a_conclusion_and_reads_it_back(engine_with_item) -> None:
+    """Короткий вывод пишется и **перечитывается формой** при правке.
+
+    Второй половиной проверки: поле, которое сохраняет, но не показывает
+    записанное, при правке молча стирало бы вывод.
+
+    `show_error` здесь **не** подменяется намеренно: это тест успешного пути, и
+    отказ формы обязан порвать его текстом ошибки, а не пройти незамеченным —
+    ради этого QMS-021 и заводил тестовый режим (`CLAUDE.md` §9).
+    """
+    from db.models import Inspection
+
+    finding_id = _finding_id(engine_with_item)
+
+    dialog = InspectionDialog(engine_with_item, finding_id)
+    dialog.protocol.setText("p.docx")
+    dialog.verdict.set_value("approval_possible")
+    dialog.conclusion.setPlainText("clearance in the assembled state \u221220 %")
+    dialog.save()
+
+    with session_scope(engine_with_item) as session:
+        stored = session.query(Inspection).one()
+        assert stored.conclusion == "clearance in the assembled state \u221220 %"
+        inspection_id = stored.inspection_id
+
+    again = InspectionDialog(engine_with_item, finding_id, inspection_id)
+    assert again.conclusion.toPlainText() == "clearance in the assembled state \u221220 %"
+    assert again.verdict.value() == "approval_possible"
+
+
+def test_the_form_refuses_a_conclusion_over_the_limit(engine_with_item, monkeypatch) -> None:
+    """Путь отказа — с перехватом `show_error` (`CLAUDE.md` §9)."""
+    from db.models import Inspection
+
+    shown: list[Exception] = []
+    monkeypatch.setattr(ui.kit, "show_error", lambda parent, error, **kw: shown.append(error))
+
+    dialog = InspectionDialog(engine_with_item, _finding_id(engine_with_item))
+    dialog.protocol.setText("p.docx")
+    dialog.conclusion.setPlainText("x" * (CONCLUSION_LIMIT + 1))
+    dialog.save()
+
+    assert len(shown) == 1 and str(CONCLUSION_LIMIT) in str(shown[0])
+    with session_scope(engine_with_item) as session:
+        assert session.query(Inspection).count() == 0
+
+
+def test_choosing_a_file_fills_the_protocol_field(engine_with_item, monkeypatch) -> None:
+    """§3 наряда: путь к протоколу — из `QFileDialog`, полным путём как он дан.
+
+    Ручной ввод при этом остаётся: поле — обычная строка ввода, и диалог только
+    заполняет её.
+    """
+    from PySide6.QtWidgets import QFileDialog
+
+    chosen = r"\\srv\qa\SW-2026-14.docx"
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (chosen, ""))
+    )
+
+    dialog = InspectionDialog(engine_with_item, _finding_id(engine_with_item))
+    dialog.pick_protocol()
+
+    assert dialog.protocol.text() == chosen
+
+
+def test_cancelling_the_file_dialog_keeps_what_was_typed(engine_with_item, monkeypatch) -> None:
+    """Обратная сторона: отказ от выбора не стирает набранное руками."""
+    from PySide6.QtWidgets import QFileDialog
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: ("", "")))
+
+    dialog = InspectionDialog(engine_with_item, _finding_id(engine_with_item))
+    dialog.protocol.setText("typed-by-hand.docx")
+    dialog.pick_protocol()
+
+    assert dialog.protocol.text() == "typed-by-hand.docx"

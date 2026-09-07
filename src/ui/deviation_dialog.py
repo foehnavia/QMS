@@ -65,8 +65,8 @@ from domain.precedents import CANON_NEW, canon_labels_for_item
 
 from . import kit
 from .common import (
-    DECISION_INSP_LABELS,
     bind_direction,
+    decision_insp_label,
     dimension_sort_key,
     iso,
     numeric_field,
@@ -481,9 +481,10 @@ class DeviationDialog(QDialog):
                     inspection.insp_number,
                     inspection.finding.characteristic.local_number,
                     inspection.type.name,
-                    DECISION_INSP_LABELS.get(
-                        inspection.decision_insp, inspection.decision_insp
-                    ),
+                    # Подпись строится **из кода** одним хелпером на все экраны:
+                    # пустая позиция — законное состояние, и `.get` по словарю
+                    # отдавал бы за неё `None` вместо слов (`Inspection.md` 1.01).
+                    decision_insp_label(inspection.decision_insp),
                     inspection.protocol,
                 )
                 for inspection in sorted(

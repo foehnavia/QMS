@@ -101,7 +101,8 @@ def test_inspection_numbers_are_sequential(seeded_session: Session) -> None:
                 deviation=dev,
                 finding=finding,
                 type=insp_type,
-                decision_insp="approved",
+                decision_insp="approval_possible",
+                conclusion=None,
                 protocol="p.docx",
             )
         )

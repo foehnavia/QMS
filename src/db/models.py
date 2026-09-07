@@ -43,8 +43,16 @@ from .base import Base
 #: `decision_dev` — исход отклонения (`docs/model/Deviation.md`, Outcomes).
 DECISION_DEV = ("approved", "rejected", "sorting", "repair")
 
-#: `decision_insp` — бинарный вердикт исследования, независим от `decision_dev`.
-DECISION_INSP = ("approved", "not_approved")
+#: `decision_insp` — позиция исследования (`docs/model/Inspection.md` rev 1.01).
+#:
+#: Три значения вместо прежних двух и **необязательное**: исследование само по
+#: себе полярного вывода не несёт, «полезный зазор в сборе уменьшился на 20 %» —
+#: измерение, а не приговор. Пусто = «ещё не разбирали»; `inconclusive` =
+#: «разобрали, однозначного ответа нет». Это разные состояния.
+#:
+#: Независимость от `decision_dev` не изменилась: поле говорит, что исследование
+#: **позволяет**, а не что решили.
+DECISION_INSP = ("approval_possible", "approval_not_possible", "inconclusive")
 
 
 class Direction:
@@ -472,12 +480,17 @@ class Inspection(Base):
     """Исследование — задокументированное переиспользуемое изучение влияния отклонения.
 
     Item выводится из deviation/finding и отдельно не хранится.
+
+    rev 0.4 (QMS-018): позиция стала трёхзначной и необязательной, добавлен
+    короткий вывод `conclusion`, `protocol` по смыслу — ссылка на файл.
     """
 
     __tablename__ = "inspection"
     __table_args__ = (
         CheckConstraint(
-            "decision_insp IN ('approved', 'not_approved')", name="decision_insp"
+            "decision_insp IS NULL OR decision_insp IN "
+            "('approval_possible', 'approval_not_possible', 'inconclusive')",
+            name="decision_insp",
         ),
     )
 
@@ -490,8 +503,18 @@ class Inspection(Base):
     type_id: Mapped[int] = mapped_column(
         ForeignKey("ref_inspection_type.inspection_type_id"), nullable=False
     )
-    decision_insp: Mapped[str] = mapped_column(String(16), nullable=False)
-    protocol: Mapped[str] = mapped_column(Text, nullable=False)  # ссылка на документ
+    # Пусто — законное состояние: протокол крепится первым, чтение его приходит
+    # позже (`Inspection.md` rev 1.01). Длина под самое длинное значение —
+    # `approval_not_possible`, 21 знак; прежних 16 не хватало.
+    decision_insp: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    #: Короткий вывод словами — чтобы находку читали списком, не открывая файл.
+    #: Не заменяет протокол и структуры не имеет: «−20 % полезного зазора» в
+    #: рамку «величина + единица» не лезет (`Inspection.md` rev 1.01).
+    conclusion: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    #: Ссылка на файл протокола — обязательна, но **существование не проверяется**
+    #: (решение 4 QMS-018): протокол может лежать на недоступном в момент ввода
+    #: ресурсе, и ложный отказ дороже устаревшей ссылки.
+    protocol: Mapped[str] = mapped_column(Text, nullable=False)
 
     deviation: Mapped[Deviation] = relationship(back_populates="inspections")
     finding: Mapped[Finding] = relationship(back_populates="inspections")

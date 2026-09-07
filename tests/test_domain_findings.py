@@ -203,7 +203,8 @@ def test_a_finding_with_an_inspection_is_not_removable(seeded_session: Session) 
         seeded_session,
         studied,
         inspection_type=list_values(seeded_session, RefInspectionType)[0],
-        decision_insp="approved",
+        decision_insp="approval_possible",
+        conclusion=None,
         protocol="p.docx",
     )
 

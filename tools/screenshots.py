@@ -275,8 +275,19 @@ def build_database():
             session,
             finding,
             inspection_type=list_values(session, RefInspectionType)[0],
-            decision_insp="approved",
+            decision_insp="approval_possible",
+            conclusion="Clearance in the assembled state drops by 20 %.",
             protocol=r"\\srv\qa\SW-2026-14.docx",
+        )
+        # Второе — без позиции и без вывода: «ещё не разбирали» тоже состояние
+        # экрана (`Inspection.md` rev 1.01), и снимок обязан показывать оба.
+        create_inspection(
+            session,
+            finding,
+            inspection_type=list_values(session, RefInspectionType)[-1],
+            decision_insp=None,
+            conclusion=None,
+            protocol=r"\\srv\qa\torque-2026-03.docx",
         )
 
         ids = dict(
@@ -646,6 +657,13 @@ def main() -> int:
     shoot(InspectionDialog(engine, ids["finding_id"]), "09-dialog-inspection")
     shoot(DecisionDialog(engine, ids["current_id"]), "10-dialog-decision")
     shoot(CardDialog(engine, ids["current_id"]), "11-dialog-card")
+    # Карточка с выбранной находкой, у которой исследования есть: при пустом
+    # выборе секция показывает одно объяснение, и на нём не видно ни подписей
+    # позиции, ни обрезки вывода (наряд 0027 §3).
+    card_with_inspections = CardDialog(engine, ids["current_id"])
+    card_with_inspections.findings.setCurrentCell(1, 0)
+    shoot(card_with_inspections, "11c-card-inspections")
+
     tall_card = CardDialog(engine, ids["current_id"])
     tall_card.resize(kit.tokens.DIALOG_FULL, CARD_TALL)
     shoot(tall_card, "11b-dialog-card-tall")

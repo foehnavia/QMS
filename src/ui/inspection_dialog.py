@@ -1,12 +1,17 @@
-"""Диалог исследования — вид, вердикт, протокол; заводится на находке.
+"""Диалог исследования — вид, позиция, короткий вывод, протокол; на находке.
 
 Отдельного раздела «Исследования» нет (решение Cowork 2): цель исследования —
 конкретная находка, и выбор её руками из общего списка добавлял бы только шанс
 промахнуться. Поэтому находка сюда **передаётся**, а не выбирается, и показана
 в шапке только для сверки.
 
-Вердикт `decision_insp` независим от решения по отклонению (`Inspection.md`) —
+Позиция `decision_insp` независима от решения по отклонению (`Inspection.md`) —
 никакой связи между двумя списками здесь нет намеренно.
+
+QMS-018 (наряд 0027): позиция стала трёхзначной и **необязательной**. Пустое
+значение стоит вариантом на экране, а не отсутствием выбора: порядок работы —
+сначала крепится файл протокола, позиция и вывод дописываются позже, и «ещё не
+разбирали» это состояние, которое оператор выбирает сознательно.
 """
 
 from __future__ import annotations
@@ -16,17 +21,23 @@ from PySide6.QtWidgets import (
     QDialog,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QWidget,
 )
 from sqlalchemy import Engine
 
 from db.models import DECISION_INSP, Finding, Inspection, RefInspectionType
 from db.session import session_scope
-from domain.inspections import create_inspection, update_inspection
+from domain.inspections import CONCLUSION_LIMIT, create_inspection, update_inspection
 from domain.reference import list_values
 
 from . import kit
-from .common import DECISION_INSP_LABELS, bind_direction, joined
+from .common import (
+    DECISION_INSP_LABELS,
+    NO_INSPECTION_RESULT_LABEL,
+    bind_direction,
+    joined,
+)
 from .kit import tokens
 
 
@@ -46,18 +57,34 @@ class InspectionDialog(QDialog):
         self._finding_id = finding_id
         self._inspection_id = inspection_id
         self.setWindowTitle("Inspection" if inspection_id is None else "Inspection — edit")
-        self.resize(tokens.DIALOG_NARROW, tokens.DIALOG_HEIGHT_SHORT)
+        # Высота — как у диалога решения: со времён QMS-018 форма той же формы
+        # (четыре варианта выбора плюс текстовая область), и прежней короткой ей
+        # не хватало — варианты налезали друг на друга. Поймано снимком на
+        # нативной платформе, не тестом: под offscreen вёрстка не ловится
+        # (`CLAUDE.md` §9).
+        self.resize(tokens.DIALOG_NARROW, tokens.DIALOG_HEIGHT_MEDIUM)
 
         self.finding_label = QLabel()
         self.finding_label.setWordWrap(True)
 
         self.kind = QComboBox()
-        # Два взаимоисключающих значения, которые читают перед выбором, —
-        # радиокнопки (канон §4). Умолчания нет: предвыбранный вывод это ответ,
-        # которого исследователь не давал, а вывод идёт в документ.
+        # Взаимоисключающие значения, которые читают перед выбором, — радиокнопки
+        # (канон §4). Пустое стоит **первым вариантом**, а не отсутствием выбора:
+        # «ещё не разбирали» — законное состояние (`Inspection.md` rev 1.01), и
+        # оператор должен видеть его словами, а не догадываться по пустоте.
         self.verdict = kit.Choice()
+        self.verdict.add(None, NO_INSPECTION_RESULT_LABEL)
         for code in DECISION_INSP:
             self.verdict.add(code, DECISION_INSP_LABELS[code])
+        self.verdict.set_value(None)
+
+        # Направление здесь не выставляем: у текстовой области оно резолвится
+        # **по абзацу** самим Qt, и абзацы разных направлений в одном поле —
+        # норма (`CLAUDE.md` §9).
+        self.conclusion = QPlainTextEdit()
+        self.conclusion.setPlaceholderText(
+            f"what the study found, in a sentence or three (up to {CONCLUSION_LIMIT} characters)"
+        )
 
         self.protocol = QLineEdit()
         self.protocol.setPlaceholderText(r"link to the document, e.g. \\srv\qa\SW-2026-14.docx")
@@ -71,8 +98,9 @@ class InspectionDialog(QDialog):
         self.hint = kit.hint(
             "A row is created only when a written, reusable analysis exists; "
             "a routine check against the drawing is not an inspection. "
-            "The result answers whether this can be accepted — the outcome of "
-            "the deviation is a separate decision."
+            "The result says what the study permits — the outcome of the "
+            "deviation is a separate decision. Leave it unassessed until the "
+            "protocol has been read; the file itself is required."
         )
 
         self.buttons = kit.dialog_buttons(accept="Add inspection")
@@ -85,6 +113,7 @@ class InspectionDialog(QDialog):
         # Подпись поля — «результат», а не «вердикт по отклонению» (В-9):
         # исследование висит на находке и на исход отклонения не влияет.
         form.addRow("Inspection result:", self.verdict)
+        form.addRow("Conclusion:", self.conclusion)
         form.addRow("Protocol:", kit.boxed(protocol_row))
 
         layout = kit.dialog_layout(self)
@@ -126,6 +155,7 @@ class InspectionDialog(QDialog):
                 inspection = session.get(Inspection, self._inspection_id)
                 _select(self.kind, inspection.type_id)
                 self.verdict.set_value(inspection.decision_insp)
+                self.conclusion.setPlainText(inspection.conclusion or "")
                 self.protocol.setText(inspection.protocol)
 
     def pick_protocol(self) -> None:
@@ -137,10 +167,10 @@ class InspectionDialog(QDialog):
             self.protocol.setText(path)
 
     def save(self) -> None:
+        # Пустая позиция больше не отказ: до QMS-018 форма требовала полярного
+        # ответа и получала выдуманный. Проверка снята вместе с полем-причиной.
         verdict = self.verdict.value()
-        if verdict is None:
-            kit.show_error(self, _no_verdict(), title="Inspection not saved")
-            return
+        conclusion = self.conclusion.toPlainText()
         try:
             with session_scope(self._engine) as session:
                 kind = session.get(RefInspectionType, self.kind.currentData())
@@ -150,6 +180,7 @@ class InspectionDialog(QDialog):
                         session.get(Finding, self._finding_id),
                         inspection_type=kind,
                         decision_insp=verdict,
+                        conclusion=conclusion,
                         protocol=self.protocol.text(),
                     )
                 else:
@@ -158,22 +189,13 @@ class InspectionDialog(QDialog):
                         session.get(Inspection, self._inspection_id),
                         inspection_type=kind,
                         decision_insp=verdict,
+                        conclusion=conclusion,
                         protocol=self.protocol.text(),
                     )
         except Exception as error:
             kit.show_error(self, error, title="Inspection not saved")
             return
         self.accept()
-
-
-def _no_verdict() -> Exception:
-    """Вывод не выбран — это не «пустое поле», а несделанное суждение."""
-    from domain.errors import ValidationError
-
-    return ValidationError(
-        "Pick the inspection result: it says whether the deviation can be "
-        "accepted, and an inspection without it states nothing."
-    )
 
 
 def _select(combo: QComboBox, key) -> None:

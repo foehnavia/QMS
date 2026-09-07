@@ -798,22 +798,59 @@ def test_the_outcome_is_chosen_by_radio_without_a_default(engine, no_modals) -> 
 
 
 def test_the_inspection_result_is_chosen_by_radio(engine, no_modals) -> None:
-    """Два значения — радиокнопками; без выбора исследование не сохраняется."""
+    """Значения — радиокнопками, и пустое стоит **вариантом**, а не пустотой.
+
+    Сторожит правило `docs/model/Inspection.md` rev 1.01: «`decisionInsp` is
+    three-valued and optional. Empty means "not assessed yet" and is a legitimate
+    state: the protocol is attached first, the reading of it comes later».
+    До QMS-018 форма отказывала на пустом выводе — то есть требовала полярного
+    ответа, которого исследование не давало.
+    """
     from db.models import Inspection
     from ui.inspection_dialog import InspectionDialog
 
     finding_id = _finding_of(engine)
 
     dialog = InspectionDialog(engine, finding_id)
-    assert len(dialog.verdict.buttons()) == 2
+    # Четыре кнопки: три позиции канона плюс «ещё не разбирали».
+    assert len(dialog.verdict.buttons()) == 4
     assert dialog.verdict.value() is None
 
     dialog.protocol.setText("p.docx")
     dialog.save()
 
-    assert no_modals and "inspection result" in str(no_modals[0])
+    # Сохранилось, и **без единого модального окна**: незаполненный вывод больше
+    # не отказ (`CLAUDE.md` §9 — тест успешного пути перехватывает `show_error`).
+    assert no_modals == []
     with session_scope(engine) as session:
-        assert session.query(Inspection).count() == 0
+        stored = session.query(Inspection).one()
+        assert stored.decision_insp is None
+        assert stored.conclusion is None
+
+
+def test_an_unassessed_inspection_is_not_the_same_as_an_inconclusive_one(
+    engine, no_modals
+) -> None:
+    """Правило `Inspection.md` rev 1.01: «`inconclusive` and empty are different
+    states. `inconclusive` — the study was read and settles nothing about
+    approvability; empty — nobody has read it yet».
+
+    Тест на **различимость**, а не на список значений: до QMS-018 поле было
+    бинарным и обязательным, и два этих состояния не различались никак.
+    """
+    from db.models import Inspection
+    from ui.inspection_dialog import InspectionDialog
+
+    dialog = InspectionDialog(engine, _finding_of(engine))
+    dialog.protocol.setText("p.docx")
+    dialog.verdict.set_value("inconclusive")
+    dialog.save()
+
+    assert no_modals == []
+    with session_scope(engine) as session:
+        stored = session.query(Inspection).one()
+        assert stored.decision_insp == "inconclusive"
+        assert stored.decision_insp is not None
 
 
 def test_the_chrome_is_the_tightened_one(engine) -> None:
@@ -851,15 +888,24 @@ def test_the_inspection_verdict_names_a_judgement_not_an_object() -> None:
 
     Исследование висит на **находке**, а `approved` дословно совпадало с исходом
     отклонения — две разные сущности под одной подписью в одной карточке.
+
+    Формулировку уточнил канон rev 1.01 (`Inspection.md`): «The wording is
+    deliberate: the field says what the study **permits**, not what was decided».
+    Отсюда `Approval possible`, а не прежнее `Acceptable`.
     """
     assert DECISION_INSP_LABELS == {
-        "approved": "Acceptable",
-        "not_approved": "Not acceptable",
+        "approval_possible": "Approval possible",
+        "approval_not_possible": "Approval not possible",
+        "inconclusive": "Inconclusive",
     }
 
 
 def test_the_stored_verdict_values_did_not_change(engine, no_modals) -> None:
-    """Правится подпись, а не данные: в базе остаются `approved` / `not_approved`."""
+    """Хранимые значения канона rev 1.01 — `approval_possible` и соседи.
+
+    Имя теста осталось от В-9, где правилась только подпись; QMS-018 сменил и
+    значения, и тест сторожит теперь их (`docs/decisions.md`, решение 1).
+    """
     from db.models import RefInspectionType
 
     with session_scope(engine) as session:
@@ -875,10 +921,11 @@ def test_the_stored_verdict_values_did_not_change(engine, no_modals) -> None:
             session,
             finding,
             inspection_type=list_values(session, RefInspectionType)[0],
-            decision_insp="approved",
+            decision_insp="approval_possible",
+            conclusion=None,
             protocol="p.docx",
         )
-        assert inspection.decision_insp == "approved"
+        assert inspection.decision_insp == "approval_possible"
 
     assert no_modals == []
 
