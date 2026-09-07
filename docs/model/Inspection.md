@@ -3,7 +3,7 @@ part_of: MIS-QMS/docs/model
 entity: Inspection
 order: 70
 canon: true
-rev: "1.01"
+rev: "1.02"
 updated: 2026-09-07
 ---
 
@@ -19,12 +19,30 @@ updated: 2026-09-07
 
 ## When a row is created
 
-- **Only** when a serious, documented, reusable study of the deviation's impact
-  exists (a written summary).
-- The routine primary check (`Tolerances review` — a drawing check, including a quick
-  visual look at part fit in SolidWorks) yields a **finding** and creates **no**
-  inspection row.
-- The criterion is the existence of a **reusable written analysis**, not the tool.
+> Revised 2026-09-07 (QMS-018, hand run). Until rev 1.01 the criterion was the existence of
+> an attached **file**, and `Tolerances review` was excluded from inspections outright. The
+> hand run showed the exclusion too wide: some deviations are settled by the drawing alone
+> — an outer diameter of 10.0 against an inner one of 9.9 does not fit, and no study will
+> change that — and that verdict is a reusable precedent worth recording, while no document
+> exists to attach.
+
+- **The criterion is a reusable conclusion, not a file.** A row is created when the
+  engineer has a conclusion worth reading again on the next identical deviation.
+- **A row must carry at least one of the two: a protocol file, or a written conclusion.**
+  A row with neither says nothing to the precedent search and must not exist — that is the
+  invariant this section is about, and it is enforced by the schema, not by discipline.
+- **`No protocol` is a deliberate, declared state**, marked by its own flag on the row and
+  never inferred from an empty field. Unmarked by default: the ordinary inspection is a
+  documented one, and waiving the document is a decision the engineer takes on purpose.
+  With the flag set, the **conclusion becomes mandatory** — it is then the whole content of
+  the record.
+- **The routine drawing check does not oblige a row.** `Tolerances review` creates one only
+  when its conclusion is worth keeping as a precedent; looking at a drawing and moving on
+  records nothing. What changed in rev 1.02 is that such a row is now *possible*, not that
+  it is *required*.
+- The depth distinction stands: a serious, documented, reusable study is what the table is
+  for, and a `No protocol` row is the narrow exception for a verdict that needs no document,
+  not a licence to log every glance.
 
 ## Linkage
 
@@ -75,14 +93,21 @@ updated: 2026-09-07
 - link to the finding (`Finding.md`)
 - `Inspection Result` (`decisionInsp` = `approval possible` / `approval not possible` /
   `inconclusive`; **optional** — empty means not assessed yet)
-- `Conclusion` — short free text, **optional**, ≤ 500 characters
-- `Protocol` — **a link to a file**, required. Protocols are filed exclusively as
-  documents; the field stores the path as the operator supplied it. The file is never
-  copied into the database (the same convention as deviation attachments), and its
-  existence is **not** verified on entry — a protocol may sit on a share unreachable at
-  the moment of typing, and a false refusal there costs more than a stale link.
-  Required, because the existence of a written reusable analysis is the criterion by
-  which the row is created at all.
+- `Conclusion` — short free text, ≤ 500 characters. **Optional when a protocol is
+  attached** (it can be written after the file has been read); **mandatory when
+  `No protocol` is set** — it is then the entire content of the record.
+- `No protocol` — a flag, **unset by default**. Set means: this verdict needs no document,
+  and the conclusion carries it. Never inferred from an empty protocol field: an empty
+  field is an unfinished record, a set flag is a decision.
+- `Protocol` — **a link to a file**, required **unless `No protocol` is set**. Protocols
+  are filed exclusively as documents; the field stores the path as the operator supplied
+  it. The file is never copied into the database (the same convention as deviation
+  attachments), and its existence is **not** verified on entry — a protocol may sit on a
+  share unreachable at the moment of typing, and a false refusal there costs more than a
+  stale link.
+- **Invariant across the three fields above:** every row carries a protocol file **or** a
+  conclusion. Enforced in the schema by a constraint, not by the form — a record that says
+  nothing is invisible to the precedent search, which is what the table exists for.
 - `Item` is derived from the deviation/finding, not stored separately.
 
 ## Where the "science" lives
@@ -100,6 +125,10 @@ could stand in for it.
 - `Solidworks assembly` — worst-case assembly gap (CS-TB015A dim 32 −, partner
   C1-08375A); conclusion "clearance in the assembled state −20 %", position
   `approval possible`.
+- `Tolerances review`, **`No protocol` set** — outer diameter 10.0 against an inner one of
+  9.9: the parts cannot mate, and the drawing alone settles it. No document exists;
+  conclusion "OD 10.0 vs ID 9.9 — no mating clearance, geometry excludes assembly",
+  position `approval not possible`.
 
 ## Related
 
