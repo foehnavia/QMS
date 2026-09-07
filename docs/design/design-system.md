@@ -5,7 +5,7 @@ status: ratified
 task: QMS-016
 branch: run/qms-016
 updated: 2026-09-07
-revision: 1.8
+revision: 1.9
 ---
 
 # MIS-QMS design system — tokens and rules
@@ -198,6 +198,23 @@ own section minimum, the stylesheet subtracts cell padding, and the drawn text a
 platform** with the real font: a sum of declared numbers can balance perfectly while a value on
 screen is clipped. Every width in a screen grid is a measured value or it is a guess.
 
+**The gap has a size and it is computed, not assumed** (measured in the doving of `0028`):
+**27 px of a column never prints** — 1 px grid line, 20 px of stylesheet cell padding, 6 px of
+Qt's own margins. Hence the shape of every width in a screen grid:
+
+> **declared width = what the text needs + 27**
+
+`kit.FIT_LABEL` predates this and adds only the cell padding, so a column sized by its header is
+**7 px short on every screen** — `Revision` was clipping its own heading unnoticed. The fix is
+one place, not one screen: task **QMS-022**.
+
+**Measure against the widest value the domain permits, not the widest one in the database
+today.** `Qty` measures at 47 px against real quantities and is set to **56**, because `9999` —
+the marker the import writes for a sampled batch — is a legitimate value the column must hold.
+`Findings` is sized by the longest deviation type in the dictionary, not by the longest one a
+demo database happens to contain. A column fitted to today's data is a column that clips the
+day real data arrives.
+
 **Dialog heights belong here, not to `tokens.py` alone** (added 2026-09-07, QMS-018). A dialog
 takes the **smallest of the four that holds its content without clipping** — the height is a
 choice among declared values, never a number invented at the screen. `card 960` was added when
@@ -322,6 +339,14 @@ next reader does not "fix" it back.
   resizes under the cursor is a column the operator re-finds on every visit.
 - No editing in place, no row colouring by decision, no grouping. The pill carries the state;
   a coloured row would compete with the selection.
+- **A cell is single-line by default; a column may be declared two-line in its screen grid.**
+  The default protects the vertical rhythm — and two 15 px lines still sit inside the 40 px row,
+  so a declared two-line column costs no height at all. `Explanation` on the deviations list is
+  two-line, as the design canvas drew it from the start ("свёрнута — две строки, высота строки
+  40 px"); at any width in that screen's budget the real justification does not fit on one line,
+  so a single-line rule there would mean truncating the main text of a precedent. Two-line is a
+  **per-column declaration**, never a screen-wide or application-wide default: a column that
+  wraps without being declared is a defect, not a feature.
 
 ## 8. Empty states
 
