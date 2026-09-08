@@ -46,6 +46,13 @@ ROLE_RIBBON_ITEM = "ribbon-item"
 ROLE_RIBBON_MARK = "ribbon-mark"
 ROLE_RIBBON_SEPARATOR = "ribbon-separator"
 
+#: Имя объекта раскрытой панели, чья шапка оформлена **подчинённо**. Имя, а не
+#: роль: правило садится на подстиль `QHeaderView::section` внутри виджета, и
+#: адресовать его надо самим виджетом. Одна и та же панель служит обоим экранам
+#: после наряда `0031`, поэтому оформление — **параметр** панели, а не смена вида
+#: для всех: список отклонений остаётся с прежней шапкой (наряд `0032` §4).
+OBJECT_PANEL_SUBORDINATE = "findingsPanelSubordinate"
+
 
 def font_family() -> str:
     """Шрифтовой стек канона §2 — подтверждён `QFontDatabase` на машине."""
@@ -283,6 +290,18 @@ QHeaderView::section {{
     height: {t.TABLE_HEADER_HEIGHT}px;
     font-size: {t.SIZE_HEADER}px;
     font-weight: {t.WEIGHT_HEADER};
+    color: {t.N_500};
+}}
+#{OBJECT_PANEL_SUBORDINATE} QHeaderView::section {{
+    /* A caption for the columns, not a header of a new table: no fill, no rules.
+       What makes a dialog read as patchwork is the repeated header styling, not
+       the labels themselves (design-system.md 7, rev 1.13). */
+    background: transparent;
+    border: none;
+    padding: 0px {t.PAD_CELL}px;
+    height: {t.PANEL_HEADER_HEIGHT}px;
+    font-size: {t.PANEL_CAPTION_SIZE}px;
+    font-weight: {t.PANEL_CAPTION_WEIGHT};
     color: {t.N_500};
 }}
 QTableCornerButton::section {{

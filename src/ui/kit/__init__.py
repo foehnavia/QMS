@@ -45,7 +45,14 @@ from .pills import (
     paint_badge,
 )
 from .ribbon import NavigationRibbon
-from .theme import ROLE, apply_theme, font_family, palette, stylesheet
+from .theme import (
+    OBJECT_PANEL_SUBORDINATE,
+    ROLE,
+    apply_theme,
+    font_family,
+    palette,
+    stylesheet,
+)
 from . import chips  # noqa: F401 — доступен как `kit.chips`
 from .widgets import (
     FIT_LABEL,
@@ -64,7 +71,10 @@ from .widgets import (
     error_box,
     form,
     hint,
+    fit_table_height,
+    recentre_columns,
     inline_table_height,
+    table_height,
     pill,
     primary,
     px,
@@ -128,6 +138,9 @@ __all__ = [
     "form",
     "hint",
     "inline_table_height",
+    "fit_table_height",
+    "recentre_columns",
+    "table_height",
     "is_rtl",
     "iso",
     "joined",
@@ -143,6 +156,7 @@ __all__ = [
     "set_empty_reason",
     "set_section_caption",
     "UnexpectedErrorDialog",
+    "OBJECT_PANEL_SUBORDINATE",
     "in_test_mode",
     "set_test_mode",
     "show_error",

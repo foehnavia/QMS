@@ -275,6 +275,16 @@ class ExpanderDelegate(QStyledItemDelegate):
     """
 
     def paint(self, painter: QPainter, option, index) -> None:  # noqa: N802 — имя от Qt
+        # Стрелка рисуется только там, где есть **что** раскрывать. Признак —
+        # роль состояния: у строки, которая не раскрывается (служебная,
+        # групповая), её нет вовсе, и делегат обязан отдать ячейку обычной
+        # отрисовке. Иначе он затирает её текст своим пустым `text = ""` —
+        # так групповые строки таблицы прецедентов вышли на снимке **пустыми**
+        # при верном содержимом ячейки (наряд `0032`, поймано снимком).
+        if index.data(EXPANDED_ROLE) is None:
+            super().paint(painter, option, index)
+            return
+
         expanded = bool(index.data(EXPANDED_ROLE))
 
         style_option = option
