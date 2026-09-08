@@ -79,6 +79,9 @@ TALL = 1080
 #: тратится на прокрутку.
 CARD_TALL = 1000
 
+#: Высота карточки под снимок с двумя раскрытыми прецедентами (наряд 0031).
+CARD_EXPANDED = 1320
+
 TODAY = date.today()
 POSITIONS = (
     GPositionSpec(1, 3.75, 0.05, -0.05),
@@ -267,6 +270,45 @@ def build_database():
             past,
             decision="approved",
             explanation='אין השפעה על ההרכבה — נבדק ב-Solidworks assembly, סטייה 0.05 מ"מ',
+        )
+
+        # **Второй** прецедент по той же канонической позиции. Заведён ради
+        # критерия 9 наряда 0031: снимок обязан показать **два** раскрытых
+        # прецедента, а одно раскрытие не показывает того, ради чего раскрытие и
+        # сделано, — сравнения двух записей между собой (решение 6 реестра).
+        # Другая деталь и другой наряд: два одинаковых прецедента сравнивать не
+        # на чем, и снимок ничего бы не объяснил.
+        earlier = register(
+            session,
+            item=other,
+            wo="W26007118",
+            quantity=25,
+            date=TODAY - timedelta(days=48),
+            machine="CNC-4",
+        )
+        make_finding(
+            session,
+            earlier,
+            characteristic,
+            direction=Direction.PLUS,
+            value=0.03,
+            dimension_point=1,
+            zone=zone,
+            deviation_type=kind,
+        )
+        create_inspection(
+            session,
+            earlier.findings[0],
+            inspection_type=ref(session, RefInspectionType, "Solidworks assembly"),
+            conclusion="Interference appears only above 0.06 mm.",
+            protocol=r"\\fileserver\QC\protocols\2026\sw-C1-08420B-77.docx",
+            no_protocol=False,
+        )
+        set_decision(
+            session,
+            earlier,
+            decision="sorting",
+            explanation="Batch sorted 100 % — 3 parts out of 25 rejected.",
         )
 
         current = register(
@@ -600,6 +642,17 @@ def shoot_on_run_database() -> int:
     return 0
 
 
+def _select_finding(card, local_number: str) -> None:
+    """Выбрать находку карточки **по номеру размера**, а не по строке (§9а.9)."""
+    from ui.common import strip_iso
+
+    for row in range(card.findings.rowCount()):
+        if strip_iso(card.findings.item(row, 0).text()) == local_number:
+            card.findings.setCurrentCell(row, 0)
+            return
+    raise AssertionError(f"нет находки {local_number}")
+
+
 def shoot(widget: QWidget, name: str) -> None:
     """Снять виджет без `show()`: раскладку доводит `activate()` и досыл размера.
 
@@ -920,6 +973,28 @@ def main() -> int:
     tall_card = CardDialog(engine, ids["current_id"])
     tall_card.resize(kit.tokens.DIALOG_FULL, CARD_TALL)
     shoot(tall_card, "11b-dialog-card-tall")
+
+    # Раскрытие прецедента — новый вид контроля на этом экране, а такому нужен
+    # снимок (`design-system.md`; критерий 9 наряда 0031). Раскрыты **два**
+    # сразу: одно раскрытие не показало бы того, ради чего раскрытие и заведено,
+    # — сравнения двух записей между собой (решение 6 реестра). Высокое окно
+    # взято намеренно: две панели в обычную вертикаль карточки не помещаются.
+    expanded_card = CardDialog(engine, ids["current_id"])
+    # Своя высота, выше `CARD_TALL`: две панели прецедентов в обычную вертикаль
+    # карточки не помещаются, а снимок с одной раскрытой не показал бы того,
+    # ради чего раскрытие и сделано, — сравнения двух записей между собой.
+    expanded_card.resize(kit.tokens.DIALOG_FULL, CARD_EXPANDED)
+    # Находка выбирается **по номеру размера**, а не по строке: порядок находок —
+    # величина, общая у кода и снимка, и четвёртая молча увела бы снимок на
+    # находку, у которой прецедентов нет (`CLAUDE.md` §9а.9).
+    _select_finding(expanded_card, "12")
+    table = expanded_card.same_position
+    for row in range(table.rowCount() - 1, -1, -1):
+        # Снизу вверх: раскрытие вставляет служебную строку и сдвигает всё,
+        # что ниже, — идя сверху, вторым кликом попадёшь не в ту запись.
+        if not table.is_panel_row(row):
+            table.toggle_expansion(row)
+    shoot(expanded_card, "23-card-precedents-expanded")
     shoot(ItemPositionsDialog(engine, ids["item_id"]), "12-dialog-item-positions")
 
     # --- 19. Ревизия чертежа: сценарий приёмки наряда 0024 (QMS-017) ---
