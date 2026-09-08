@@ -7,6 +7,16 @@
 offscreen ждёт ответа вечно и повесил бы прогон (`CLAUDE.md` §9). Всё остальное
 настоящее: настоящий `sys.excepthook`, настоящее исключение из слота Qt, настоящее
 окно `kit.error_box`.
+
+**Замеренная особенность, без которой часть здешних тестов ничего не значила бы.**
+Исключение из слота уходит в `sys.excepthook` только под настоящим циклом событий
+(`app.exec()`); `QApplication.processEvents()` **пробрасывает его наружу**, к
+вызывающему. Для событий, доставленных мышью (`QTest.mouseClick`), разницы нет —
+там до хука доходит и через `processEvents`, — но таймерный слот `QTimer` через
+`processEvents` проверял бы не тот путь, каким пойдёт настоящий сбой. Поэтому
+самопроверка ниже гоняется **настоящим `exec()`** с таймером выхода: замерено
+подпроцессом, `exec()` → хук зовётся и приложение живёт, `processEvents` →
+исключение наружу.
 """
 
 from __future__ import annotations
@@ -44,6 +54,21 @@ def live_mode(monkeypatch):
 
     crash.install()
     return shown
+
+
+def _spin(milliseconds: int = 50) -> None:
+    """Покрутить **настоящий** цикл событий и выйти.
+
+    Не `processEvents`: он пробрасывает исключение таймерного слота вызывающему,
+    и тест проверял бы путь, которого у приложения нет. Под `exec()` слот идёт
+    туда же, куда пойдёт настоящий сбой, — в `sys.excepthook` (замерено
+    подпроцессом, см. шапку модуля).
+    """
+    from PySide6.QtCore import QTimer
+
+    app = QApplication.instance()
+    QTimer.singleShot(milliseconds, app.quit)
+    app.exec()
 
 
 def _exploding_button(text: str = "boom") -> QPushButton:
@@ -165,3 +190,94 @@ def test_a_failure_inside_the_error_window_does_not_loop(live_mode, monkeypatch)
     sys.excepthook(TypeError, TypeError("boom"), None)
 
     assert calls == [1], "повторный заход в хук — рекурсия не перекрыта"
+
+
+# --- Наряд 0031 §7: самопроверка перехватчика ---------------------------------------
+#
+# Перехватчик ловит то, чего никто не предусмотрел, а всё найденное мы чиним, —
+# значит проверить его на живом приложении нечем, и специальный вызов становится
+# единственным способом. После упаковки в `.exe` (S7) консоли не будет вовсе, и
+# это станет **единственным** способом убедиться, что он доехал до сборки.
+
+
+def test_the_selftest_is_invisible_without_the_variable(live_mode, monkeypatch) -> None:
+    """Без переменной — **ничего**: ни окна, ни следа.
+
+    Требование 1 §7, и оно не про экономию: любой видимый способ сломать
+    приложение однажды будет нажат оператором на рабочем экране. Проверяется и
+    возврат, и отсутствие окна: «не взвелось» и «взвелось, но промолчало» —
+    разные состояния, и различает их именно пара.
+    """
+    monkeypatch.delenv(crash.SELFTEST_ENV, raising=False)
+
+    assert crash.arm_selftest() is False
+
+    QApplication.processEvents()
+    assert live_mode == []
+
+
+@pytest.mark.parametrize("value", ["0", "", "yes", "true"])
+def test_only_the_exact_value_arms_the_selftest(live_mode, monkeypatch, value) -> None:
+    """Взводит ровно `1`, а не всякая непустая строка.
+
+    Переменная окружения достаётся приложению от чего угодно — от ярлыка, от
+    системы, от прежнего сеанса; «истинное» значение в стиле оболочки поднимало
+    бы самопроверку там, где её не просили.
+    """
+    monkeypatch.setenv(crash.SELFTEST_ENV, value)
+
+    assert crash.arm_selftest() is False
+
+    QApplication.processEvents()
+    assert live_mode == []
+
+
+def test_the_selftest_reaches_the_operator_as_a_window(live_mode, monkeypatch) -> None:
+    """**Критерий 8 наряда `0031`.** С `QMS_SELFTEST_CRASH=1` в **боевом** режиме
+    показывается окно ошибки, и исключение отличимо от настоящего сбоя.
+
+    Идёт оно **настоящим слотом** (`QTimer.singleShot`), а не прямым вызовом:
+    путь до `sys.excepthook` обязан быть тем же, каким пойдёт настоящий сбой.
+    Прямой вызов поднял бы исключение вызывающему — то есть проверил бы не то,
+    что ломается на живом экране (требование §7).
+    """
+    monkeypatch.setenv(crash.SELFTEST_ENV, "1")
+
+    assert crash.arm_selftest() is True
+    # Окно появляется не в момент взвода, а на обороте цикла событий — это и есть
+    # доказательство, что путь идёт слотом, а не вызовом.
+    assert live_mode == []
+
+    _spin()
+
+    assert len(live_mode) == 1
+    box = live_mode[0]
+    text = f"{box.text()} {box.informativeText()} {box.detailedText()}"
+    assert "SelfTestCrash" in text
+    assert crash.SELFTEST_ENV in text
+    # Отличимо от настоящего сбоя **словами**, а не только типом: окно читает
+    # оператор, а не разработчик.
+    assert "Nothing is broken" in text
+
+
+def test_the_application_survives_the_selftest(live_mode, monkeypatch) -> None:
+    """После окна приложение **продолжает работать** (требование 3 §7).
+
+    Это половина смысла: перехватчик, который валит приложение, хуже консольного
+    traceback — тот хотя бы оставляет процесс живым. Проверяется тем, что цикл
+    событий крутится дальше и следующий слот исполняется.
+    """
+    from PySide6.QtCore import QTimer
+
+    monkeypatch.setenv(crash.SELFTEST_ENV, "1")
+    crash.arm_selftest()
+
+    alive: list[int] = []
+    QTimer.singleShot(0, lambda: alive.append(1))
+    _spin()
+
+    assert len(live_mode) == 1
+    # Слот, поставленный **после** падающего, всё-таки исполнился: цикл событий
+    # не встал. Это и есть «приложение продолжает работать» — проверять надо не
+    # то, что процесс жив (он жив и после `sys.exit`), а что он ещё работает.
+    assert alive == [1], "цикл событий не пережил самопроверку"
