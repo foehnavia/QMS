@@ -48,11 +48,23 @@ from domain.findings import findings_for_deviations, inspections_of_deviation
 from . import kit
 from .card_dialog import CardDialog
 from .common import (
+    INSPECTIONS_SHOWN,
+    NO_INSPECTIONS,
+    PANEL_COLUMNS,
+    PANEL_INDENT,
+    PANEL_MAGNITUDE_COLUMNS,
+    PANEL_NUMERIC_COLUMNS,
+    PANEL_WIDTHS,
+    FindingsPanel,
     decision_dev_label,
-    outcome_label,
     dimension_sort_key,
+    finding_row_height,
+    inspections_text,
+    inspections_tooltip,
     iso,
     joined,
+    outcome_label,
+    panel_height,
     signed_label,
     strip_iso,
 )
@@ -161,31 +173,6 @@ SHRINK_ORDER = ("Revision",)
 #:
 #: Сетка панели находок — тоже пиксели канвы. `Find identical` (160 px) в наряд
 #: не входит, и её ширина уходит в зону запаса (решение 14 реестра).
-PANEL_INDENT = ""
-PANEL_COLUMNS = (
-    PANEL_INDENT,
-    "Dim.",
-    "Canon",
-    "Sign · value",
-    "Zone",
-    "Deviation type",
-    "Outcome",
-    "Inspections",
-)
-PANEL_WIDTHS = {
-    PANEL_INDENT: 30,
-    "Dim.": 72,
-    "Canon": 70,
-    "Sign · value": 92,
-    "Zone": 196,
-    "Deviation type": 176,
-    "Outcome": 168,
-    "Inspections": 340,
-}
-
-#: Сколько исследований видно в ячейке; остальные — строкой `+N inspections`.
-INSPECTIONS_SHOWN = 2
-
 #: Колонки, которым направление задаётся не по содержимому, а принудительно LTR
 #: (наряд 0007 §4а, канон §6): идентификаторы, наряд, дата, количество, исход.
 #: `Item` и `Explanation` сюда не входят — там направление решает содержимое.
@@ -202,8 +189,6 @@ EXPLANATION_COLUMN = COLUMNS.index("Explanation")
 
 #: Идентификатор отклонения — в ячейке номера, как и до наряда.
 DEVIATION_ROLE = Qt.ItemDataRole.UserRole
-
-NO_INSPECTIONS = "No inspections"
 
 #: Полная формулировка заголовка `Qty` — в подсказке (канва, §1 наряда).
 QTY_HINT = "parts in this deviation"
@@ -245,131 +230,6 @@ def grid_widths(window_width: int, *, revision_width: int) -> dict[str, int]:
     for name in SHRINK_ORDER:
         tight.pop(name, None)
     return tight
-
-
-def panel_height(inspection_counts: list[int]) -> int:
-    """Высота панели раскрытия: своя шапка плюс строки находок (§4 наряда)."""
-    return tokens.PANEL_HEADER_HEIGHT + sum(finding_row_height(n) for n in inspection_counts)
-
-
-def finding_row_height(inspections: int) -> int:
-    """Высота строки находки: **28 / 43 / 58** по числу показанных исследований.
-
-    Правило `design-system.md` §3, revision 1.7: «Inside an expanded record the
-    finding sub-row is 28 / 43 / 58 by the number of inspections listed».
-    Показанных всегда не больше двух; третье и далее сворачиваются в строку
-    `+N inspections`, и она добавляет столько же, сколько вторая строка списка.
-    """
-    if inspections <= 1:
-        return tokens.FINDING_ROW_HEIGHT
-    if inspections == 2:
-        return tokens.FINDING_ROW_TWO
-    return tokens.FINDING_ROW_MANY
-
-
-def inspections_text(rows) -> str:
-    """Ячейка `Inspections`: **тип · позиция**, по строке на исследование.
-
-    Короткий вывод сюда не попадает намеренно (§4.2 наряда `0028`): 340 px это
-    около 45 знаков. Вывод целиком уходит в подсказку — приём не новый, так уже
-    сделано с обоснованием решения. Позиции у исследования больше нет вовсе
-    (`Inspection.md` rev 1.03).
-    """
-    if not rows:
-        return NO_INSPECTIONS
-    shown = [strip_iso(iso(row.type_name)) for row in rows[:INSPECTIONS_SHOWN]]
-    hidden = len(rows) - len(shown)
-    if hidden > 0:
-        shown.append(f"+{hidden} inspection" + ("" if hidden == 1 else "s"))
-    return "\n".join(shown)
-
-
-def inspections_tooltip(rows) -> str:
-    """Полный вывод каждого исследования — **без обрезки** (§4.2 наряда `0028`).
-
-    Позиции здесь больше нет: исследование поставляет сведения и суждения не
-    несёт (`Inspection.md` rev 1.03).
-    """
-    lines = []
-    for row in rows:
-        lines.append(
-            f"{row.type_name}\n{row.conclusion}" if row.conclusion else row.type_name
-        )
-    return "\n\n".join(lines)
-
-
-class FindingsPanel(QTableWidget):
-    """Панель находок под раскрытой строкой — своя шапка, своя сетка.
-
-    Это **не** продолжение таблицы над ней: у уровней разные колонки, и панель
-    живёт своей сеткой (решение 13 реестра). Ни выбора, ни фокуса она не берёт —
-    единица действия остаётся отклонением, и клик внутри панели не меняет
-    выбранное отклонение просто потому, что панели нечего выбирать.
-    """
-
-    def __init__(self, findings, inspections, parent: QWidget | None = None) -> None:
-        super().__init__(0, len(PANEL_COLUMNS), parent)
-        self.setHorizontalHeaderLabels(PANEL_COLUMNS)
-        self.setObjectName("findingsPanel")
-
-        kit.dress_table(
-            self,
-            numeric_columns=PANEL_NUMERIC_COLUMNS,
-            magnitude_columns=PANEL_MAGNITUDE_COLUMNS,
-            widths=tuple(kit.px(PANEL_WIDTHS[name]) for name in PANEL_COLUMNS),
-        )
-        # Ни выбора, ни фокуса, ни прокрутки: панель показана целиком, а
-        # прокручивается список над ней (§3 наряда, инварианты 1 и 2).
-        self.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.horizontalHeader().setMinimumSectionSize(min(PANEL_WIDTHS.values()))
-        for index, name in enumerate(PANEL_COLUMNS):
-            self.setColumnWidth(index, PANEL_WIDTHS[name])
-        self.horizontalHeader().setFixedHeight(tokens.PANEL_HEADER_HEIGHT)
-        self.setFrameShape(QTableWidget.Shape.NoFrame)
-
-        self.fill(findings, inspections)
-
-    def fill(self, findings, inspections) -> None:
-        """Разложить находки; исследования приходят готовым словарём по находке."""
-        ordered = sorted(findings, key=lambda row: dimension_sort_key(row.local_number))
-        self.setRowCount(len(ordered))
-        for index, row in enumerate(ordered):
-            found = inspections.get(row.finding_id, [])
-            values = (
-                "",
-                iso(row.local_number),
-                iso(row.canon),
-                signed_label(row.direction, row.value),
-                row.zone or "",
-                row.deviation_type or "",
-                outcome_label(row.outcome),
-                inspections_text(found),
-            )
-            for column, value in enumerate(values):
-                cell = QTableWidgetItem(value)
-                if column == PANEL_COLUMNS.index("Inspections") and found:
-                    cell.setToolTip(inspections_tooltip(found))
-                self.setItem(index, column, cell)
-            self.setRowHeight(index, finding_row_height(len(found)))
-
-        self.setFixedHeight(panel_height([len(inspections.get(r.finding_id, [])) for r in ordered]))
-
-    def sizeHint(self):  # noqa: N802 — имя от Qt
-        size = super().sizeHint()
-        size.setHeight(self.height())
-        return size
-
-
-#: Направление колонок панели: номер размера, канон и величина — принудительно
-#: LTR. `Zone` и `Deviation type` берут направление по содержимому: значения
-#: справочников бывают ивритскими (`CLAUDE.md` §9).
-PANEL_NUMERIC_COLUMNS = (1, 2, 3)
-
-#: Вправо — только «знак · величина»: её сравнивают по величине вниз по столбцу.
-PANEL_MAGNITUDE_COLUMNS = (3,)
 
 
 class DeviationView(QWidget):
