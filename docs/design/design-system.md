@@ -5,7 +5,7 @@ status: ratified
 task: QMS-016
 branch: run/qms-016
 updated: 2026-09-07
-revision: 1.12
+revision: 1.13
 ---
 
 # MIS-QMS design system — tokens and rules
@@ -381,6 +381,36 @@ next reader does not "fix" it back.
   so a single-line rule there would mean truncating the main text of a precedent. Two-line is a
   **per-column declaration**, never a screen-wide or application-wide default: a column that
   wraps without being declared is a defect, not a feature.
+
+### One level, one header
+
+**Two tables with identical columns standing in the same region are one table with group rows.**
+Two headers over the same kind of row do not divide the data — they divide the *reading*: the
+operator stops comparing rows and starts comparing tables. Where the grouping carries meaning
+(the precedent area distinguishes "same dimension" from "same canon position"), the meaning goes
+into a full-width **group row** inside the single table, which is cheaper than a header and says
+more, because it can name the group and count it.
+
+**Inside an expanded record, the sub-table's header is a label strip, not a table header.** Same
+labels, subordinate weight: no header fill, no rule above, `12/500` in `n-500`. It is telling the
+reader what the columns of the detail are, not announcing a new table. The header itself stays —
+seven columns of numbers without names are a riddle, and compactness bought by removing names is
+paid for in misreading (naryad `0032`).
+
+### Only one region of a dialog stretches
+
+**Every region of a dialog is sized by its content; exactly one is declared the stretching one,
+and it takes everything left over.** A fixed floor on a region that holds one row — a 150 px
+minimum for a 70 px table — is not a safety margin, it is a hundred pixels taken from whatever
+the dialog was opened for.
+
+The stretching region gets a floor stated in **what must be visible**, not in pixels: the card's
+precedent area must show two precedent rows and one fully expanded panel. If the window cannot
+give that, the dialog grows; the comparison is not what shrinks.
+
+An inline section with nothing in it collapses to **one line** (§8, compact variant) — a box with
+a sentence in the middle of it spends a section's worth of height to say that there is nothing
+here.
 
 ## 8. Empty states
 
