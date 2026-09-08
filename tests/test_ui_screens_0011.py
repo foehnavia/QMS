@@ -65,6 +65,27 @@ def no_modals(monkeypatch):
     return shown
 
 
+def _precedent_row(card, group: str, index: int = 0) -> int:
+    """Строка прецедента группы `group` — по группе, а не по номеру (§9а.9).
+
+    Таблица после наряда `0032` одна, перед каждой группой стоит её заголовок, и
+    номер строки на экране больше не равен номеру в выборке.
+    """
+    from PySide6.QtCore import Qt as _Qt
+    from ui.card_dialog import PRECEDENT_ID_COLUMN as _ID
+
+    rows = card.precedents.rows_of(group)
+    assert index < len(rows), f"в группе {group} нет строки {index}: {len(rows)}"
+    wanted = rows[index].deviation_id
+    for row in range(card.precedents.rowCount()):
+        if card.precedents.is_service_row(row):
+            continue
+        cell = card.precedents.item(row, _ID)
+        if cell is not None and cell.data(_Qt.ItemDataRole.UserRole) == wanted:
+            return row
+    raise AssertionError(f"строка группы {group} не найдена на экране")
+
+
 def _bound_item(engine, *, local_number: str = "12"):
     """Деталь с одним размером, привязанным к канонической позиции g1."""
     with session_scope(engine) as session:
@@ -333,22 +354,32 @@ def test_the_precedent_tabs_scroll_instead_of_squeezing(engine, no_modals) -> No
 
     for index in range(card.tabs.count()):
         assert isinstance(card.tabs.widget(index), QScrollArea)
-    # Таблица прецедентов не сжимается до полоски — иначе прокрутка не нужна,
-    # а нужна была именно она.
-    assert card.same_position.minimumHeight() == tokens.INLINE_TABLE_HEIGHT
+    # Область прецедентов не сжимается до полоски — иначе прокрутка не нужна,
+    # а нужна была именно она. Предел с наряда `0032` задан **видимым**, а не
+    # `INLINE_TABLE_HEIGHT`: две строки прецедента плюс раскрытая панель целиком.
+    # Проверяем то же требование, что и раньше, — что предел есть и он не ноль.
+    from ui.card_dialog import precedent_floor
+
+    assert card.tabs.minimumHeight() == precedent_floor() > 0
     assert no_modals == []
 
 
 def test_the_precedent_sections_explain_emptiness_in_one_line(engine, no_modals) -> None:
-    """Две секции — соседи одной вкладки, значит компактный вариант (канон §8)."""
+    """Пустое состояние области — компактный вариант (канон §8).
+
+    Секций-соседей больше нет: таблица прецедентов после наряда `0032` **одна**,
+    и «совпадений нет» отвечает групповая строка с нулём, а не пустое состояние.
+    Осталась одна причина пустоты — «находка не выбрана», и она про область
+    целиком; компактной она обязана быть по той же причине, что и прежние две:
+    выход принадлежит вкладке, а не секции.
+    """
     from ui.card_dialog import CardDialog
 
     deviation_id = _decided_deviation(engine)
 
     card = CardDialog(engine, deviation_id)
 
-    assert card.dimension_empty.compact is True
-    assert card.position_empty.compact is True
+    assert card.precedents_empty.compact is True
     # Пустое состояние вкладки целиком остаётся полным: у него есть свой выход.
     assert card.descriptive_hint.compact is False
     assert card.position_hint_box.compact is False
@@ -365,7 +396,7 @@ def test_an_unselected_finding_gets_its_own_reason(engine, no_modals) -> None:
     card.findings.setCurrentCell(-1, -1)
     card.refresh_precedents()
 
-    assert "No finding selected" in card.dimension_empty.body_label.text()
+    assert "No finding selected" in card.precedents_empty.body_label.text()
     assert no_modals == []
 
 
@@ -382,7 +413,9 @@ def test_the_precedent_pill_is_painted_by_its_code(engine, no_modals) -> None:
     item_id, deviation_id = _deviation_with_a_precedent(engine)
 
     card = CardDialog(engine, deviation_id)
-    cell = card.same_position.item(0, PRECEDENT_DECISION_COLUMN)
+    cell = card.precedents.item(
+        _precedent_row(card, "position"), PRECEDENT_DECISION_COLUMN
+    )
 
     assert cell.text() == "Approved"
     assert cell.data(kit.DECISION_ROLE) == "approved"

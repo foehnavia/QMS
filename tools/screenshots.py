@@ -622,11 +622,10 @@ def shoot_on_run_database() -> int:
         shoot(card, f"run-card-{number}-descriptive")
         card.tabs.setCurrentIndex(0)
         measure_columns(card.findings, f"card {number} · findings")
-        print(
-            f"    {number}: exact rows "
-            f"{card.same_dimension.rowCount()} + {card.same_position.rowCount()}"
-            f" · {card.status.text()}"
+        counts = " + ".join(
+            str(len(group.rows)) for group in card.precedents.groups()
         )
+        print(f"    {number}: exact rows {counts} · {card.status.text()}")
 
     print("Column widths:")
     for row, name in enumerate(sections):
@@ -988,11 +987,13 @@ def main() -> int:
     # величина, общая у кода и снимка, и четвёртая молча увела бы снимок на
     # находку, у которой прецедентов нет (`CLAUDE.md` §9а.9).
     _select_finding(expanded_card, "12")
-    table = expanded_card.same_position
+    table = expanded_card.precedents
     for row in range(table.rowCount() - 1, -1, -1):
         # Снизу вверх: раскрытие вставляет служебную строку и сдвигает всё,
         # что ниже, — идя сверху, вторым кликом попадёшь не в ту запись.
-        if not table.is_panel_row(row):
+        # Служебные строки пропускаем обе: с наряда `0032` их два вида, и
+        # групповая раскрытию не подлежит.
+        if not table.is_service_row(row):
             table.toggle_expansion(row)
     shoot(expanded_card, "23-card-precedents-expanded")
     shoot(ItemPositionsDialog(engine, ids["item_id"]), "12-dialog-item-positions")

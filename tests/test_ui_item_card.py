@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractItemView, QMessageBox
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,29 @@ pytestmark = pytest.mark.usefixtures("qt_app")
 def engine(seeded_session):
     seeded_session.commit()
     return seeded_session.get_bind()
+
+
+def _precedent_row(card, group: str, index: int = 0) -> int:
+    """Строка прецедента группы `group` — **по группе и порядку внутри неё**.
+
+    Таблица прецедентов после наряда `0032` **одна**, а принадлежность к выборке
+    несёт групповая строка. Номер строки в таблице поэтому больше не равен номеру
+    в выборке: перед каждой группой стоит её заголовок, а под раскрытой записью —
+    её панель. Адресуем по имени группы, а не по числу (`CLAUDE.md` §9а.9).
+    """
+    from PySide6.QtCore import Qt as _Qt
+    from ui.card_dialog import PRECEDENT_ID_COLUMN as _ID
+
+    rows = card.precedents.rows_of(group)
+    assert index < len(rows), f"в группе {group} нет строки {index}: {len(rows)}"
+    wanted = rows[index].deviation_id
+    for row in range(card.precedents.rowCount()):
+        if card.precedents.is_service_row(row):
+            continue
+        cell = card.precedents.item(row, _ID)
+        if cell is not None and cell.data(_Qt.ItemDataRole.UserRole) == wanted:
+            return row
+    raise AssertionError(f"строка группы {group} не найдена на экране")
 
 
 def _two_revisions(session: Session):
@@ -314,8 +338,11 @@ def _revision_cell_of_precedent_card(engine, item_id):
 
     card = CardDialog(engine, deviation_id)
     card.findings.setCurrentCell(0, 0)
-    assert card.same_position.rowCount() == 1, "прецедент через ревизию обязан быть"
-    return card, card.same_position.item(0, PRECEDENT_REVISION_COLUMN)
+    assert len(card.precedents.rows_of("position")) == 1, (
+        "прецедент через ревизию обязан быть"
+    )
+    row = _precedent_row(card, "position")
+    return card, card.precedents.item(row, PRECEDENT_REVISION_COLUMN)
 
 
 def test_the_revision_mark_looks_the_same_on_both_screens(engine) -> None:
@@ -377,7 +404,7 @@ def test_a_canon_dimension_of_a_past_revision_stays_uncoloured(engine) -> None:
         item_id = _two_revisions(session)
 
     card, _cell = _revision_cell_of_precedent_card(engine, item_id)
-    size_cell = card.same_position.item(0, PRECEDENT_SIZE_COLUMN)
+    size_cell = card.precedents.item(_precedent_row(card, "position"), PRECEDENT_SIZE_COLUMN)
 
     assert size_cell.foreground().color().name().upper() != tokens.DANGER_TEXT.upper()
     assert "!" not in _text(size_cell)

@@ -21,16 +21,18 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -68,6 +70,7 @@ from . import kit
 from .common import (
     UNBOUND_MARK,
     FindingsPanel,
+    panel_height,
     decision_dev_label,
     dimension_sort_key,
     iso,
@@ -88,6 +91,7 @@ from .deviation_dialog import (
     FINDING_NUMERIC_COLUMNS,
     FINDING_WIDTHS,
     DeviationDialog,
+    hide_finding_columns,
 )
 from .finding_dialog import FindingDialog, FindingRow
 from .inspection_dialog import InspectionDialog
@@ -145,26 +149,50 @@ PRECEDENT_COLUMNS = (
 #: `Revision` — обозначение как выпущено, обычно один-два знака; класс 2
 #: (§8.3 наряда 0020): ширина по заголовку, запаса нет.
 #:
-#: `Explanation` объявлена **пикселями**, а не знакоместами, и это замер §3
-#: наряда `0031`: колонка-раскрыватель добавляет таблице 30 px, и наряд велит
-#: взять их из `Explanation` — у неё единственной полный текст уже лежит в
-#: подсказке, так что укорочение ячейки ничего не теряет. Ровно 30 знакоместами
-#: не выражаются: одно знакоместо здесь 7 px плюс 20 px оправы, то есть 40 слотов
-#: дают 300, а 36 — 272 и 35 — 265. `kit.px(270)` = 300 − 30, число в число.
-#: Прочие колонки не сжимаются: их ширины назначены замером по рекорду
-#: (§7.3 наряда 0020), и снять с них по паре пикселей значит вернуть обрезку
-#: туда, где её убирали руками.
+#: **Все ширины назначены замером заново — §2 наряда `0032`.** Таблица объявляла
+#: 1448 px при полотне в 1136 и потому прокручивалась вбок; наряд велел снять
+#: разницу с колонок, у которых полный текст уже лежит в подсказке.
+#:
+#: Двух колонок не хватило, и вот почему — это замер, а не оценка. Потребность
+#: колонки считается как `max(заголовок, самое длинное реальное значение) + 27`
+#: непечатаемого; сумма потребностей вышла **1373**, то есть уже больше полотна.
+#: Значит вопрос стоял не «где взять 312», а «как разложить 1136»:
+#:
+#:   колонка          было  нужно  стало   отчего так
+#:   (раскрыватель)     30      —     30   §3 наряда 0031, не трогается
+#:   Deviation         153    131    132   потребность плюс округление
+#:   Date              132     89     92   то же
+#:   Item              125     89     92   то же (наряд назвал её третьей)
+#:   Revision           68     75     68   `FIT_LABEL`; недобор в 7 px — QMS-022
+#:   WO                125     95     96   потребность плюс округление
+#:   Characteristic    230    195    120   обрезается, полный текст в подсказке
+#:   Sign · value      118     93     96   потребность плюс округление
+#:   Decision          150     85    150   рисует пилюля, ей нужна оправа
+#:   Explanation       270    440    176   обрезается, полный текст в подсказке
+#:   Insp.              47     54     47   `FIT_LABEL`; тот же недобор, QMS-022
+#:   сумма            1448   1373   1119   полотно 1120
+#:
+#: **Полотно считается по тесноте, а не по удобному случаю.** Раскрытие строк
+#: поднимает вертикальную полосу, та забирает шестнадцать пикселей, и сетка,
+#: сошедшаяся на свёрнутой таблице, давала колонку за краем на раскрытой.
+#: Держится это не запасом, а тем, что центрирование **пересчитывается** после
+#: раскрытия (`kit.recentre_columns`): отступ 8 на свёрнутой, 3 на раскрытой,
+#: полотно в обоих случаях 1120. Сумма при этом не меняется ни на пиксель.
+#:
+#: `Revision` и `Insp.` оставлены `FIT_LABEL` намеренно, хотя замер показывает у
+#: обеих недобор в 7 px: это известный дефект формулы `kit.FIT_LABEL`, общий для
+#: всех экранов, и он чинится задачей **QMS-022**, а не здесь.
 PRECEDENT_WIDTHS = (
     kit.px(PRECEDENT_EXPANDER_WIDTH),
-    19,
-    16,
-    15,
+    kit.px(132),
+    kit.px(92),
+    kit.px(92),
     kit.FIT_LABEL,
-    15,
-    30,
-    14,
+    kit.px(96),
+    kit.px(120),
+    kit.px(96),
     kit.pill(14),
-    kit.px(270),
+    kit.px(196),
     kit.FIT_LABEL,
 )
 
@@ -247,10 +275,73 @@ NO_INSPECTIONS_HINT = (
     "an inspection is recorded only when a written, reusable analysis exists"
 )
 
+#: Роль, под которой групповая строка несёт своё имя. Групповая строка —
+#: **третий** вид служебной строки этой таблицы (после строки панели), и отличать
+#: её надо признаком, а не догадкой по содержимому ячейки.
+GROUP_ROLE = Qt.ItemDataRole.UserRole + 5
+
+#: Сколько строк таблицы находок видно, пока она не начнёт прокручиваться сама.
+#: Шесть — потому что дальше карточка перестаёт быть обзором (§1 наряда `0032`).
+FINDINGS_SHOWN = 6
+
+#: То же для исследований выбранной находки. Четыре: их у одного размера единицы,
+#: и высота секции не должна отбирать вертикаль у сравнения.
+INSPECTIONS_SHOWN_IN_CARD = 4
+
+#: Сколько строк прецедента область обязана показать в любом случае.
+PRECEDENTS_FLOOR_ROWS = 2
+
+
+def precedent_floor() -> int:
+    """Нижний предел области прецедентов — **видимым**, а не числом пикселей.
+
+    Требование §1 наряда `0032`: две строки прецедента плюс одна раскрытая панель
+    целиком. Пиксельная константа на этом месте была бы тем же, что и снятый
+    отсюда `INLINE_TABLE_HEIGHT`, — числом, которое перестаёт значить обещанное
+    при первой же правке высоты строки.
+
+    Панель считается **на максимум**: раскрытая запись с находкой, несущей больше
+    двух исследований, — самый высокий случай, и обещать «панель целиком» надо на
+    нём, а не на удобном. Групповая строка входит: без неё первая же группа
+    съедала бы одну из двух обещанных строк.
+
+    Чистая функция от токенов: проверяется арифметикой на любой платформе
+    (`CLAUDE.md` §9а.14).
+    """
+    rows = kit.table_height(PRECEDENTS_FLOOR_ROWS)
+    panel = panel_height([FINDING_WITH_MANY_INSPECTIONS])
+    return rows + tokens.PRECEDENT_GROUP_HEIGHT + panel + tokens.TAB_STRIP_HEIGHT
+
+
+#: Столько исследований у находки хватает, чтобы подстрока панели встала в самую
+#: высокую из трёх своих высот (28 / 43 / 58).
+FINDING_WITH_MANY_INSPECTIONS = 3
+
 NO_PRECEDENTS_TITLE = "No precedents yet"
 #: Компактная секция говорит одной фразой: читатель просматривает вкладку, а не
 #: секцию, и абзац на каждую из двух пустых секций он всё равно не читает.
 NO_PRECEDENTS_HINT = "only deviations that already carry a decision are listed"
+
+
+@dataclass(frozen=True)
+class PrecedentGroup:
+    """Одна выборка прецедентов внутри общей таблицы (§3 наряда `0032`).
+
+    До наряда каждая выборка была **своей таблицей** со своей шапкой. Колонки у
+    них одинаковые, значит по норме `design-system.md` §7 rev 1.13 («One level,
+    one header») это одна таблица с групповыми строками. Групповая строка вдобавок
+    умеет то, чего шапка не умела, — **называть группу и считать её**.
+
+    `key` отделяет одинаковые отклонения в разных группах: запись, попавшая в обе
+    выборки, показывается в обеих, и раскрытие в одной не обязано раскрывать её
+    в другой. Это не дубль, а два разных ответа на два разных вопроса.
+    """
+
+    key: str
+    title: str
+    rows: tuple[PrecedentRow, ...] = ()
+    #: Чем объяснить пустую группу, если причина не «совпадений нет».
+    note: str = ""
 
 
 class PrecedentTable(kit.DataTable):
@@ -294,18 +385,19 @@ class PrecedentTable(kit.DataTable):
         )
 
         #: Движок нужен **только** раскрытию: находки и исследования прецедента
-        #: читаются лениво, на клик по стрелке (§5 наряда). Заранее для всех
-        #: строк их не тянут — выдача возвращает десятки отклонений, и тащить
+        #: читаются лениво, на клик по стрелке (§5 наряда `0031`). Заранее для
+        #: всех строк их не тянут — выдача возвращает десятки отклонений, и тащить
         #: содержимое каждого ради двух, которые раскроют, значит работать
         #: впустую при каждом клике по находке.
         self._engine = engine
-        self._rows: list[PrecedentRow] = []
+        self._groups: list[PrecedentGroup] = []
         self._reference: str | None = None
-        #: Раскрытые — по идентификатору отклонения, не по номеру строки: номера
-        #: едут после каждого раскрытия.
-        self._expanded: set[int] = set()
+        #: Раскрытые — парой «группа · отклонение», а не одним идентификатором:
+        #: одна и та же запись законно стоит в обеих группах, и раскрытие её в
+        #: одной не обязано раскрывать её в другой (§3 наряда `0032`).
+        self._expanded: set[tuple[str, int]] = set()
         #: Кому принадлежит строка, включая служебную.
-        self._row_owner: dict[int, int] = {}
+        self._row_owner: dict[int, tuple[str, int]] = {}
 
         self.cellClicked.connect(self._on_cell_clicked)
 
@@ -321,35 +413,80 @@ class PrecedentTable(kit.DataTable):
         Решение 6 реестра, дословно то же, что в списке: гармошка убивает ровно
         то, ради чего раскрытие заведено, — сравнение двух записей между собой.
         А здесь это ещё существеннее: карточка и есть экран сравнения.
+
+        Групповая строка не раскрывается: раскрывать в ней нечего, и `_row_owner`
+        её не держит.
         """
-        deviation_id = self._row_owner.get(row)
-        if deviation_id is None:
+        owner = self._row_owner.get(row)
+        if owner is None:
             return
         selected = self.selected_deviation()
-        if deviation_id in self._expanded:
-            self._expanded.discard(deviation_id)
+        if owner in self._expanded:
+            self._expanded.discard(owner)
         else:
-            self._expanded.add(deviation_id)
+            self._expanded.add(owner)
         self._render(keep=selected)
 
     def expanded(self) -> set[int]:
-        """Какие прецеденты сейчас раскрыты — состояние экрана, не таблицы."""
-        return set(self._expanded)
+        """Какие прецеденты раскрыты — идентификаторами, как и до наряда `0032`.
+
+        Внутри состояние держится парой «группа · отклонение», но наружу отдаётся
+        то, о чём спрашивают, — какие **записи** раскрыты.
+        """
+        return {deviation_id for _key, deviation_id in self._expanded}
 
     def is_panel_row(self, row: int) -> bool:
-        """Служебная ли это строка. Отличается наличием виджета, а не догадкой."""
+        """Служебная ли это строка панели. Признак — виджет, а не догадка."""
         return self.cellWidget(row, 0) is not None
+
+    def is_group_row(self, row: int) -> bool:
+        """Групповая ли это строка. Признак — роль, а не разбор текста ячейки."""
+        cell = self.item(row, 0)
+        return bool(cell is not None and cell.data(GROUP_ROLE))
+
+    def is_service_row(self, row: int) -> bool:
+        """Любая служебная строка: групповая или строка панели.
+
+        Одним вопросом, потому что всем потребителям таблицы важно одно и то же —
+        «это не прецедент». Разводить два вида по местам вызова значило бы
+        заводить второй шанс забыть про один из них, а именно на таком пропуске
+        в наряде `0029` вырос `TypeError` доводки 3.
+        """
+        return self.is_panel_row(row) or self.is_group_row(row)
 
     def panel_at(self, row: int) -> FindingsPanel | None:
         widget = self.cellWidget(row, 0)
         return widget if isinstance(widget, FindingsPanel) else None
 
-    def _insert_panel(self, deviation_id: int) -> None:
+    def _insert_group(self, group: PrecedentGroup) -> None:
+        """Строка-заголовок группы во всю ширину.
+
+        Не выбирается и не ловится стрелками — флаги сняты, Qt такие пропускает.
+        Считает свою группу сама: «(0)» это **ответ**, а исчезнувшая группа
+        читается оператором как «поиск не работал» (§3 наряда).
+        """
+        index = self.rowCount()
+        self.insertRow(index)
+        cell = QTableWidgetItem(iso(group.title))
+        cell.setFlags(Qt.ItemFlag.NoItemFlags)
+        cell.setData(GROUP_ROLE, True)
+        if group.note:
+            cell.setToolTip(group.note)
+        self.setItem(index, 0, cell)
+        self.setSpan(index, 0, 1, len(PRECEDENT_COLUMNS))
+        self.setRowHeight(index, tokens.PRECEDENT_GROUP_HEIGHT)
+
+    def _insert_panel(self, key: str, deviation_id: int) -> None:
         """Служебная строка на всю ширину с панелью находок прецедента.
 
         Строка **не выбирается и не ловится стрелками**: у её ячейки сняты все
         флаги, а Qt пропускает такие при навигации клавиатурой. Панель фокуса
         тоже не берёт, поэтому клик по ней не уводит выбор с прецедента.
+
+        Шапка панели — **подчинённая** (§4 наряда `0032`): в диалоге она читается
+        как подпись колонок, а не как заголовок новой таблицы. Это параметр
+        панели, а не смена вида для всех: список отклонений строит ту же панель
+        без него и остаётся с прежней шапкой.
         """
         findings, inspections = self._content(deviation_id)
         index = self.rowCount()
@@ -358,10 +495,10 @@ class PrecedentTable(kit.DataTable):
         holder.setFlags(Qt.ItemFlag.NoItemFlags)
         self.setItem(index, 0, holder)
         self.setSpan(index, 0, 1, len(PRECEDENT_COLUMNS))
-        panel = FindingsPanel(findings, inspections, self)
+        panel = FindingsPanel(findings, inspections, self, subordinate=True)
         self.setCellWidget(index, 0, panel)
         self.setRowHeight(index, panel.height())
-        self._row_owner[index] = deviation_id
+        self._row_owner[index] = (key, deviation_id)
 
     def _content(self, deviation_id: int):
         """Находки и исследования прецедента — **доменом**, при раскрытии (§5).
@@ -378,11 +515,14 @@ class PrecedentTable(kit.DataTable):
             inspections = inspections_of_deviation(session, deviation_id)
         return findings, inspections
 
-    def fill(self, rows: list[PrecedentRow], *, reference: str | None = None) -> None:
-        """`reference` — ревизия, из которой смотрят: она попадает в подсказку
-        пометки выпуска. Пометку ставит `mark_other_revision` — та же функция,
-        что и в списке отклонений детали, чтобы один факт не выглядел на двух
-        экранах по-разному.
+    def fill(
+        self, groups: list[PrecedentGroup], *, reference: str | None = None
+    ) -> None:
+        """Разложить **группы** выдачи. `reference` — ревизия, из которой смотрят.
+
+        Она попадает в подсказку пометки выпуска; пометку ставит
+        `mark_other_revision` — та же функция, что и в списке отклонений детали,
+        чтобы один факт не выглядел на двух экранах по-разному.
 
         **Раскрытия здесь сбрасываются** (§4 наряда `0031`) — по той же причине,
         по какой сбрасывается выбор: пришёл другой набор отклонений, то есть
@@ -390,10 +530,25 @@ class PrecedentTable(kit.DataTable):
         раскрывал в наборе, которого он ещё не видел. Внутри одного набора
         раскрытия живут: переключение вкладок сюда не заходит.
         """
-        self._rows = list(rows)
+        self._groups = list(groups)
         self._reference = reference
         self._expanded.clear()
         self._render()
+
+    def groups(self) -> tuple[PrecedentGroup, ...]:
+        """Выдача, как её разложили, — для тех, кто спрашивает про данные.
+
+        Экран берёт отсюда полный текст обоснования (§5 наряда `0032`): в ячейке
+        он урезан до одной строки, и копировать надо не то, что нарисовано.
+        """
+        return tuple(self._groups)
+
+    def rows_of(self, key: str) -> tuple[PrecedentRow, ...]:
+        """Строки одной группы — для тех, кто спрашивает про выдачу, не про экран."""
+        for group in self._groups:
+            if group.key == key:
+                return group.rows
+        return ()
 
     def _render(self, *, keep: int | None = None) -> None:
         """Разложить строки заново вместе со служебными. `keep` — что выбрать."""
@@ -402,17 +557,43 @@ class PrecedentTable(kit.DataTable):
         self.clearSelection()
         self.setCurrentCell(-1, -1)
         self.setRowCount(0)
+        self.clearSpans()
         self._row_owner = {}
-        for row in self._rows:
-            index = self.rowCount()
-            self.insertRow(index)
-            self._fill_precedent(index, row)
-            self._row_owner[index] = row.deviation_id
-            if row.deviation_id in self._expanded:
-                self._insert_panel(row.deviation_id)
+        for group in self._groups:
+            self._insert_group(group)
+            for row in group.rows:
+                index = self.rowCount()
+                self.insertRow(index)
+                self._fill_precedent(index, row, expanded=(group.key, row.deviation_id))
+                self._row_owner[index] = (group.key, row.deviation_id)
+                if (group.key, row.deviation_id) in self._expanded:
+                    self._insert_panel(group.key, row.deviation_id)
         self._stretch_panels()
         if keep is not None:
             self._select_deviation(keep)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 — имя от Qt
+        """Переложить панели по новой ширине.
+
+        Ширина панели считается от полотна, а полотно к моменту вставки строки
+        ещё не знает своего размера: раскрытие в `_render` укладывало панель по
+        **устаревшему** числу, и на снимке она выходила короче таблицы на треть,
+        теряя две последние колонки. При этом замер после доводки раскладки
+        показывал верные числа — то есть дефект был виден только картинкой
+        (`CLAUDE.md` §9а: сверяй то, чем рисуют).
+
+        Флаг — не перестраховка: `_stretch_panels` двигает отступы полотна через
+        `recentre_columns`, а это снова `resizeEvent`. Рекурсия здесь кончалась бы
+        не миганием, а смертью процесса (§9а.15).
+        """
+        super().resizeEvent(event)
+        if getattr(self, "_laying_out", False):
+            return
+        self._laying_out = True
+        try:
+            self._stretch_panels()
+        finally:
+            self._laying_out = False
 
     def _stretch_panels(self) -> None:
         """Растянуть панели на ширину служебной строки.
@@ -423,20 +604,33 @@ class PrecedentTable(kit.DataTable):
         отклонений (`DeviationView._stretch_panels`).
         """
         content = sum(self.columnWidth(column) for column in range(self.columnCount()))
+        # Панель **не шире полотна**: иначе раскрытая строка сама заводит
+        # горизонтальную полосу, которую §2 наряда `0032` как раз и убирает.
+        # Замерено: панель выходила ровно на пиксель шире, и этого пикселя
+        # хватало, чтобы полоса появилась.
+        available = self.viewport().width()
+        width = min(content, available) if available > 0 else content
         for row in range(self.rowCount()):
             panel = self.panel_at(row)
             if panel is not None:
-                panel.setFixedWidth(max(content, panel.minimumWidth()))
+                panel.setFixedWidth(width)
+                panel.fit_to(width)
                 self.setRowHeight(row, panel.height())
+        # Раскрытие меняет **высоту** содержимого, а с ней появляется
+        # вертикальная полоса — и забирает у полотна свои пиксели. Отступ
+        # центрирования, посчитанный до неё, остаётся прежним, и колонка уезжает
+        # за правый край при сумме, которая не менялась ни на пиксель (§2 наряда
+        # `0032`, замерено: полотно 1064 → 1054 при сумме 1063).
+        kit.recentre_columns(self)
 
     def _select_deviation(self, deviation_id: int) -> None:
         """Вернуть выбор на ту же запись: раскрытие сдвигает номера строк."""
-        for row, owner in self._row_owner.items():
-            if owner == deviation_id and not self.is_panel_row(row):
+        for row, (_key, owner) in self._row_owner.items():
+            if owner == deviation_id and not self.is_service_row(row):
                 self.selectRow(row)
                 return
 
-    def _fill_precedent(self, index: int, row: PrecedentRow) -> None:
+    def _fill_precedent(self, index: int, row: PrecedentRow, *, expanded) -> None:
         """Разложить одну строку прецедента. Служебные строки сюда не заходят."""
         # Составная ячейка: номер размера и g-подпись — самостоятельные
         # токены, каждый в своём изоляте (наряд 0007, §4а).
@@ -464,7 +658,7 @@ class PrecedentTable(kit.DataTable):
             if column == PRECEDENT_EXPANDER_COLUMN:
                 # Состояние стрелки — в роли, откуда его и берёт делегат: сверяй
                 # то, чем рисуют (`CLAUDE.md` §9а).
-                cell.setData(EXPANDED_ROLE, row.deviation_id in self._expanded)
+                cell.setData(EXPANDED_ROLE, expanded in self._expanded)
             if column == PRECEDENT_ID_COLUMN:
                 cell.setData(Qt.ItemDataRole.UserRole, row.deviation_id)
             if column == PRECEDENT_SIZE_COLUMN and row.g_label:
@@ -504,7 +698,7 @@ class PrecedentTable(kit.DataTable):
         нулевой: нулевая теперь раскрыватель (`CLAUDE.md` §9а.9).
         """
         row = self.currentRow()
-        if row < 0 or self.is_panel_row(row):
+        if row < 0 or self.is_service_row(row):
             return None
         cell = self.item(row, PRECEDENT_ID_COLUMN)
         return None if cell is None else cell.data(Qt.ItemDataRole.UserRole)
@@ -543,6 +737,15 @@ class CardDialog(QDialog):
         self.attachment.setWordWrap(True)
         self.decision = kit.decision_badge("", None)
         self.explanation = QLabel()
+        # Обоснование **копируется, не редактируясь** (§5 наряда `0032`): его
+        # переносят в своё отклонение, а правка по-прежнему идёт формой. Ярлык
+        # выделяется мышью и клавиатурой — это и есть «копируется»; поля ввода
+        # здесь не появляется, иначе таблица стала бы редактируемой по месту,
+        # что канон запрещает (§7).
+        self.explanation.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
         self.explanation.setWordWrap(True)
 
         # Поля не растягиваются на всю ширину: иначе значение уезжает от своей
@@ -595,6 +798,7 @@ class CardDialog(QDialog):
             magnitude_columns=FINDING_MAGNITUDE_COLUMNS,
             widths=FINDING_WIDTHS,
         )
+        hide_finding_columns(self.findings)
         self.findings.currentCellChanged.connect(lambda *_: self.refresh_precedents())
 
         # Три кнопки названы по объекту, который открывают, и стоят в порядке
@@ -616,10 +820,13 @@ class CardDialog(QDialog):
             "Findings — pick a characteristic; precedents are searched by it"
         )
         findings_layout = QVBoxLayout(findings_box)
-        findings_layout.addWidget(self.findings, 1)
+        findings_layout.addWidget(self.findings)
         findings_layout.addLayout(finding_buttons)
-        kit.inline_table_height(self.findings)
-        self.findings.setMinimumHeight(kit.tokens.INLINE_TABLE_HEIGHT)
+        # Высоту раздаёт **содержимое** (`design-system.md` §7 rev 1.13, «Only one
+        # region of a dialog stretches»). Прежний жёсткий низ в 150 px давал
+        # таблице с одной находкой вдвое больше нужного, и эти пикселы отнимались
+        # у единственного места, ради которого карточку и открывают.
+        kit.fit_table_height(self.findings, rows=FINDINGS_SHOWN)
 
         # --- исследования выбранной находки ---
         self.inspections = kit.data_table(INSPECTION_COLUMNS, widths=INSPECTION_WIDTHS)
@@ -640,68 +847,57 @@ class CardDialog(QDialog):
         )
         inspections_box = QGroupBox("Inspections of the selected characteristic")
         inspections_layout = QVBoxLayout(inspections_box)
-        inspections_layout.addWidget(self.inspections, 1)
-        inspections_layout.addWidget(self.inspections_empty)
-        inspections_layout.addLayout(kit.button_row(self.protocol_button))
-        kit.inline_table_height(self.inspections, short=True)
+        inspections_layout.addWidget(self.inspections)
+        # Кнопка и объяснение пустоты — **в одной строке** (§1 наряда `0032`):
+        # пустая секция обязана быть строкой, а не коробкой с фразой посередине.
+        # Кнопка стоит первой и потому не переезжает, когда исследования есть и
+        # объяснение уходит: место действия не должно зависеть от наличия данных.
+        empty_row = kit.button_row(self.protocol_button, stretch_at_end=False)
+        empty_row.addWidget(self.inspections_empty)
+        empty_row.addStretch(1)
+        inspections_layout.addLayout(empty_row)
+        kit.fit_table_height(self.inspections, rows=INSPECTIONS_SHOWN_IN_CARD)
 
         # --- прецеденты ---
-        # Движок нужен таблице для ленивого запроса находок при раскрытии (§5
-        # наряда 0031) — до него у неё своих обращений к базе не было.
-        self.same_dimension = PrecedentTable(engine)
-        self.same_position = PrecedentTable(engine)
-        self._active_table: PrecedentTable | None = None
-        self._syncing_selection = False
-        for table in (self.same_dimension, self.same_position):
-            # Таблицу передаём явно: двойной клик во второй секции обязан открыть
-            # строку второй секции, а не «первой, где что-то выбрано».
-            table.doubleClicked.connect(
-                lambda *_args, source=table: self.open_precedent(source)
-            )
-            table.itemSelectionChanged.connect(
-                lambda source=table: self._on_table_selected(source)
-            )
-            # Кнопка открытия следует за выбором: §6 наряда 0031 требует, чтобы
-            # на служебной строке она была **неактивна**, а не отвечала строкой
-            # в подвале после нажатия.
-            table.itemSelectionChanged.connect(self._refresh_open_button)
-            table.currentCellChanged.connect(lambda *_: self._refresh_open_button())
+        # **Одна** таблица, а не две (§3 наряда `0032`). У `same_dimension` и
+        # `same_position` были одинаковые колонки — значит по норме §7 канона
+        # («One level, one header») это одна таблица с групповыми строками, а
+        # групповая строка вдобавок называет группу и считает её, чего шапка не
+        # умела. Движок нужен ей для ленивого запроса находок при раскрытии
+        # (§5 наряда `0031`).
+        self.precedents = PrecedentTable(engine)
+        self.precedents.doubleClicked.connect(lambda *_: self.open_precedent())
+        self.precedents.itemSelectionChanged.connect(self._refresh_open_button)
+        self.precedents.currentCellChanged.connect(lambda *_: self._refresh_open_button())
+        # `Ctrl+C` кладёт в буфер **полное** обоснование выбранной строки
+        # (§5 наряда): копируют не своё, а чужое — обоснование прецедента
+        # переносят в своё отклонение, и обрезанный по ячейке текст для этого
+        # бесполезен.
+        self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self.precedents)
+        self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self.copy_shortcut.activated.connect(self.copy_explanation)
 
-        self.same_dimension_title = kit.section_caption("")
-        self.same_position_title = kit.section_caption("")
-
-        # Четыре пустых состояния карточки — текстом, а не пустой таблицей
-        # (канон §8, наряд 0010 §4): пустая таблица без объяснения это то, как
-        # оператор заключает «прецедентов не было» из экрана, который просто
-        # ничего не искал.
+        # Привязки нет — поиск по канону невозможен, и это **действие**, а не
+        # пустое состояние: оператору предлагают привязать. Групповая строка
+        # рядом скажет, что совпадений ноль (канон §8, наряд 0010 §4).
         self.position_hint_button = kit.secondary("Mapping…")
         self.position_hint_button.clicked.connect(self.bind_canon)
         self.position_hint_box = kit.empty_state(
             UNBOUND_TITLE, UNBOUND_HINT, self.position_hint_button
         )
-        # Секции L1a и L1b — соседи внутри одной вкладки, значит компактный
-        # вариант (канон §8, ревизия 1.2): выход принадлежит вкладке, не секции.
-        self.dimension_empty = kit.empty_state(
-            NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT, compact=True
+        # Одно пустое состояние вместо двух: причины «прецедентов нет» больше не
+        # существует — её отвечает групповая строка с нулём. Осталась причина
+        # «находка не выбрана», и она про таблицу целиком.
+        self.precedents_empty = kit.empty_state(
+            NO_SELECTION_TITLE, NO_SELECTION_SHORT, compact=True
         )
-        self.position_empty = kit.empty_state(
-            NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT, compact=True
-        )
-        # Таблице прецедентов есть что показать — она не сжимается до полоски;
-        # вертикали не хватило — прокручивается вкладка целиком.
-        for table in (self.same_dimension, self.same_position):
-            table.setMinimumHeight(tokens.INLINE_TABLE_HEIGHT)
 
         exact = QWidget()
         exact_layout = QVBoxLayout(exact)
         exact_layout.setContentsMargins(0, 0, 0, 0)
-        exact_layout.addWidget(self.same_dimension_title)
-        exact_layout.addWidget(self.same_dimension, 1)
-        exact_layout.addWidget(self.dimension_empty)
-        exact_layout.addWidget(self.same_position_title)
         exact_layout.addWidget(self.position_hint_box)
-        exact_layout.addWidget(self.same_position, 1)
-        exact_layout.addWidget(self.position_empty)
+        exact_layout.addWidget(self.precedents, 1)
+        exact_layout.addWidget(self.precedents_empty)
 
         # Вкладка описательного уровня: списка нет, есть объяснение почему.
         # Вкладка целиком — одна поверхность, значит полное пустое состояние.
@@ -719,23 +915,34 @@ class CardDialog(QDialog):
         self.open_button = kit.secondary("Open precedent…")
         self.open_button.clicked.connect(lambda: self.open_precedent())
         self.open_button.setEnabled(False)
+        # Рядом с открытием, а не в контекстном меню: перенос чужого обоснования
+        # в своё отклонение — штатный ход работы, а не редкость (§5 наряда).
+        self.copy_button = kit.secondary("Copy explanation")
+        self.copy_button.clicked.connect(self.copy_explanation)
+        self.copy_button.setEnabled(False)
         self.status = kit.status_label()
 
         footer = QHBoxLayout()
         footer.setSpacing(tokens.GAP_CONTROL)
         footer.addWidget(self.open_button)
+        footer.addWidget(self.copy_button)
         footer.addStretch(1)
         footer.addWidget(self.close_button)
 
         layout = kit.dialog_layout(self)
         layout.addWidget(header_box)
-        # Вкладки прецедентов — главный deliverable карточки, и вертикаль им
-        # достаётся первой. Секция исследований (QMS-018) добавилась к уже
-        # полному экрану, и без этого минимума она съедала у прецедентов всё до
-        # полосы прокрутки — видно на снимке, не в тесте. Минимум поднимает и
-        # минимальную высоту окна: карточка изменяема по высоте (ревью 0011,
-        # О-6), поэтому запрошенные `DIALOG_HEIGHT_TALL` Qt увеличит до влезающих.
-        self.tabs.setMinimumHeight(tokens.INLINE_TABLE_HEIGHT)
+        # Вкладки прецедентов — **единственная растягивающаяся область** диалога
+        # (`design-system.md` §7 rev 1.13). Остальные секции занимают ровно свою
+        # высоту, и всё остальное достаётся сюда.
+        #
+        # Нижний предел задан **видимым**, а не числом пикселей (§1 наряда
+        # `0032`): две строки прецедента плюс одна раскрытая панель целиком.
+        # Не помещается — растёт диалог, а не сжимается сравнение, ради которого
+        # карточку открывают.
+        self.tabs.setMinimumHeight(precedent_floor())
+        self.tabs.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
+        )
         # На второй вкладке выдачи нет вовсе, и `_current_table` там отдаёт
         # `None` — значит и кнопка обязана гаснуть при переходе, а не оставаться
         # активной от прежней вкладки.
@@ -824,6 +1031,10 @@ class CardDialog(QDialog):
             self.findings.blockSignals(True)
             self.findings.setCurrentCell(restored, 0)
             self.findings.blockSignals(False)
+        # Высота **после** наполнения, а не при сборке: в конструкторе строк ещё
+        # нет, и посчитанная там высота была бы высотой пустой таблицы. Ровно
+        # на этом первая попытка и дала ноль — поймал замер, не тест.
+        kit.fit_table_height(self.findings, rows=FINDINGS_SHOWN)
         self.refresh_precedents()
 
     def refresh_precedents(self) -> None:
@@ -833,23 +1044,20 @@ class CardDialog(QDialog):
         self._refresh_inspections(finding_id)
 
         if finding_id is None:
-            for table in (self.same_dimension, self.same_position):
-                table.setRowCount(0)
-                table.setVisible(False)
-            self.same_dimension_title.setText(NO_SELECTION_TITLE)
-            self.same_position_title.setText("")
+            self.precedents.fill([])
+            self.precedents.setVisible(False)
             self.position_hint_box.setVisible(False)
             # Причина пустоты здесь другая — «находка не выбрана», а не
-            # «прецедентов нет»; подменять одно другим значит объяснять
-            # оператору не то, что он видит.
+            # «совпадений нет»: второе отвечает групповая строка, и подменять
+            # одно другим значит объяснять оператору не то, что он видит.
             kit.set_empty_reason(
-                self.dimension_empty, NO_SELECTION_TITLE, NO_SELECTION_SHORT
+                self.precedents_empty, NO_SELECTION_TITLE, NO_SELECTION_SHORT
             )
-            self.dimension_empty.setVisible(True)
-            self.position_empty.setVisible(False)
+            self.precedents_empty.setVisible(True)
             # Заглушка описательной вкладки от выбора находки не зависит вовсе:
             # там нечего искать ни при какой выбранной строке.
             self.status.setText(NO_SELECTION_HINT)
+            self._refresh_open_button()
             return
 
         with session_scope(self._engine) as session:
@@ -857,7 +1065,7 @@ class CardDialog(QDialog):
             characteristic = finding.characteristic
             deviation = finding.deviation
             bound = characteristic.mapping is not None
-            position_label = (
+            position = (
                 f"g{characteristic.mapping.g_position.g_index}" if bound else None
             )
 
@@ -870,42 +1078,48 @@ class CardDialog(QDialog):
             local_number = characteristic.local_number
             reference_revision = characteristic.revision.designation
 
-        self.same_dimension.fill(same_dimension, reference=reference_revision)
-        self.same_dimension.setVisible(bool(same_dimension))
-        kit.set_empty_reason(
-            self.dimension_empty, NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT
-        )
-        self.dimension_empty.setVisible(not same_dimension)
-        # Заголовки называют **как совпало**, а не чья деталь (`Search.md` v1.04).
-        # Прежний «Other items…» начал бы врать: канонная секция теперь отдаёт и
-        # другие ревизии своей детали.
-        self.same_dimension_title.setText(
-            iso(
-                f"By number: no. {local_number}, all revisions of this item "
-                f"({len(same_dimension)})"
-            )
-        )
-
-        self.same_position.fill(same_position, reference=reference_revision)
+        # Групповые строки несут ровно те формулировки, что стояли подписями
+        # секций: они называют **как совпало**, а не чья деталь (`Search.md`
+        # v1.04). Разница в том, что теперь они ещё и считают свою группу.
+        #
+        # Группа с нулём строк **показывается** (§3 наряда `0032`): «совпадений
+        # нет» — это ответ, а его отсутствие оператор прочтёт как «поиск не
+        # работал».
+        groups = [
+            PrecedentGroup(
+                key="dimension",
+                title=(
+                    f"By number: no. {local_number}, all revisions of this item "
+                    f"({len(same_dimension)})"
+                ),
+                rows=tuple(same_dimension),
+            ),
+            PrecedentGroup(
+                key="position",
+                title=(
+                    f"By canon: position {position} — other items and other "
+                    f"revisions ({len(same_position)})"
+                    if bound
+                    else "By canon: this characteristic is not bound (0)"
+                ),
+                rows=tuple(same_position) if bound else (),
+                note="" if bound else UNBOUND_HINT,
+            ),
+        ]
+        self.precedents.fill(groups, reference=reference_revision)
+        self.precedents.setVisible(True)
+        self.precedents_empty.setVisible(False)
+        # Привязки нет — предлагаем её сделать. Это действие, а не объяснение
+        # пустоты: пустоту уже объяснила групповая строка с нулём.
         self.position_hint_box.setVisible(not bound)
-        self.same_position.setVisible(bound and bool(same_position))
-        self.position_empty.setVisible(bound and not same_position)
-        self.same_position_title.setText(
-            iso(
-                f"By canon: position {position_label} — other items and other "
-                f"revisions ({len(same_position)})"
-            )
-            if bound
-            else "By canon: same position"
-        )
 
-        self.tabs.setTabText(0, f"{EXACT_TAB}  {len(same_dimension) + len(same_position)}")
+        exact_total = len(same_dimension) + len(same_position)
+        self.tabs.setTabText(0, f"{EXACT_TAB}  {exact_total}")
 
         # Автоперехода на вторую вкладку больше нет: там нет выдачи, и уводить
         # туда оператора при пустом L1 значит показывать ему объяснение вместо
         # ответа на вопрос «случалось ли такое».
         self._refresh_open_button()
-        exact_total = len(same_dimension) + len(same_position)
 
         self.status.setText(
             f"Exact matches: {exact_total}. "
@@ -961,6 +1175,10 @@ class CardDialog(QDialog):
 
         self.inspections.setVisible(bool(rows))
         self.inspections_empty.setVisible(not rows)
+        # Пустая секция — **одна строка** пустого состояния, а не коробка с
+        # фразой посередине (§1 наряда `0032`): у скрытой таблицы высота ноль,
+        # и вертикаль достаётся сравнению.
+        kit.fit_table_height(self.inspections, rows=INSPECTIONS_SHOWN_IN_CARD)
         self._refresh_protocol_button()
 
     def _refresh_protocol_button(self) -> None:
@@ -1156,39 +1374,16 @@ class CardDialog(QDialog):
         open_mapping(self._engine, self, item_id, cg_id)
         self.reload()
 
-    def _on_table_selected(self, table: PrecedentTable) -> None:
-        """Выбор строки: запомнить таблицу и снять выбор в соседних.
-
-        Три таблицы независимы, поэтому без этого выбранными оказывались строки
-        сразу в двух секциях, и кнопка «Открыть прецедент…» открывала **первую**
-        непустую — молча и неотличимо от нормы.
-
-        Одного лишь запоминания мало: повторный клик по уже выбранной строке
-        сигнала не даёт, и «активной» осталась бы прежняя таблица. Поэтому выбор
-        физически держится в одной таблице — заодно и на экране подсвечена ровно
-        одна строка. Флаг гасит рекурсию: `clearSelection` соседей сам приводит
-        сюда же.
-        """
-        if self._syncing_selection or table.currentRow() < 0:
-            return
-        self._syncing_selection = True
-        try:
-            self._active_table = table
-            for other in (self.same_dimension, self.same_position):
-                if other is not table:
-                    other.clearSelection()
-                    other.setCurrentCell(-1, -1)
-        finally:
-            self._syncing_selection = False
-
     def open_precedent(self, table: PrecedentTable | None = None) -> None:
         """Открыть карточку прецедента поверх текущей — глубина не ограничена.
 
-        `table` приходит от двойного клика — это таблица, по которой кликнули.
-        Кнопка источника не имеет, поэтому берёт последнюю, где меняли выбор.
+        Аргумент остался ради прежних точек вызова: таблица теперь **одна**
+        (§3 наряда `0032`), и выбирать между двумя больше не надо. Сведение
+        `_active_table` / `_on_table_selected` ушло вместе со второй таблицей —
+        оно и существовало только затем, чтобы кнопка не открывала «первую
+        непустую» из двух.
         """
-        source = table if isinstance(table, PrecedentTable) else self._current_table()
-        deviation_id = source.selected_deviation() if source else None
+        deviation_id = self.precedents.selected_deviation()
         if deviation_id is None:
             self.status.setText("Select a precedent row in the table first.")
             return
@@ -1197,33 +1392,56 @@ class CardDialog(QDialog):
         except Exception as error:  # pragma: no cover - защита от битой ссылки
             kit.show_error(self, error, title="Precedent not opened")
 
-    def _refresh_open_button(self) -> None:
-        """`Open precedent…` активна ровно тогда, когда открывать есть что.
+    def copy_explanation(self) -> None:
+        """Положить в буфер **полное** обоснование выбранного прецедента (§5).
 
-        §6 наряда `0031`: служебная строка ломает допущение «строка таблицы =
-        прецедент», и на ней действие обязано быть **недоступно**, а не отвечать
-        отказом после нажатия. Признак берётся у той же функции, которая потом
-        и открывает, — `selected_deviation`; иначе кнопка и действие разошлись бы
-        на первой же правке одного из них.
+        Копируют не своё, а **чужое**: обоснование прецедента переносят в своё
+        отклонение. Поэтому берётся текст из выдачи, а не из ячейки — ячейка
+        урезана до одной строки и обрезана по ширине колонки, и скопированный из
+        неё текст пришлось бы дописывать руками, то есть копирование не
+        сэкономило бы ничего.
+
+        Правка по месту от этого не появляется (§7 канона): копирование ею не
+        является — из таблицы только читают.
         """
-        source = self._current_table()
-        self.open_button.setEnabled(
-            source is not None and source.selected_deviation() is not None
-        )
+        text = self._selected_explanation()
+        if not text:
+            return
+        from PySide6.QtWidgets import QApplication  # noqa: PLC0415
 
-    def _current_table(self) -> PrecedentTable | None:
-        """Таблица для кнопки: последняя, где меняли выбор, в пределах вкладки."""
+        QApplication.clipboard().setText(text)
+        self.status.setText("Explanation copied to the clipboard.")
+
+    def _selected_explanation(self) -> str:
+        """Обоснование выбранной строки — из **выдачи**, а не из ячейки."""
+        deviation_id = self.precedents.selected_deviation()
+        if deviation_id is None:
+            return ""
+        for group in self.precedents.groups():
+            for row in group.rows:
+                if row.deviation_id == deviation_id:
+                    return row.explanation or ""
+        return ""
+
+    def _refresh_open_button(self) -> None:
+        """Действия по прецеденту активны ровно тогда, когда есть что открывать.
+
+        §6 наряда `0031` и §3 наряда `0032`: на служебной строке — и на строке
+        панели, и на **групповой** — действие обязано быть недоступно, а не
+        отвечать отказом после нажатия. Признак берётся у той же функции,
+        которая потом и открывает, — иначе кнопка и действие разошлись бы на
+        первой же правке одного из них.
+
+        Обе кнопки гаснут вместе: обе действуют на выбранный прецедент, и
+        состояние, в котором одна доступна, а другая нет, значило бы, что
+        «выбранная строка» у них разная.
+        """
         # На второй вкладке выдачи нет вовсе — открывать нечего, и брать строку
         # с невидимой вкладки кнопка не должна.
-        if self.tabs.currentIndex() != 0:
-            return None
-        allowed = (self.same_dimension, self.same_position)
-        if self._active_table in allowed and self._active_table.currentRow() >= 0:
-            return self._active_table
-        for table in allowed:
-            if table.currentRow() >= 0:
-                return table
-        return None
+        on_results = self.tabs.currentIndex() == 0
+        ready = on_results and self.precedents.selected_deviation() is not None
+        self.open_button.setEnabled(ready)
+        self.copy_button.setEnabled(ready and bool(self._selected_explanation()))
 
 
 def _load_findings(session, deviation: Deviation) -> list[Finding]:

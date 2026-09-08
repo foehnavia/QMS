@@ -8,7 +8,7 @@ from datetime import date, timedelta
 import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog, QStyle
+from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QStyle
 
 from conftest import count_queries, make_item, permit_findings, rev
 from db.models import (
@@ -23,7 +23,7 @@ from db.models import (
 )
 from db.session import session_scope
 from domain.characteristics import get_or_create_characteristic
-from domain.deviations import register, set_decision
+from domain.deviations import list_deviations, register, set_decision
 from domain.findings import make_finding, update_finding
 from domain.inspections import create_inspection
 from domain.groups import GPositionSpec, create_group
@@ -113,6 +113,45 @@ def _precedent_column(table, header: str) -> int:
     return labels.index(header)
 
 
+def _group_rows(card, group: str) -> tuple:
+    """Строки одной выборки — **из выдачи**, а не пересчётом строк экрана.
+
+    Таблица прецедентов после наряда `0032` одна, и `rowCount()` считает вместе с
+    групповыми строками и панелями. Спрашивать «сколько нашлось по канону» надо у
+    выдачи, а не у экрана: экран отвечает на другой вопрос.
+    """
+    return card.precedents.rows_of(group)
+
+
+def _prec_row(card, group: str, index: int = 0) -> int:
+    """Номер строки прецедента группы `group` на экране — по группе, не по числу."""
+    from ui.card_dialog import PRECEDENT_ID_COLUMN
+
+    rows = _group_rows(card, group)
+    assert index < len(rows), f"в группе {group} нет строки {index}: {len(rows)}"
+    wanted = rows[index].deviation_id
+    for row in range(card.precedents.rowCount()):
+        if card.precedents.is_service_row(row):
+            continue
+        cell = card.precedents.item(row, PRECEDENT_ID_COLUMN)
+        if cell is not None and cell.data(Qt.ItemDataRole.UserRole) == wanted:
+            return row
+    raise AssertionError(f"строка группы {group} не найдена на экране")
+
+
+def _group_title(card, group: str) -> str:
+    """Текст групповой строки — то, чем прежде была подпись секции."""
+    for entry in card.precedents.groups():
+        if entry.key == group:
+            return entry.title
+    raise AssertionError(f"нет группы {group}")
+
+
+def _prec_cell(card, group: str, header: str, index: int = 0):
+    row = _prec_row(card, group, index)
+    return card.precedents.item(row, _precedent_column(card.precedents, header))
+
+
 def _text(cell) -> str:
     """Текст ячейки без изолятов — сравнивать удобнее по содержимому."""
     return cell.text().replace("⁨", "").replace("⁩", "")
@@ -152,12 +191,12 @@ def test_switching_the_finding_redraws_the_precedents(engine) -> None:
     card = CardDialog(engine, deviation_id)
 
     card.findings.setCurrentCell(0, 0)  # размер 12
-    assert card.same_dimension.rowCount() == 1
-    assert _text(card.same_dimension.item(0, _precedent_column(card.same_dimension, "WO"))) == "W-OLD-12"
+    assert len(_group_rows(card, "dimension")) == 1
+    assert _text(_prec_cell(card, "dimension", "WO")) == "W-OLD-12"
 
     card.findings.setCurrentCell(1, 0)  # размер 19
-    assert card.same_dimension.rowCount() == 2
-    assert {_text(card.same_dimension.item(r, _precedent_column(card.same_dimension, "WO"))) for r in range(2)} == {
+    assert len(_group_rows(card, "dimension")) == 2
+    assert {_text(_prec_cell(card, "dimension", "WO", i)) for i in range(2)} == {
         "W-OLD-19",
         "W-OLD-19-BIS",
     }
@@ -173,7 +212,7 @@ def test_empty_selection_explains_itself(engine) -> None:
     card.findings.setCurrentCell(-1, -1)
     card.refresh_precedents()
 
-    assert card.same_dimension.rowCount() == 0
+    assert _group_rows(card, "dimension") == ()
     assert card.status.text() == NO_SELECTION_HINT
     assert card.inspect_button.isEnabled() is False
 
@@ -189,10 +228,10 @@ def test_l1a_section_excludes_the_current_deviation(engine) -> None:
 
     card = CardDialog(engine, deviation_id)
 
-    assert card.same_dimension.rowCount() == 1
-    assert _text(card.same_dimension.item(0, _precedent_column(card.same_dimension, "WO"))) == "W-PAST"
+    assert len(_group_rows(card, "dimension")) == 1
+    assert _text(_prec_cell(card, "dimension", "WO")) == "W-PAST"
     # Заголовок называет **как совпало**, а не чья деталь (`Search.md` v1.04).
-    assert "By number: no. 12" in _text(card.same_dimension_title)
+    assert "By number: no. 12" in _group_title(card, "dimension")
 
 
 def test_l1b_section_shows_another_item_on_the_same_position(engine) -> None:
@@ -207,9 +246,9 @@ def test_l1b_section_shows_another_item_on_the_same_position(engine) -> None:
 
     card = CardDialog(engine, deviation_id)
 
-    assert card.same_position.rowCount() == 1
-    assert _text(card.same_position.item(0, _precedent_column(card.same_position, "Item"))) == "IT-002"
-    assert "By canon: position g1" in _text(card.same_position_title)
+    assert len(_group_rows(card, "position")) == 1
+    assert _text(_prec_cell(card, "position", "Item")) == "IT-002"
+    assert "By canon: position g1" in _group_title(card, "position")
     assert card.position_hint_box.isHidden() is True
 
 
@@ -223,7 +262,7 @@ def test_unbound_dimension_explains_instead_of_showing_an_empty_table(engine) ->
     card = CardDialog(engine, deviation_id)
 
     assert card.position_hint_box.isHidden() is False
-    assert card.same_position.isHidden() is True
+    assert _group_rows(card, "position") == ()
     # Пустое состояние канона §8: что пусто, почему и один выход — кнопка.
     assert "not bound to the canon" in card.position_hint_box.body_label.text()
     assert card.position_hint_button.isHidden() is False
@@ -244,7 +283,7 @@ def test_binding_from_the_card_revives_the_position_section(engine, monkeypatch)
         mine_id = mine.item_id
 
     card = CardDialog(engine, deviation_id)
-    assert card.same_position.rowCount() == 0
+    assert _group_rows(card, "position") == ()
     assert _text(card.findings.item(0, 1)) == CANON_UNBOUND
 
     def fake_run(engine_, item_id, cg_id_, parent=None):
@@ -268,8 +307,8 @@ def test_binding_from_the_card_revives_the_position_section(engine, monkeypatch)
     card.bind_canon()
 
     assert _text(card.findings.item(0, 1)) == "g1"
-    assert card.same_position.rowCount() == 1
-    assert _text(card.same_position.item(0, _precedent_column(card.same_position, "Item"))) == "IT-002"
+    assert len(_group_rows(card, "position")) == 1
+    assert _text(_prec_cell(card, "position", "Item")) == "IT-002"
 
 
 def test_undecided_precedents_are_not_shown(engine) -> None:
@@ -281,8 +320,8 @@ def test_undecided_precedents_are_not_shown(engine) -> None:
 
     card = CardDialog(engine, deviation_id)
 
-    assert card.same_dimension.rowCount() == 1
-    assert _text(card.same_dimension.item(0, _precedent_column(card.same_dimension, "WO"))) == "W-DECIDED"
+    assert len(_group_rows(card, "dimension")) == 1
+    assert _text(_prec_cell(card, "dimension", "WO")) == "W-DECIDED"
     assert "already carry a decision" in card.status.text()
 
 
@@ -308,8 +347,8 @@ def test_the_card_never_shows_descriptive_precedents(engine) -> None:
     card = CardDialog(engine, deviation_id)
 
     assert not hasattr(card, "descriptive")
-    assert card.same_dimension.rowCount() == 0
-    assert card.same_position.rowCount() == 0
+    assert _group_rows(card, "dimension") == ()
+    assert _group_rows(card, "position") == ()
     # Вкладка на месте и объясняет, почему списка нет (пункт 2 наряда).
     assert card.tabs.count() == 2
     assert NOT_BUILT_HINT in card.descriptive_hint.body_label.text()
@@ -332,11 +371,11 @@ def test_an_item_without_a_group_explains_both_levels(engine) -> None:
 
     card = CardDialog(engine, deviation_id)
 
-    assert card.same_dimension.rowCount() == 0
-    assert card.same_position.isHidden() is True
+    assert _group_rows(card, "dimension") == ()
+    assert _group_rows(card, "position") == ()
     # Точный уровень объясняет обе свои пустоты: «нет прецедентов» и «размер не
     # привязан к канону — привязка это и есть то, что находит то же место».
-    assert card.dimension_empty.isHidden() is False
+    assert card.position_hint_box.isHidden() is False
     assert UNBOUND_HINT in card.position_hint_box.body_label.text()
     assert NOT_BUILT_HINT in card.descriptive_hint.body_label.text()
     assert "Exact matches: 0" in card.status.text()
@@ -526,7 +565,9 @@ def test_opening_a_precedent_opens_its_card(engine, monkeypatch) -> None:
         deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None)
 
     card = CardDialog(engine, deviation_id)
-    card.same_dimension.setCurrentCell(0, 0)
+    # Строка 0 теперь **групповая** (§3 наряда `0032`), и выбор на неё не встаёт —
+    # адресуем по группе, а не по номеру строки.
+    card.precedents.selectRow(_prec_row(card, "dimension"))
 
     opened: list[int] = []
     monkeypatch.setattr(
@@ -556,15 +597,15 @@ def test_precedent_row_carries_the_whole_deviation(engine) -> None:
     card = CardDialog(engine, deviation_id)
     row = 0
 
-    assert _text(card.same_dimension.item(row, _precedent_column(card.same_dimension, "Deviation"))) == past_number
-    assert _text(card.same_dimension.item(row, _precedent_column(card.same_dimension, "Item"))) == "C1-08375A"
-    assert _text(card.same_dimension.item(row, _precedent_column(card.same_dimension, "WO"))) == "W26007336"
+    assert _text(_prec_cell(card, "dimension", "Deviation")) == past_number
+    assert _text(_prec_cell(card, "dimension", "Item")) == "C1-08375A"
+    assert _text(_prec_cell(card, "dimension", "WO")) == "W26007336"
     # Колонка списка несёт **короткую** метку; полная формулировка живёт в
     # диалоге решения и в шапке карточки (дизайн-система, макет S13).
-    assert card.same_dimension.item(row, _precedent_column(card.same_dimension, "Decision")).text() == "Repair"
-    assert "доработка по месту" in card.same_dimension.item(row, _precedent_column(card.same_dimension, "Explanation")).text()
+    assert _prec_cell(card, "dimension", "Decision").text() == "Repair"
+    assert "доработка по месту" in _prec_cell(card, "dimension", "Explanation").text()
     # Обоснование целиком — в подсказке, чтобы длинный текст не рвал вёрстку.
-    assert card.same_dimension.item(row, _precedent_column(card.same_dimension, "Explanation")).toolTip().startswith("доработка")
+    assert _prec_cell(card, "dimension", "Explanation").toolTip().startswith("доработка")
 
 
 def test_navigation_has_no_card_section(engine) -> None:
@@ -609,51 +650,40 @@ def _two_sections(engine) -> tuple[int, int, int]:
     return current_id, past_id, position_id
 
 
-def test_double_click_in_the_second_section_opens_its_own_row(engine, monkeypatch) -> None:
-    """Секции — независимые таблицы: выбор в первой не должен перебивать вторую.
+def test_the_row_that_was_chosen_is_the_row_that_opens(engine, monkeypatch) -> None:
+    """Открывается **выбранная** строка, из какой бы группы она ни была.
 
-    Раньше `_current_table` перебирал их в порядке «эта деталь» → «другие детали»
-    и всегда предпочитал первую, поэтому двойной клик во второй секции молча
-    открывал отклонение из первой.
+    Прежде это проверяли два теста — «двойной клик во второй секции» и «кнопка
+    берёт последнюю тронутую таблицу», — и оба стерегли одно: `_current_table`
+    перебирал две таблицы и всегда предпочитал первую, из-за чего клик во второй
+    молча открывал чужую запись.
+
+    С наряда `0032` таблица **одна**, и вопрос «какая из двух» перестал
+    существовать вместе со сведением выбора между ними. Требование, ради которого
+    те тесты писались, осталось и проверяется здесь: что открывается ровно та
+    запись, на которой стоит выбор. Один тест на две группы, а не два по одной, —
+    различает верное от неверного именно переход между группами
+    (`CLAUDE.md` §9а.11).
     """
     import ui.card_dialog as module
 
     current_id, past_id, position_id = _two_sections(engine)
     card = CardDialog(engine, current_id)
-    assert (card.same_dimension.rowCount(), card.same_position.rowCount()) == (1, 1)
+    assert len(_group_rows(card, "dimension")) == 1
+    assert len(_group_rows(card, "position")) == 1
 
     opened: list[int] = []
     monkeypatch.setattr(
         module.CardDialog, "run", staticmethod(lambda e, dev_id, parent=None: opened.append(dev_id))
     )
 
-    card.same_dimension.setCurrentCell(0, 0)  # оператор посмотрел первую секцию
-    card.same_position.setCurrentCell(0, 0)
-    card.open_precedent(card.same_position)   # и кликнул по второй
-
-    assert opened == [position_id], "открылась строка не той секции"
-
-
-def test_the_button_follows_the_last_touched_table(engine, monkeypatch) -> None:
-    """Кнопка источника не имеет — берёт таблицу, в которой выбор меняли последней."""
-    import ui.card_dialog as module
-
-    current_id, past_id, position_id = _two_sections(engine)
-    card = CardDialog(engine, current_id)
-
-    opened: list[int] = []
-    monkeypatch.setattr(
-        module.CardDialog, "run", staticmethod(lambda e, dev_id, parent=None: opened.append(dev_id))
-    )
-
-    card.same_position.setCurrentCell(0, 0)
-    card.same_dimension.setCurrentCell(0, 0)
+    card.precedents.selectRow(_prec_row(card, "dimension"))
     card.open_precedent()
     assert opened == [past_id]
 
-    card.same_position.setCurrentCell(0, 0)
+    card.precedents.selectRow(_prec_row(card, "position"))
     card.open_precedent()
-    assert opened == [past_id, position_id]
+    assert opened == [past_id, position_id], "открылась строка не той группы"
 
 
 def test_switching_the_finding_drops_a_stale_selection(engine, monkeypatch) -> None:
@@ -671,11 +701,11 @@ def test_switching_the_finding_drops_a_stale_selection(engine, monkeypatch) -> N
 
     card = CardDialog(engine, current_id)
     card.findings.setCurrentCell(0, 0)
-    card.same_dimension.setCurrentCell(0, 0)
+    card.precedents.setCurrentCell(0, 0)
 
     card.findings.setCurrentCell(1, 0)  # у размера 19 прецедентов нет
 
-    assert card.same_dimension.currentRow() == -1
+    assert card.precedents.currentRow() == -1
     opened: list[int] = []
     monkeypatch.setattr(
         module.CardDialog, "run", staticmethod(lambda e, dev_id, parent=None: opened.append(dev_id))
@@ -1525,10 +1555,14 @@ def test_a_click_on_the_expander_opens_the_findings_of_the_precedent(
         deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None)
 
     card = _shown_card(engine, deviation_id)
-    table = card.same_dimension
-    assert table.rowCount() == 1, "прецедент не найден — тесту нечего раскрывать"
+    table = card.precedents
+    assert len(_group_rows(card, "dimension")) == 1, (
+        "прецедент не найден — тесту нечего раскрывать"
+    )
 
-    _click_expander(table, 0)
+    # По группе, а не по строке 0: строка 0 теперь **групповая** (§3 наряда
+    # `0032`), и клик по ней раскрывал бы то, чего не существует.
+    _click_expander(table, _prec_row(card, "dimension"))
 
     assert slot_errors == []
     panels = [table.panel_at(row) for row in range(table.rowCount())]
@@ -1562,11 +1596,11 @@ def test_the_panel_under_a_precedent_is_the_same_class_as_in_the_list(engine) ->
         deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None)
 
     card = _shown_card(engine, deviation_id)
-    _click_expander(card.same_dimension, 0)
+    _click_expander(card.precedents, _prec_row(card, "dimension"))
     in_card = next(
-        card.same_dimension.panel_at(row)
-        for row in range(card.same_dimension.rowCount())
-        if card.same_dimension.panel_at(row) is not None
+        card.precedents.panel_at(row)
+        for row in range(card.precedents.rowCount())
+        if card.precedents.panel_at(row) is not None
     )
 
     view = DeviationView(engine)
@@ -1578,7 +1612,15 @@ def test_the_panel_under_a_precedent_is_the_same_class_as_in_the_list(engine) ->
     )
 
     assert type(in_card) is type(in_list) is FindingsPanel
-    assert _panel_grid(in_card) == _panel_grid(in_list)
+    # Сетка общая **кроме последней колонки**: она эластичная и добирает разницу
+    # ширин двух экранов (наряд `0032` §2, `FindingsPanel.fit_to`). Таблица
+    # прецедентов карточки уже сетки панели, и без этого панель теряла бы две
+    # последние колонки целиком — видно снимком, не тестом.
+    assert _panel_grid(in_card)[:-1] == _panel_grid(in_list)[:-1]
+    tail_card, tail_list = _panel_grid(in_card)[-1], _panel_grid(in_list)[-1]
+    assert tail_card[0] == tail_list[0] == "Inspections"
+    # У списка колонка своей ширины, у карточки — не больше: сжимается только она.
+    assert tail_card[1] <= tail_list[1]
 
 
 def _panel_grid(panel) -> list[tuple[str, int]]:
@@ -1602,8 +1644,8 @@ def test_two_precedents_stay_expanded_at_once(engine, slot_errors) -> None:
         deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None)
 
     card = _shown_card(engine, deviation_id)
-    table = card.same_dimension
-    assert table.rowCount() == 2
+    table = card.precedents
+    assert len(_group_rows(card, "dimension")) == 2
 
     # По наряду, а не по номеру строки: выдача упорядочена по дате, обе записи
     # заведены сегодня, и «первая созданная» строкой 0 не оказывается. Номер
@@ -1636,17 +1678,17 @@ def test_choosing_another_finding_drops_the_expansions(engine, slot_errors) -> N
 
     card = _shown_card(engine, deviation_id)
     card.findings.setCurrentCell(0, 0)
-    _click_expander(card.same_dimension, 0)
-    assert len(card.same_dimension.expanded()) == 1
+    _click_expander(card.precedents, _prec_row(card, "dimension"))
+    assert len(card.precedents.expanded()) == 1
 
     card.findings.setCurrentCell(1, 0)
     QApplication.processEvents()
 
     assert slot_errors == []
-    assert card.same_dimension.expanded() == set()
+    assert card.precedents.expanded() == set()
     assert all(
-        card.same_dimension.panel_at(row) is None
-        for row in range(card.same_dimension.rowCount())
+        card.precedents.panel_at(row) is None
+        for row in range(card.precedents.rowCount())
     )
 
 
@@ -1669,8 +1711,8 @@ def test_the_service_row_is_not_a_precedent(engine, slot_errors) -> None:
         deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None)
 
     card = _shown_card(engine, deviation_id)
-    table = card.same_dimension
-    _click_expander(table, 0)
+    table = card.precedents
+    _click_expander(table, _prec_row(card, "dimension"))
     service = next(row for row in range(table.rowCount()) if table.is_panel_row(row))
 
     # `selectRow`, а не `setCurrentCell`: у ячейки служебной строки сняты все
@@ -1700,11 +1742,11 @@ def test_the_open_button_follows_the_selection(engine) -> None:
         deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None)
 
     card = _shown_card(engine, deviation_id)
-    table = card.same_dimension
+    table = card.precedents
 
     assert card.open_button.isEnabled() is False, "без выбора открывать нечего"
 
-    table.selectRow(_precedent_row_of(table, _text(table.item(0, _precedent_column(table, "Deviation")))))
+    table.selectRow(_prec_row(card, "dimension"))
     QApplication.processEvents()
 
     assert card.open_button.isEnabled() is True
@@ -1724,18 +1766,18 @@ def test_the_expansion_survives_a_tab_switch(engine) -> None:
         deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None)
 
     card = _shown_card(engine, deviation_id)
-    _click_expander(card.same_dimension, 0)
-    expanded = card.same_dimension.expanded()
+    _click_expander(card.precedents, _prec_row(card, "dimension"))
+    expanded = card.precedents.expanded()
 
     card.tabs.setCurrentIndex(L2_TAB)
     QApplication.processEvents()
     card.tabs.setCurrentIndex(L1_TAB)
     QApplication.processEvents()
 
-    assert card.same_dimension.expanded() == expanded
+    assert card.precedents.expanded() == expanded
     assert any(
-        card.same_dimension.panel_at(row) is not None
-        for row in range(card.same_dimension.rowCount())
+        card.precedents.panel_at(row) is not None
+        for row in range(card.precedents.rowCount())
     )
 
 
@@ -1758,8 +1800,342 @@ def test_the_findings_of_a_precedent_are_read_only_when_it_is_expanded(engine) -
     with count_queries(engine) as folded:
         card.refresh_precedents()
     with count_queries(engine) as expanding:
-        _click_expander(card.same_dimension, 0)
+        _click_expander(card.precedents, _prec_row(card, "dimension"))
 
     # Свёрнутый набор не платит за содержимое; раскрытие платит, и это его цена.
     assert len(expanding) > 0
     assert len(expanding) <= 2, expanding
+
+
+# --- Наряд 0032: одна таблица, копирование, высоты по содержимому -------------------
+
+
+def _group_row(card, group: str) -> int:
+    """Номер **групповой** строки на экране — по имени группы, не по числу."""
+    title = _group_title(card, group)
+    for row in range(card.precedents.rowCount()):
+        cell = card.precedents.item(row, 0)
+        if card.precedents.is_group_row(row) and _text(cell) == title:
+            return row
+    raise AssertionError(f"групповая строка {group} не найдена")
+
+
+def test_a_group_with_no_matches_is_still_shown(engine) -> None:
+    """**Критерий 5.** Группа с нулём строк показывается своей строкой с нулём.
+
+    Правило §3 наряда `0032`: «совпадений нет» — это **ответ**, а его отсутствие
+    оператор прочтёт как «поиск не работал». Пропавшая группа и группа с нулём
+    выглядят на экране одинаково пусто, но значат разное, и различить их можно
+    только по тому, что строка есть.
+    """
+    with session_scope(engine) as session:
+        group = create_group(session, "CG-A", POSITIONS)
+        mine = make_item(session, "IT-001")
+        other = make_item(session, "IT-002")
+        bind(session, rev(mine), group.positions[0], "12")
+        bind(session, rev(other), group.positions[0], "77")
+        _case(session, other, "77", wo="W-OTHER")
+        deviation_id, _ = _case(session, mine, "12", wo="W-NOW", decision=None)
+
+    card = CardDialog(engine, deviation_id)
+
+    # По номеру совпадений нет, по канону — одно. Обе группы на экране.
+    assert _group_rows(card, "dimension") == ()
+    assert len(_group_rows(card, "position")) == 1
+    assert "(0)" in _group_title(card, "dimension")
+    assert "(1)" in _group_title(card, "position")
+    assert card.precedents.is_group_row(_group_row(card, "dimension"))
+    assert card.precedents.is_group_row(_group_row(card, "position"))
+
+
+def test_the_group_row_is_not_a_precedent(engine, slot_errors) -> None:
+    """**Критерий 6.** Групповая строка — второй вид служебной строки, и все
+    действия по прецеденту при ней недоступны.
+
+    Настоящими событиями (§9а.6): выбор ставится кликом мыши, а не `setCurrentCell`
+    — между щелчком и обработчиком есть промежуток, и дефекты живут в нём.
+
+    Четыре утверждения одним тестом, потому что различает верное от неверного
+    именно их сочетание: строка распознана служебной, `selected_deviation` даёт
+    `None`, **обе** кнопки погашены, и клик по её раскрывателю ничего не ломает.
+    Ровно на таком пропуске в наряде `0029` вырос `TypeError` доводки 3, и §6
+    наряда `0031` нашёл восемь потребителей — второй вид служебной строки касается
+    их снова.
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        _case(session, item, "12", wo="W-PAST")
+        deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None)
+
+    card = _shown_card(engine, deviation_id)
+    table = card.precedents
+    row = _group_row(card, "dimension")
+
+    table.selectRow(row)
+    QApplication.processEvents()
+
+    assert table.currentRow() == row, "тест не встал на групповую строку"
+    assert table.is_service_row(row) is True
+    assert table.selected_deviation() is None
+    assert card.open_button.isEnabled() is False
+    assert card.copy_button.isEnabled() is False
+
+    # Раскрывать в групповой строке нечего, и клик по её раскрывателю обязан
+    # ничего не делать, а не падать и не раскрывать соседа.
+    before = card.precedents.expanded()
+    _click_expander(table, row)
+    assert slot_errors == []
+    assert card.precedents.expanded() == before
+
+
+def test_the_explanation_of_a_precedent_is_copied_in_full(engine, slot_errors) -> None:
+    """**Критерий 9.** Кнопка и `Ctrl+C` кладут в буфер **полное** обоснование.
+
+    Правило §5 наряда: копируют не своё, а чужое — обоснование прецедента
+    переносят в своё отклонение. Ячейка урезана до одной строки и обрезана по
+    ширине колонки, и скопированный из неё текст пришлось бы дописывать руками,
+    то есть копирование не сэкономило бы ничего.
+
+    Различающая величина здесь — **разница** между текстом ячейки и текстом в
+    буфере: тест, сверяющий буфер сам с собой, был бы зелёным и на сборке,
+    копирующей обрезок.
+    """
+    # **Многострочное** обоснование — так его и пишут: абзац про влияние, абзац
+    # про проверку. Ячейка складывает его в одну строку (`_one_line`), и именно
+    # этим текст ячейки отличается от того, что надо перенести к себе.
+    long_text = (
+        "Влияния на сборку нет: зазор в собранном состоянии падает на 20 %.\n"
+        "Проверено Solidworks assembly и повторным замером на трёх деталях партии."
+    )
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        _case(session, item, "12", wo="W-PAST", explanation=long_text)
+        deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None)
+
+    card = _shown_card(engine, deviation_id)
+    card.precedents.selectRow(_prec_row(card, "dimension"))
+    QApplication.processEvents()
+
+    cell = _prec_cell(card, "dimension", "Explanation")
+    assert "\n" not in _text(cell), "ячейка складывает текст в одну строку"
+    assert _text(cell) != long_text, "текст ячейки обязан отличаться от полного"
+
+    _press(card.copy_button)
+
+    assert slot_errors == []
+    assert QApplication.clipboard().text() == long_text
+
+
+def test_ctrl_c_copies_the_same_text_as_the_button(engine, slot_errors) -> None:
+    """Тот же текст даёт и `Ctrl+C` в таблице — сравнением, а не двумя проверками.
+
+    Два входа в одно действие обязаны давать одно и то же (`CLAUDE.md` §9а.11):
+    два теста по одному на каждый молчали бы ровно о том, что различает верное от
+    неверного, — о расхождении между ними.
+    """
+    long_text = "Обоснование прецедента.\nВторой абзац, который тоже переносят."
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        _case(session, item, "12", wo="W-PAST", explanation=long_text)
+        deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None)
+
+    card = _shown_card(engine, deviation_id)
+    card.precedents.selectRow(_prec_row(card, "dimension"))
+    QApplication.processEvents()
+
+    _press(card.copy_button)
+    by_button = QApplication.clipboard().text()
+
+    QApplication.clipboard().clear()
+    # Фокус — как у оператора: сочетание живёт на таблице (`WidgetShortcut`), и
+    # без фокуса оно не срабатывает вовсе. Клик выше фокус и даёт, но выбор здесь
+    # ставится программно, поэтому ставим и его.
+    card.precedents.setFocus()
+    QApplication.processEvents()
+    QTest.keyClick(card.precedents, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+    QApplication.processEvents()
+
+    assert slot_errors == []
+    assert QApplication.clipboard().text() == by_button == long_text
+
+
+def test_the_explanation_of_the_card_is_selectable_but_not_editable(engine) -> None:
+    """**Критерий 9, вторая половина.** Поле шапки выделяется — и не правится.
+
+    §5 наряда: «копируется, не редактируясь». Проверяется и то, и другое: одно
+    без другого было бы либо нечитаемым полем, либо правкой по месту, которую
+    канон запрещает (§7).
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, _ = _case(session, item, "12", explanation="важное обоснование")
+
+    card = CardDialog(engine, deviation_id)
+    flags = card.explanation.textInteractionFlags()
+
+    assert flags & Qt.TextInteractionFlag.TextSelectableByMouse
+    assert flags & Qt.TextInteractionFlag.TextSelectableByKeyboard
+    # Правки по месту не появилось: ярлык — не поле ввода.
+    assert not isinstance(card.explanation, QLineEdit)
+
+
+def test_the_measurement_point_column_is_hidden_not_removed(engine) -> None:
+    """**Критерий 10.** Колонка скрыта, а не удалена, и возврат стоит одного места.
+
+    §6 наряда: статистики по нужности пока нет, а место колонка занимает. Модель,
+    миграция, домен и форма находки не тронуты — данные пишутся как раньше.
+
+    Тест сторожит **обе** половины: колонки не видно, но она объявлена и стоит на
+    своём месте, а список ширин по-прежнему перечисляет все колонки. Проверка
+    только первой половины была бы зелёной и на сборке, где колонку вычеркнули, —
+    то есть где возврат стоит правки в пяти местах.
+    """
+    from ui.deviation_dialog import (
+        FINDING_COLUMNS,
+        FINDING_WIDTHS,
+        HIDDEN_FINDING_COLUMNS,
+    )
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, _ = _case(session, item, "12", decision=None)
+
+    card = CardDialog(engine, deviation_id)
+    column = FINDING_COLUMNS.index("Measurement point")
+
+    assert HIDDEN_FINDING_COLUMNS == ("Measurement point",)
+    assert card.findings.isColumnHidden(column) is True
+    # Объявление на месте: колонка, её ширина и её индекс никуда не делись.
+    assert len(FINDING_WIDTHS) == len(FINDING_COLUMNS)
+    assert card.findings.columnCount() == len(FINDING_COLUMNS)
+    # Прочие колонки видны — иначе тест был бы зелёным на скрытой таблице.
+    assert card.findings.isColumnHidden(FINDING_COLUMNS.index("Outcome")) is False
+
+
+def test_the_findings_table_is_as_tall_as_its_rows(engine) -> None:
+    """**Критерий 2.** Высоту раздаёт содержимое, а не жёсткий низ.
+
+    §1 наряда с числами: `INLINE_TABLE_HEIGHT = 150` стоял низом у трёх мест
+    сразу, и таблице с одной находкой доставалось 150 при нужных 70. Полторы
+    сотни пикселей отнимались у единственного места, ради которого карточку и
+    открывают.
+
+    Сверяется с **арифметикой** `kit.table_height`, а не с числом 70: число
+    зависит от токенов, и тест, повторяющий его константой, разошёлся бы с
+    экраном на первой же правке высоты строки.
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        one = make_item(session, "IT-ONE")
+        _case(session, one, "5", decision=None)
+        deviation = register(session, item=item, wo="W-THREE", quantity=1, date=TODAY)
+        for number in ("12", "19", "32"):
+            characteristic, _ = get_or_create_characteristic(session, rev(item), number)
+            make_finding(session, deviation, characteristic, direction=Direction.PLUS)
+        three = deviation.deviation_id
+        single = next(
+            row.deviation_id
+            for row in list_deviations(session, item=one)
+        )
+
+    assert CardDialog(engine, single).findings.height() == ui.kit.table_height(1)
+    assert CardDialog(engine, three).findings.height() == ui.kit.table_height(3)
+
+
+def test_an_empty_inspections_section_takes_no_table_height(engine) -> None:
+    """**Критерий 2, вторая половина.** Пустая секция исследований — строка.
+
+    Прежде скрытая таблица держала жёсткие 130 px; §1 наряда требует, чтобы
+    пустая секция была **одной строкой** пустого состояния. Кнопка при этом
+    остаётся на месте и неактивной — действие не исчезает вместе с данными.
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, _ = _case(session, item, "12", decision=None)
+
+    card = CardDialog(engine, deviation_id)
+    card.findings.setCurrentCell(0, 0)
+
+    assert card.inspections.height() == 0
+    assert card.inspections_empty.isHidden() is False
+    assert card.protocol_button.isEnabled() is False
+
+
+def test_the_precedents_area_is_the_only_region_that_stretches(engine) -> None:
+    """**Критерий 3.** Нижний предел области задан **видимым**, а не пикселями.
+
+    §1 наряда: две строки прецедента плюс одна раскрытая панель целиком. Сверяется
+    с `precedent_floor()` — чистой функцией от токенов, которую можно проверить
+    арифметикой на любой платформе (`CLAUDE.md` §9а.14), — а не с числом: число,
+    переписанное в тест, перестало бы значить обещанное при первой правке высоты
+    строки, и тест остался бы зелёным.
+    """
+    from ui.card_dialog import (
+        PRECEDENTS_FLOOR_ROWS,
+        FINDING_WITH_MANY_INSPECTIONS,
+        precedent_floor,
+    )
+    from ui.common import panel_height
+    from ui.kit import table_height, tokens
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, _ = _case(session, item, "12", decision=None)
+
+    card = CardDialog(engine, deviation_id)
+
+    expected = (
+        table_height(PRECEDENTS_FLOOR_ROWS)
+        + tokens.PRECEDENT_GROUP_HEIGHT
+        + panel_height([FINDING_WITH_MANY_INSPECTIONS])
+        + tokens.TAB_STRIP_HEIGHT
+    )
+    assert precedent_floor() == expected
+    assert card.tabs.minimumHeight() == expected
+    # И это единственная растягивающаяся область: у соседей высота фиксирована.
+    assert card.findings.maximumHeight() == card.findings.minimumHeight()
+    assert card.inspections.maximumHeight() == card.inspections.minimumHeight()
+
+
+def test_the_panel_header_is_subordinate_in_the_card_and_not_in_the_list(engine) -> None:
+    """**Критерий 8 / §4.** Оформление шапки панели — **параметр**, а не смена вида.
+
+    Панель после наряда `0031` одна на оба экрана, и перекрасив её, мы перекрасили
+    бы список отклонений тоже. Проверяется **сравнением экранов** (`CLAUDE.md`
+    §9а.11): в карточке шапка подчинённая, в списке — прежняя. Два теста, каждый
+    на своём экране, молчали бы ровно о том, что различает верное от неверного.
+
+    Сверяется имя объекта, потому что красит панель **по нему** лист стиля: это
+    то, чем рисуют, а не подпись рядом.
+    """
+    from ui.kit import OBJECT_PANEL_SUBORDINATE
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        _case(session, item, "12", wo="W-PAST")
+        deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None)
+
+    card = _shown_card(engine, deviation_id)
+    _click_expander(card.precedents, _prec_row(card, "dimension"))
+    in_card = next(
+        card.precedents.panel_at(row)
+        for row in range(card.precedents.rowCount())
+        if card.precedents.panel_at(row) is not None
+    )
+
+    view = DeviationView(engine)
+    view.toggle_expansion(0)
+    in_list = next(
+        view.panel_at(row)
+        for row in range(view.table.rowCount())
+        if view.panel_at(row) is not None
+    )
+
+    assert in_card.objectName() == OBJECT_PANEL_SUBORDINATE
+    assert in_list.objectName() == "findingsPanel"
+    # Сетка при этом общая — параметр меняет оформление, а не устройство.
+    assert [
+        in_card.horizontalHeaderItem(i).text() for i in range(in_card.columnCount())
+    ] == [
+        in_list.horizontalHeaderItem(i).text() for i in range(in_list.columnCount())
+    ]

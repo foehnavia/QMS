@@ -25,6 +25,7 @@ from ui.card_dialog import (
     PRECEDENT_SIZE_COLUMN,
     UNBOUND_MARK,
     CardDialog,
+    PRECEDENT_ID_COLUMN,
 )
 from ui.deviation_dialog import DeviationDialog
 from ui.kit import tokens
@@ -36,6 +37,29 @@ pytestmark = pytest.mark.usefixtures("qt_app")
 def engine(seeded_session):
     seeded_session.commit()
     return seeded_session.get_bind()
+
+
+def _precedent_row(card, group: str, index: int = 0) -> int:
+    """Строка прецедента группы `group` — **по группе и порядку внутри неё**.
+
+    Таблица прецедентов после наряда `0032` **одна**, а принадлежность к выборке
+    несёт групповая строка. Номер строки в таблице поэтому больше не равен номеру
+    в выборке: перед каждой группой стоит её заголовок, а под раскрытой записью —
+    её панель. Адресуем по имени группы, а не по числу (`CLAUDE.md` §9а.9).
+    """
+    from PySide6.QtCore import Qt as _Qt
+    from ui.card_dialog import PRECEDENT_ID_COLUMN as _ID
+
+    rows = card.precedents.rows_of(group)
+    assert index < len(rows), f"в группе {group} нет строки {index}: {len(rows)}"
+    wanted = rows[index].deviation_id
+    for row in range(card.precedents.rowCount()):
+        if card.precedents.is_service_row(row):
+            continue
+        cell = card.precedents.item(row, _ID)
+        if cell is not None and cell.data(_Qt.ItemDataRole.UserRole) == wanted:
+            return row
+    raise AssertionError(f"строка группы {group} не найдена на экране")
 
 
 def _stock(session: Session):
@@ -99,7 +123,10 @@ def test_the_precedent_table_shows_the_revision_of_every_match(engine) -> None:
     card = CardDialog(engine, deviation_id)
     card.findings.setCurrentCell(0, 0)
 
-    assert _texts(card.same_dimension, PRECEDENT_REVISION_COLUMN) == ["A"]
+    assert [
+        _text(card.precedents.item(_precedent_row(card, "dimension", i), PRECEDENT_REVISION_COLUMN))
+        for i in range(len(card.precedents.rows_of("dimension")))
+    ] == ["A"]
 
 
 def test_a_match_from_another_revision_is_marked_never_dropped(engine) -> None:
@@ -118,8 +145,10 @@ def test_a_match_from_another_revision_is_marked_never_dropped(engine) -> None:
     card = CardDialog(engine, deviation_id)
     card.findings.setCurrentCell(0, 0)
 
-    assert card.same_dimension.rowCount() == 1, "прецедент прошлой ревизии обязан остаться"
-    cell = card.same_dimension.item(0, PRECEDENT_REVISION_COLUMN)
+    assert len(card.precedents.rows_of("dimension")) == 1, (
+        "прецедент прошлой ревизии обязан остаться"
+    )
+    cell = card.precedents.item(_precedent_row(card, "dimension"), PRECEDENT_REVISION_COLUMN)
     # Пометка берётся с самой ячейки: подсказка и начертание — то, что видит глаз.
     assert "another issue of the drawing" in cell.toolTip()
     assert cell.font().bold() is True
@@ -140,7 +169,7 @@ def test_a_non_canon_size_carries_the_warning_sign(engine) -> None:
     card = CardDialog(engine, deviation_id)
     card.findings.setCurrentCell(0, 0)
 
-    cell = card.same_dimension.item(0, PRECEDENT_SIZE_COLUMN)
+    cell = card.precedents.item(_precedent_row(card, "dimension"), PRECEDENT_SIZE_COLUMN)
     assert UNBOUND_MARK in _text(cell)
     assert "nothing behind this number but the number itself" in cell.toolTip()
     # Знак читается однозначно: красный и полужирный — цвет и начертание берутся
@@ -166,8 +195,9 @@ def test_a_canon_size_in_the_same_revision_carries_no_marks(engine) -> None:
     card = CardDialog(engine, deviation_id)
     card.findings.setCurrentCell(0, 0)
 
-    size = card.same_dimension.item(0, PRECEDENT_SIZE_COLUMN)
-    revision_cell = card.same_dimension.item(0, PRECEDENT_REVISION_COLUMN)
+    row = _precedent_row(card, "dimension")
+    size = card.precedents.item(row, PRECEDENT_SIZE_COLUMN)
+    revision_cell = card.precedents.item(row, PRECEDENT_REVISION_COLUMN)
     assert UNBOUND_MARK not in _text(size)
     assert revision_cell.font().bold() is False
     assert "another issue of the drawing" not in revision_cell.toolTip()
