@@ -12,10 +12,19 @@ updated: 2026-08-10
 > How raw Hebrew deviation records become deviations + findings. Entry point:
 > `_overview.md` (process Steps 2–3).
 
+> **FROZEN (2026-09-08, QMS-027).** No access to the live journal will be granted: the
+> security review ruled that Teams is not to be touched. The only workaround — saving the
+> file to disk by hand before every run — costs more than it saves at 3–10 deviations a day,
+> so **manual entry is the sole route into the database**, not a stopgap. Nothing below is
+> withdrawn: the contract is sound and was measured against the real corpus
+> (`docs/analysis/0033-*`, 2025 archive, 1116 rows) — it simply has no route to its source.
+> Unfreeze only if access appears; then re-measure drift, not the whole array.
+> Registry: `decisions.md` 129–131.
+
 ## Source
 
 - Excel in Teams, **Hebrew / RTL**, no direct system access (only via the responsible
-  person or a copy).
+  person or a copy). **Reachable in neither form — see the freeze note above.**
 - The `מידה` (dimension) column is **vestigial and left empty**; the anchor
   (dimension, magnitude, direction) is in **free Hebrew text** in the description.
 - Detection on the floor: the operator checks a part roughly every 2 hours; on a
