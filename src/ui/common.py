@@ -493,10 +493,31 @@ class FindingsPanel(QTableWidget):
     выбранное отклонение просто потому, что панели нечего выбирать.
     """
 
-    def __init__(self, findings, inspections, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        findings,
+        inspections,
+        parent: QWidget | None = None,
+        *,
+        subordinate: bool = False,
+    ) -> None:
+        """`subordinate` — оформить шапку **подписью колонок**, а не заголовком.
+
+        Параметр, а не смена вида для всех, и это требование наряда `0032` §4:
+        панель после `0031` **одна** на список отклонений и на карточку, и
+        перекрасив её здесь, мы перекрасили бы оба экрана. В списке шапка панели
+        остаётся прежней — там она отделяет уровень внутри длинной таблицы; в
+        диалоге она обязана читаться как подробность строки, иначе повтор
+        оформления и делает из карточки лоскутное одеяло.
+
+        Умолчание `False` выбрано намеренно: прежнее поведение достаётся тому,
+        кто ничего не просил.
+        """
         super().__init__(0, len(PANEL_COLUMNS), parent)
         self.setHorizontalHeaderLabels(PANEL_COLUMNS)
-        self.setObjectName("findingsPanel")
+        self.setObjectName(
+            kit.OBJECT_PANEL_SUBORDINATE if subordinate else "findingsPanel"
+        )
 
         kit.dress_table(
             self,
@@ -542,6 +563,29 @@ class FindingsPanel(QTableWidget):
             self.setRowHeight(index, finding_row_height(len(found)))
 
         self.setFixedHeight(panel_height([len(inspections.get(r.finding_id, [])) for r in ordered]))
+
+    def fit_to(self, width: int) -> None:
+        """Уложить колонки панели в `width`, отдавая разницу `Inspections`.
+
+        Панель одна на оба экрана, и её сетка (1144) шире таблицы прецедентов
+        карточки: там после наряда `0032` полотно 1120. Без укладки панель теряла
+        **две последние колонки целиком** — `Outcome` и `Inspections` просто не
+        рисовались, и это видно только на снимке.
+
+        Разница снимается с `Inspections` и только с неё: у неё единственной
+        полный текст уже лежит в подсказке, так что укорочение ячейки ничего не
+        теряет, — тот же довод, по которому §2 наряда снимал ширину с
+        `Explanation`. Прочие колонки панели не трогаются: их числа назначены
+        замером, и снять с них значит вернуть обрезку туда, где её убирали.
+
+        Список отклонений сюда не заходит: там таблица шире сетки панели, и
+        укладывать нечего.
+        """
+        others = sum(
+            PANEL_WIDTHS[name] for name in PANEL_COLUMNS if name != "Inspections"
+        )
+        column = PANEL_COLUMNS.index("Inspections")
+        self.setColumnWidth(column, max(width - others, tokens.PANEL_TAIL_MIN))
 
     def sizeHint(self):  # noqa: N802 — имя от Qt
         size = super().sizeHint()
