@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import io
 import shutil
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -86,6 +87,105 @@ def test_hash_notices_a_rename(canon: Path) -> None:
     (canon / "Search.md").rename(canon / "Search2.md")
 
     assert canon_hash(canon, collect(canon)) != before
+
+
+# --- Поле `updated`: свежесть всего набора, а не одного файла ----------------------
+
+
+def _set_updated(path: Path, value: str) -> None:
+    """Переписать `updated` в шапке файла канона (временная копия)."""
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if line.startswith("updated:"):
+            lines[index] = f"updated: {value}\n"
+            break
+    else:  # pragma: no cover - в каноне поле есть у всех файлов
+        raise AssertionError(f"{path.name}: нет поля updated")
+    path.write_text("".join(lines), encoding="utf-8")
+
+
+def test_updated_is_the_freshest_date_in_the_whole_canon(canon: Path, tmp_path: Path) -> None:
+    """Правило: `updated` зеркала — самая свежая дата **набора**, не `_overview`.
+
+    Сторожит формулировку `build_mirror.freshest_updated`: генерируемое поле
+    свежести обязано двигаться, когда двигается любой файл склейки. До
+    2026-09-08 поле бралось с `_overview.md` и говорило 2026-09-06, пока в
+    зеркале уже лежали три файла от 2026-09-07.
+
+    Тест построен так, чтобы **краснеть на прежнем поведении**: `_overview`
+    получает заведомо старую дату, а свежая ставится другому файлу.
+    """
+    _set_updated(canon / "_overview.md", "2020-01-01")
+    _set_updated(canon / "Deviation.md", "2026-09-07")
+
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    meta, _body = parse_front_matter(mirror.read_text(encoding="utf-8"))
+
+    assert meta["updated"] == "2026-09-07"
+
+
+def test_updated_does_not_read_the_wall_clock(canon: Path, tmp_path: Path) -> None:
+    """Дата берётся из канона, а не из «сегодня» — иначе рушится детерминизм.
+
+    Зеркало детерминировано по контракту (докстринг `build_mirror`): пересборка
+    неизменного канона обязана дать побайтово тот же файл. `date.today()` в
+    поле свежести сломал бы ровно это, и сломал бы молча — назавтра.
+    """
+    newest = max(
+        meta["updated"] for _order, _name, meta, _body, _path in collect(canon)
+    )
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    meta, _body = parse_front_matter(mirror.read_text(encoding="utf-8"))
+
+    assert meta["updated"] == newest
+    assert meta["updated"] != date.today().isoformat() or newest == date.today().isoformat()
+
+
+def test_rebuilding_an_unchanged_canon_is_byte_identical(canon: Path, tmp_path: Path) -> None:
+    """Прямая проверка контракта детерминизма — на файле целиком, не на хеше."""
+    first = _mirror(canon, tmp_path / "one.md").read_bytes()
+    second = _mirror(canon, tmp_path / "two.md").read_bytes()
+
+    assert first == second
+
+
+def test_a_non_iso_updated_does_not_win_by_accident(canon: Path, tmp_path: Path) -> None:
+    """Значение не ISO в сравнение не входит, а не ранжируется случайно.
+
+    `"вчера"` или `2026/09/09` отсортировались бы лексикографически выше любой
+    ISO-даты и стали бы «самой свежей». Такое значение отбрасывается, а поле
+    остаётся датой — если не парсится ничего, поведение падает обратно на
+    `_overview`.
+    """
+    _set_updated(canon / "Search.md", "неизвестно")
+    _set_updated(canon / "Deviation.md", "2026-09-07")
+
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    meta, _body = parse_front_matter(mirror.read_text(encoding="utf-8"))
+
+    assert meta["updated"] == "2026-09-07"
+
+
+def test_updated_stays_outside_the_body_hash(canon: Path, tmp_path: Path) -> None:
+    """Поле свежести живёт в шапке, а `body_hash` — только по телу.
+
+    Отсюда и то, что правка этого поля **не трогает вердикт**: она business
+    of `source_hash`. Тест закрепляет границу, на которую опирается вся правка
+    2026-09-08 — иначе смена поля выглядела бы как порча артефакта.
+    """
+    mirror = _mirror(canon, tmp_path / "mirror.md")
+    text = mirror.read_text(encoding="utf-8")
+    meta, body = parse_front_matter(text)
+    stamp = meta["body_hash"]
+
+    swapped = text.replace(f"updated: {meta['updated']}", "updated: 1999-12-31")
+    mirror.write_text(swapped, encoding="utf-8")
+
+    changed_meta, changed_body = parse_front_matter(mirror.read_text(encoding="utf-8"))
+    assert changed_meta["updated"] == "1999-12-31"
+    assert body_hash(changed_body) == stamp
+    assert _verdict(canon, mirror)[0] == 0
+
 
 
 # --- Критерий 13: зелёный на свежем, красный после правки --------------------------

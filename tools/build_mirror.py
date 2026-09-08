@@ -173,9 +173,41 @@ def build(items, source_hash):
     return _assemble(items, source_hash, body_hash(body))
 
 
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def freshest_updated(items):
+    """The newest ``updated`` any canon file in this mirror claims.
+
+    Taking the field off ``_overview`` alone - which is what this did until
+    2026-09-08 - made the banner say 2026-09-06 while the mirror already carried
+    ``Deviation.md`` and two others stamped 2026-09-07. A generated freshness
+    field that does not move is a small untruth in the one document whose whole
+    job is to say how fresh it is. It never touched a verdict (staleness is the
+    two hashes, and this field is outside ``body_hash``), which is exactly why it
+    could sit there unnoticed.
+
+    Wall clock stays out: the mirror is deterministic by contract, and
+    ``date.today()`` would make a re-run over an unchanged canon differ from
+    yesterday's byte-for-byte. The date is *derived from the source*, so the
+    mirror claims no more freshness than the canon itself claims.
+
+    ISO dates sort lexicographically, so ``max`` over well-formed values is the
+    chronological one. Anything not ISO is left out of the comparison rather than
+    ranked by accident; if nothing parses, ``_overview``'s raw value is kept, so
+    an odd canon degrades to the old behaviour instead of crashing.
+    """
+    dates = [
+        str(meta.get("updated", "")).strip()
+        for _order, _name, meta, _body, _path in items
+    ]
+    iso = [value for value in dates if _ISO_DATE.fullmatch(value)]
+    return max(iso) if iso else items[0][2].get("updated", "")
+
+
 def _assemble(items, source_hash, body_stamp):
     rev = items[0][2].get("rev", "?")            # _overview (order 10) carries the rev
-    updated = items[0][2].get("updated", "")
+    updated = freshest_updated(items)            # ...but freshness is the whole set's
     header = (
         "---\n"
         "type: note\n"
