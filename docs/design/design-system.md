@@ -5,7 +5,7 @@ status: ratified
 task: QMS-016
 branch: run/qms-016
 updated: 2026-09-07
-revision: 1.11
+revision: 1.12
 ---
 
 # MIS-QMS design system — tokens and rules
@@ -240,6 +240,15 @@ Inside an expanded record the finding sub-row is **28 / 43 / 58**
 by the number of inspections listed. Everywhere else the row stays 40, and no other screen
 inherits these numbers — the mechanics of the reference screen are not tiled onto the others
 (naryad `0010` §3а, ratified by the user 2026-09-01).
+
+**Expansion follows the object, not the screen.** Wherever a table row *is a deviation* — the
+deviations list, the precedent table inside a card — the row expands the same way, with the same
+panel, the same sub-row heights and the same three levels: deviation → its findings → the
+inspections at each finding. This is not the previous paragraph's exception but its complement:
+what must not be tiled is a screen's *mechanics*; what must not be forked is an *object's*
+presentation. An engineer who learned to read an expanded deviation in the list has learned to
+read it everywhere, and a second panel with its own columns would make him learn it twice
+(naryad `0031`).
 
 **Every number here is a logical pixel** at 100 % Windows scaling — not a point. Declared as
 points they come out a third larger (13 pt ≈ 17 px), which is how the chrome grew until five
