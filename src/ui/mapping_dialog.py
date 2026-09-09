@@ -104,7 +104,6 @@ class MappingDialog(QDialog):
         #: Пока True, правка ячеек идёт от кода, а не от оператора: `reload`
         #: переписывает всю таблицу, и без флага каждая её ячейка выглядела бы
         #: как ввод и уходила бы в базу.
-        self._loading = False
         # Чертёж занял верх окна и требует высоты; таблица под ним осталась при
         # своей ширине — с колонкой геометрии (В-6) уже узкой она не бывает.
         self.resize(tokens.DIALOG_FULL, tokens.DIALOG_HEIGHT_TALL)
@@ -186,38 +185,54 @@ class MappingDialog(QDialog):
     # --- отрисовка -------------------------------------------------------------
 
     def reload(self) -> None:
+        """Пересобрать таблицу целиком — на открытии и по нажатию кнопки.
+
+        **Из обработчика `itemChanged` не зовётся** (наряд `0039`): пересборка
+        внутри эмиссии сносит тот самый `QTableWidgetItem`, который Qt передал в
+        слот аргументом, и оставляет открытый редактор указывающим в никуда.
+        Обработчик обновляет строки на месте — `_refresh_rows`.
+        """
         with session_scope(self._engine) as session:
             item = session.get(Item, self._item_id)
             group = session.get(CharacteristicGroup, self._cg_id)
             self.setWindowTitle(f"Mapping — {item.item_number} · {group.name}")
             drawing = group.drawing
-            # Привязка ведётся в **действующей** ревизии детали (QMS-017).
-            # Разрешение здесь, а не в подписи диалога: оба входа — заведение
-            # детали и «Add revision» — оставляют действующей ровно ту ревизию,
-            # которую оператор сейчас правит, а прошлые не редактируются вовсе.
-            self._states = binding_state(session, current_revision(item), group)
-            # Геометрию берём из той же коллекции, которую уже обошёл
-            # `binding_state`: новых запросов не нужно.
-            self._geometry = {
-                position.g_index: (
-                    position.nominal,
-                    position.tol_plus,
-                    position.tol_minus,
-                )
-                for position in group.positions
-            }
+            self._read_states(session, item, group)
 
         self.drawing.set_drawing(drawing)
 
-        self._loading = True
-        self.table.setRowCount(len(self._states))
-        for row, state in enumerate(self._states):
-            self.table.setItem(row, 0, _read_only(position_label(state.g_index)))
-            self.table.setItem(row, 1, _read_only(STATE_LABELS[state.state]))
-            self.table.setItem(row, 2, QTableWidgetItem(state.local_number or ""))
-            self.table.setItem(row, 3, _read_only(self._canon_cell(state.g_index)))
-        self._loading = False
+        with kit.filling(self.table):
+            self.table.setRowCount(len(self._states))
+            for row, state in enumerate(self._states):
+                self.table.setItem(row, 0, _read_only(position_label(state.g_index)))
+                self.table.setItem(row, 1, _read_only(STATE_LABELS[state.state]))
+                self.table.setItem(row, 2, QTableWidgetItem(state.local_number or ""))
+                self.table.setItem(row, 3, _read_only(self._canon_cell(state.g_index)))
 
+        self._show_status()
+
+    def _read_states(self, session, item, group) -> None:
+        """Состояния позиций и геометрия канона — одним обходом коллекции.
+
+        Привязка ведётся в **действующей** ревизии детали (QMS-017). Разрешение
+        здесь, а не в подписи диалога: оба входа — заведение детали и
+        «Add revision» — оставляют действующей ровно ту ревизию, которую оператор
+        сейчас правит, а прошлые не редактируются вовсе.
+        """
+        self._states = binding_state(session, current_revision(item), group)
+        # Геометрию берём из той же коллекции, которую уже обошёл
+        # `binding_state`: новых запросов не нужно.
+        self._geometry = {
+            position.g_index: (
+                position.nominal,
+                position.tol_plus,
+                position.tol_minus,
+            )
+            for position in group.positions
+        }
+
+    def _show_status(self) -> None:
+        """Строка состояния: всё решено либо чего именно не хватает."""
         undecided = [f"g{s.g_index}" for s in self._states if not s.is_decided]
         complete = is_complete(self._states)
         self.status.setText(
@@ -225,6 +240,25 @@ class MappingDialog(QDialog):
             if complete
             else "Awaiting a decision: " + ", ".join(iso(name) for name in undecided)
         )
+
+    def _refresh_rows(self) -> None:
+        """Обновить строки **на месте**, не пересобирая таблицу.
+
+        Ячейки правятся `setText`, а не `setItem`: `setItem` **уничтожает**
+        прежний `QTableWidgetItem`, и когда обновление идёт из обработчика
+        `itemChanged`, уничтожается ровно тот объект, который Qt передал в слот и
+        чей метод ещё на стеке. Ниже границы Python ↔ C++ это тот же класс
+        дефекта, что стоп-дефект раскрытия наряда `0028`.
+
+        Число строк здесь не меняется по построению: привязка не заводит и не
+        убирает g-позиции группы. Обход идёт по фактическому пересечению — если
+        инвариант когда-нибудь нарушится, строки просто не разъедутся, а
+        пересборку закажет `reload` из своего, безопасного места.
+        """
+        with kit.filling(self.table):
+            for row, state in enumerate(self._states[: self.table.rowCount()]):
+                self.table.item(row, 1).setText(STATE_LABELS[state.state])
+                self.table.item(row, 2).setText(state.local_number or "")
 
     def finish(self) -> None:
         """Нажали «Done»: досчитать набранное, проверить полноту, назвать пробел.
@@ -291,13 +325,15 @@ class MappingDialog(QDialog):
         потеря данных, которую оператор заметит не сразу. Строка возвращается к
         тому, что записано в базе.
         """
-        if self._loading or item.column() != LOCAL_NUMBER:
+        if item.column() != LOCAL_NUMBER:
             return
 
         state = self._states[item.row()]
         number = strip_iso(item.text()).strip()
         if not number:
-            self.reload()
+            # Возвращаем строку к тому, что записано в базе, — на месте, без
+            # пересборки: мы внутри эмиссии `itemChanged` этой самой ячейки.
+            self._refresh_rows()
             return
 
         try:
@@ -315,7 +351,25 @@ class MappingDialog(QDialog):
                 bind(session, current_revision(session_item), position, number)
         except Exception as error:
             kit.show_error(self, error, title="Not bound")
-        self.reload()
+
+        # **Строки обновляются на месте, таблица не пересобирается** (наряд
+        # `0039`). Прежде здесь стоял `reload()`, то есть обработчик сигнала
+        # сносил и собирал заново свой же виджет, **находясь внутри эмиссии**:
+        # `setRowCount` и `setItem` уничтожали объект, переданный в слот, а
+        # `_commit_open_editor` следом закрывал редактор, которого в модели уже
+        # не было. Достижимый путь шёл через кнопку `Done`, которую оператор
+        # нажимает каждый раз.
+        #
+        # Чертёж группы заодно перестал декодироваться на каждый введённый
+        # номер: его перечитывает только `reload`.
+        with session_scope(self._engine) as session:
+            self._read_states(
+                session,
+                session.get(Item, self._item_id),
+                session.get(CharacteristicGroup, self._cg_id),
+            )
+        self._refresh_rows()
+        self._show_status()
 
     def mark_absent(self) -> None:
         g_index = self._current_index()
