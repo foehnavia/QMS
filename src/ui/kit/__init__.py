@@ -20,6 +20,7 @@
 
 from . import tokens
 from .metrics import (
+    CONTENT_TOOLTIP_ROLE,
     cell_chrome,
     delegate_chrome,
     header_chrome,
@@ -78,6 +79,7 @@ from .widgets import (
     boxed,
     button_row,
     centring_margin,
+    canvas_width,
     column,
     danger,
     data_table,
@@ -88,6 +90,7 @@ from .widgets import (
     error_box,
     form,
     hint,
+    icon_button,
     fit_table_height,
     recentre_columns,
     inline_table_height,
@@ -116,6 +119,7 @@ from .widgets import (
 
 __all__ = [
     "chips",
+    "CONTENT_TOOLTIP_ROLE",
     "cell_chrome",
     "delegate_chrome",
     "room_for_delegate",
@@ -153,6 +157,7 @@ __all__ = [
     "boxed",
     "button_row",
     "centring_margin",
+    "canvas_width",
     "column",
     "danger",
     "data_table",
@@ -169,6 +174,7 @@ __all__ = [
     "font_family",
     "form",
     "hint",
+    "icon_button",
     "inline_table_height",
     "fit_table_height",
     "recentre_columns",

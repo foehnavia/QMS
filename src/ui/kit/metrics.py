@@ -59,6 +59,20 @@ _PROBE_HEIGHT = 32
 #: Высота, означающая «сколько понадобится» при замере переноса.
 _UNBOUNDED = 1 << 20
 
+#: Роль «подсказка **содержательная** — показывать всегда, а не по обрезке».
+#:
+#: Объявленное исключение из правила §4 наряда `0034`, и другого способа его
+#: выразить нет: обычная `ToolTipRole` показывается только когда нарисованное не
+#: влезло, а сводка обязана быть видна и тогда, когда влезло. Повод — колонка
+#: `Inspections` в таблице находок (§2 наряда `0035`): она показывает тип первой
+#: записи и `+N`, и подсказка перечисляет **все** — показать одну и умолчать про
+#: остальные значило бы соврать оператору.
+#:
+#: Роль, а не второй механизм: ставит её экран, читает то же единственное место,
+#: что и подсказку по обрезке. Следующий наряд, увидев подсказку на неурезанной
+#: ячейке, найдёт здесь основание и не «починит» её обратно.
+CONTENT_TOOLTIP_ROLE = Qt.ItemDataRole.UserRole + 6
+
 
 def delegate_chrome(view) -> int:
     """Что теряет делегат, рисующий ячейку **сам**: отступы ячейки и линия сетки.
@@ -266,6 +280,13 @@ class TruncationTooltip:
     def helpEvent(self, event, view, option, index) -> bool:  # noqa: N802 — имя от Qt
         if event.type() != QEvent.Type.ToolTip or not index.isValid():
             return super().helpEvent(event, view, option, index)
+
+        # Содержательная сводка показывается **всегда** — она не компенсирует
+        # обрезку, а несёт то, чего в ячейке нет (`CONTENT_TOOLTIP_ROLE`).
+        content = index.data(CONTENT_TOOLTIP_ROLE)
+        if content:
+            QToolTip.showText(event.globalPos(), str(content), view)
+            return True
 
         option = self.style_option(view, option, index)
         text = self.tooltip_text(index)

@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -77,6 +77,27 @@ def danger(text: str) -> QPushButton:
     не бывает никогда (канон §4).
     """
     return _roled(QPushButton(iso(text)), ROLE_DANGER)
+
+
+def icon_button(name: str, tip: str) -> QPushButton:
+    """Действие **рядом со значением** — иконкой, без подписи.
+
+    Размеры из канона §3: кнопка строки 24, иконка внутри строки 13. Подпись
+    здесь была бы шире самого значения, а действие тут вспомогательное: основной
+    способ прочесть обоснование — прочесть его, а не скопировать.
+
+    Подсказка обязательна и передаётся аргументом: иконка без подписи обязана
+    называть себя словами хотя бы при наведении, иначе оператор угадывает.
+    """
+    from .icons import icon  # noqa: PLC0415 — иначе круговой импорт
+
+    button = QPushButton()
+    button.setIcon(icon(name, t.N_500, t.ICON_ROW))
+    button.setIconSize(QSize(t.ICON_ROW, t.ICON_ROW))
+    button.setFixedSize(t.ROW_ACTION_HEIGHT, t.ROW_ACTION_HEIGHT)
+    button.setToolTip(tip)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    return _roled(button, ROLE_SECONDARY)
 
 
 def button_row(*buttons: QWidget, stretch_at_end: bool = True) -> QHBoxLayout:
@@ -554,7 +575,7 @@ def share_remainder(table, specs, limit: int) -> dict[int, int]:
     return {i: max(min(share, ceiling), floors[i]) for i in free_columns}
 
 
-def refit_columns(table, widths, *, limit: int = 0) -> None:
+def refit_columns(table, widths, *, limit: int | None = None) -> None:
     """Пересчитать ширины **по загруженным данным**.
 
     Ради этого вызова класс «закрытый список» и заведён: при сборке таблицы
@@ -566,10 +587,18 @@ def refit_columns(table, widths, *, limit: int = 0) -> None:
 
     Зовётся из `reload`, а не из раскладки: ширина зависит от данных, и пересчёт
     по событию раскладки уводил бы её в рекурсию (`CLAUDE.md` §9а.15).
+
+    **Предел полотна по умолчанию берётся у самой таблицы** (`canvas_width`), а не
+    считается нулём. До наряда `0035` умолчанием был `limit = 0`, то есть «остаток
+    не раздавать», и раздача не доезжала до приложения ни разу: строки `limit=` в
+    `src/ui` не было вовсе. Функция работала, её никто не звал (§0 наряда `0035`).
+    Ноль остаётся выразимым — его передают явно там, где раздавать нечего.
     """
     specs = [
         (widths[column], _caption(table, column)) for column in range(table.columnCount())
     ]
+    if limit is None:
+        limit = canvas_width(table)
     shares = share_remainder(table, specs, limit) if limit else {}
     for column, (spec, caption) in enumerate(specs):
         table.setColumnWidth(column, shares.get(column) or column_width(table, spec, caption))
@@ -636,6 +665,27 @@ def centring_margin(table, width: int | None = None) -> int:
     этого не видел (`CLAUDE.md` §9а.13).
     """
     total = sum(table.columnWidth(column) for column in range(table.columnCount()))
+    available = canvas_width(table, width)
+    # Центрируем **только** когда таблица занимает существенную часть области
+    # (правило 3 §7.3). Поле шире самой таблицы читается как поломка, а не как
+    # приём: на снимке Reference data так и вышло.
+    if available > 0 and total >= available * CENTRING_SHARE:
+        return max((available - total) // 2, 0)
+    return 0
+
+
+def canvas_width(table, width: int | None = None) -> int:
+    """Сколько ширины на самом деле достаётся колонкам — **полотно**.
+
+    Одно выражение на два вопроса: сколько отдать отступам (центрирование) и
+    сколько раздать свободным колонкам (§3 наряда `0034`). Держать их врозь
+    значило бы дать им разойтись — а такие пары расходятся всегда.
+
+    Собственный отступ **прибавляется обратно** (`current * 2`): его задаёт лист
+    стиля, а Qt считает его частью `frameWidth()`, и без поправки величина,
+    которую расчёт задаёт, вошла бы в его же вход. Подробно и с ценой ошибки —
+    в `centring_margin` (`CLAUDE.md` §9а.15).
+    """
     current = getattr(table, "_margin", 0) or 0
     available = (
         (table.width() if width is None else width) - table.frameWidth() * 2 + current * 2
@@ -649,12 +699,7 @@ def centring_margin(table, width: int | None = None) -> int:
     # `maximum() > 0` означает ровно «полоса нужна» и верно и до показа окна.
     if bar.maximum() > 0:
         available -= bar.width()
-    # Центрируем **только** когда таблица занимает существенную часть области
-    # (правило 3 §7.3). Поле шире самой таблицы читается как поломка, а не как
-    # приём: на снимке Reference data так и вышло.
-    if available > 0 and total >= available * CENTRING_SHARE:
-        return max((available - total) // 2, 0)
-    return 0
+    return max(available, 0)
 
 
 def recentre_columns(table, width: int | None = None) -> None:
