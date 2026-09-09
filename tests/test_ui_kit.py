@@ -905,6 +905,50 @@ def test_a_delegate_cell_reports_what_it_draws_not_its_text(
     # Шире нарисованного - подсказки нет.
     table.setColumnWidth(0, drawn + kit.delegate_chrome(table) + 40)
     assert _tooltip_asked(delegate, table, index, monkeypatch) == ""
+def test_business_number_samples_match_their_generator(seeded_session) -> None:
+    """§3.3 наряда `0036`: эталон бизнес-номера сверяется с **генератором**.
+
+    Сторожит правило `design-system.md` §3: «A fixed format is measured against a
+    real specimen of the format». Правило существовало и до этого теста, но было
+    **дисциплиной** и не сработало: наряд `0034` объявил эталон номера
+    исследования как `INS-2609-0001` (13 знаков) при настоящем
+    `INSP-YYMMDD-NNN` (15), и резалась каждая строка таблицы исследований формы.
+    Нашла это сводная проверка обрезки, то есть случайность.
+
+    Форма сверяется с тем, что выдаёт `db.ids`, а не с записанным рядом
+    описанием: описание — это тот же эталон, только словами, и разойтись с
+    генератором они могут вместе (§9а.16 — проверка, сверяющая данные с той же
+    константой, из которой они взяты, не проверяет ничего).
+    """
+    import re
+
+    from db.ids import next_dev_number, next_insp_number
+    from ui.common import GENERATED_SAMPLES
+
+    generators = {
+        "dev_number": next_dev_number,
+        "insp_number": next_insp_number,
+    }
+    assert set(generators) == set(GENERATED_SAMPLES), (
+        "эталон без генератора или генератор без эталона — гард обходит список, "
+        "и выпавший из него номер остаётся без сторожа"
+    )
+
+    def shape(number: str) -> str:
+        """Форма номера: цифры — в `#`, всё остальное как есть."""
+        return re.sub(r"\d", "#", number)
+
+    for name, sample in GENERATED_SAMPLES.items():
+        real = generators[name](seeded_session)
+        assert shape(sample) == shape(real), (
+            f"{name}: эталон {sample!r} не той формы, что настоящий номер {real!r}"
+        )
+        assert len(sample) == len(real), (
+            f"{name}: эталон {sample!r} длиной {len(sample)}, "
+            f"настоящий номер {real!r} длиной {len(real)}"
+        )
+
+
 def test_the_stylesheet_is_built_from_tokens() -> None:
     """Стиль — производная канона: значения приходят из `tokens`, не из головы."""
     sheet = kit.stylesheet()

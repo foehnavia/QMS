@@ -2038,8 +2038,13 @@ def test_the_findings_table_is_as_tall_as_its_rows(engine) -> None:
             for row in list_deviations(session, item=one)
         )
 
-    assert CardDialog(engine, single).findings.height() == ui.kit.table_height(1)
-    assert CardDialog(engine, three).findings.height() == ui.kit.table_height(3)
+    # Рамка входит в высоту с наряда `0036` §0: без неё полотну не хватало двух
+    # пикселей и Qt рисовал полосу там, где прокручивать нечего. Поэтому таблица
+    # передаётся в расчёт — она и знает свою рамку.
+    one = CardDialog(engine, single).findings
+    many = CardDialog(engine, three).findings
+    assert one.height() == ui.kit.table_height(1, one)
+    assert many.height() == ui.kit.table_height(3, many)
 
 
 def test_an_empty_inspections_section_takes_no_table_height(engine) -> None:
@@ -2356,3 +2361,202 @@ def test_the_copy_icon_follows_the_explanation(engine) -> None:
     QApplication.clipboard().clear()
     filled.copy_own.click()
     assert QApplication.clipboard().text() == long_text
+
+
+# --- наряд 0036: нарисованная высота, шапка, две сетки ----------------------------
+
+
+def _header_label(card, text: str):
+    """Подпись строки шапки по её тексту — адресуем по имени, не по номеру."""
+    from PySide6.QtWidgets import QLabel
+
+    for label in card.findChildren(QLabel):
+        if label.text() == text:
+            return label
+    return None
+
+
+def test_a_table_that_fits_shows_no_scrollbar(engine) -> None:
+    """§0 наряда `0036`: объявленная высота не есть нарисованная — вертикально.
+
+    Сторожит правило `design-system.md` §3: высота таблицы включает рамку.
+    `30 + 40n` оставляло полотну на два пикселя меньше, последняя строка не
+    влезала, и Qt рисовал полосу прокрутки там, где прокручивать нечего: полоса
+    обещает содержимое ниже, оператор тянет её и возвращается ни с чем.
+
+    Проверяется **сама полоса**, а не арифметика `table_height`: вопрос был о
+    нарисованном (`CLAUDE.md` §9а.12, вертикальный случай).
+    """
+    from ui.card_dialog import FINDINGS_SHOWN
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12", decision=None)
+        _inspection(session, finding_id, position=None, conclusion="Checked.")
+        _inspection(
+            session, finding_id, position=None, conclusion="Also checked.",
+            kind="Tolerances review",
+        )
+
+    card = _shown_card(engine, deviation_id)
+    card.findings.setCurrentCell(0, 0)
+    QApplication.processEvents()
+
+    for name, table in (("находки", card.findings), ("исследования", card.inspections)):
+        assert table.rowCount() <= FINDINGS_SHOWN
+        assert table.verticalScrollBar().maximum() == 0, (
+            f"{name}: полоса прокрутки при {table.rowCount()} строках, "
+            "а прокручивать нечего"
+        )
+        # И полотну хватает на все строки — та самая величина, которой не хватало.
+        rows_px = sum(table.rowHeight(r) for r in range(table.rowCount()))
+        assert rows_px <= table.viewport().height()
+
+
+def test_the_header_labels_sit_on_the_first_line_of_their_values(engine) -> None:
+    """§1.2 наряда `0036`: подпись и первая строка значения — на одной линии.
+
+    `QFormLayout` центрирует подпись по высоте поля, и пока в поле одна строка,
+    разницы не видно. Иконка копирования (24 px против 17 px строки) сделала ряд
+    выше текста, и подпись съехала. Выравнивание задаётся **явно**: умолчание
+    здесь зависит от того, что окажется в ряду (§9а.22).
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, _ = _case(
+            session, item, "12", decision="sorting", explanation="Sorted, three out."
+        )
+
+    card = _shown_card(engine, deviation_id)
+    label = _header_label(card, "Explanation:")
+    assert label is not None, "подпись Explanation не найдена"
+    # Верх подписи и верх значения совпадают — значит первая строка одна и та же.
+    assert label.mapTo(card, label.rect().topLeft()).y() == (
+        card.explanation.mapTo(card, card.explanation.rect().topLeft()).y()
+    )
+
+
+def test_the_explanation_takes_the_width_the_header_has(engine) -> None:
+    """§1.3 наряда `0036`: обоснование не переносится, **пока ширина есть**.
+
+    `kit.form()` объявляет `FieldsStayAtSizeHint` — ратификация В-1, и она в
+    силе. Но у `QLabel` с переносом `sizeHint` не есть длина строки, и ярлык сам
+    просил узкую коробку: при окне 1600 обоснование получало 133 px при нужных
+    413 и шло в три строки при пустой правой половине шапки.
+
+    Именованное исключение — `kit.prose_row`, и оно **одно**.
+    """
+    long_text = (
+        "Assembly unaffected: checked in the Solidworks model, the deviation "
+        "stays inside the mating clearance and no rework is required."
+    )
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, _ = _case(
+            session, item, "12", decision="sorting", explanation=long_text
+        )
+
+    from ui.kit import tokens
+
+    for width in (tokens.DIALOG_FULL, 1600):
+        card = CardDialog(engine, deviation_id)
+        card.resize(width, tokens.DIALOG_HEIGHT_CARD)
+        card.show()
+        QApplication.processEvents()
+        label = card.explanation
+
+        # Проверяется, что **исключение действует**: поле получает почти всю
+        # ширину шапки, а не свой `sizeHint`. Прочие поля шапки её не получают —
+        # правило `form()` для них в силе, и это здесь же и видно.
+        assert label.width() > width * 0.7, (
+            f"окно {width}: ярлык {label.width()} px — поле-проза не получило "
+            "ширины, которая у шапки есть"
+        )
+        assert card.number.width() < label.width() / 2, (
+            "правило form() отменено для всей шапки, а не сделано исключение"
+        )
+
+    # **Влезает ли текст в одну строку — под offscreen непроверяемо** (`CLAUDE.md`
+    # §9а.13): шрифт здесь моноширинный и заметно шире реального, и те же 128
+    # знаков просят 1536 px против 755 на нативной. Тест, сверяющий ширину с
+    # длиной текста, был бы красным на **верной** раскладке, то есть проверял бы
+    # платформу. Это доказывается снимком — критерий 3 наряда `0036`.
+
+
+def test_the_card_has_two_declared_grids(engine) -> None:
+    """§2 наряда `0036`: полная сетка и сжатая, одна версия сжатия.
+
+    Сторожит правило `design-system.md` §3. Обе назначены замером целиком, а не
+    «полная минус что-нибудь»: снимать по колонке значило бы получать разные
+    числа при разных ширинах окна.
+    """
+    from ui.kit import tokens
+    from ui.card_dialog import (
+        PRECEDENT_COLUMNS,
+        PRECEDENT_FULL_WIDTHS,
+        PRECEDENT_TIGHT_WIDTHS,
+        precedent_widths,
+    )
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, _ = _case(session, item, "12", decision=None)
+
+    card = _shown_card(engine, deviation_id)
+    table = card.precedents
+
+    def total(widths):
+        return sum(
+            ui.kit.column_width(table, spec, caption)
+            for spec, caption in zip(widths, PRECEDENT_COLUMNS)
+        )
+
+    tight, full = total(PRECEDENT_TIGHT_WIDTHS), total(PRECEDENT_FULL_WIDTHS)
+    assert tight < full, "сжатая сетка обязана быть у́же полной"
+
+    # **Укладывается ли сжатая в полотно 1180 — под offscreen непроверяемо**
+    # (`CLAUDE.md` §9а.13): три её колонки меряются шрифтом (`Revision`, `Insp.`
+    # заголовком, `Decision` оправой пилюли), а здесь он моноширинный и шире
+    # реального — сумма выходит 1216 против 1106 на нативной. Число проверено
+    # замером и записано в отчёт наряда `0036`; тест сторожит **правило**.
+
+    # Выбор — один и по полотну: тесно -> сжатая, просторно -> полная.
+    assert precedent_widths(table, tight - 1) is PRECEDENT_TIGHT_WIDTHS
+    assert precedent_widths(table, full) is PRECEDENT_FULL_WIDTHS
+    assert precedent_widths(table, full - 1) is PRECEDENT_TIGHT_WIDTHS
+
+
+def test_the_inspections_column_reads_the_same_on_both_screens(engine) -> None:
+    """§3.2 наряда `0036`: один факт — одно оформление на двух экранах.
+
+    `FINDING_COLUMNS` общий, `FindingsPanel` решением 4 реестра QMS-025 одна на
+    оба экрана. В карточке колонка несла сводку, а в форме — голое число: ровно
+    то расхождение, которое §9а.11 велит ловить **сравнением экранов**, а не
+    двумя тестами, каждый из которых зелен на своём.
+    """
+    from ui.kit import tokens
+    from ui.card_dialog import INSPECTIONS_COLUMN
+    from ui.deviation_dialog import DeviationDialog
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12", decision=None)
+        _inspection(session, finding_id, position=None, conclusion="First.")
+        _inspection(
+            session, finding_id, position=None, conclusion="Second.",
+            kind="Tolerances review",
+        )
+
+    card = _shown_card(engine, deviation_id)
+    form = DeviationDialog(engine, deviation_id=deviation_id)
+    form.resize(tokens.DIALOG_FULL, 900)
+    form.show()
+    QApplication.processEvents()
+
+    card_cell = card.findings.item(0, INSPECTIONS_COLUMN)
+    form_cell = form.findings.item(0, INSPECTIONS_COLUMN)
+    assert _text(card_cell) == _text(form_cell), "ячейка сводки разная на двух экранах"
+    assert card_cell.data(ui.kit.CONTENT_TOOLTIP_ROLE) == form_cell.data(
+        ui.kit.CONTENT_TOOLTIP_ROLE
+    ), "подсказка сводки разная на двух экранах"
+    assert "+1" in _text(card_cell)

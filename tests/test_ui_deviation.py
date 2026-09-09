@@ -543,7 +543,11 @@ def test_deviation_form_lists_inspections_and_counts_them(engine_with_item) -> N
 
     assert dialog.inspections.rowCount() == 1
     # Колонка «Inspections» — последняя; после слияния знака и величины это 6.
-    assert dialog.findings.item(0, len(FINDING_COLUMNS) - 1).text() == "1"
+    # Колонка несёт **сводку**, а не счётчик, и на обоих экранах одну и ту же
+    # (§3.2 наряда `0036`): кортеж колонок общий, и одно значение не имеет права
+    # выглядеть в форме иначе, чем в карточке (§9а.11).
+    summary = dialog.findings.item(0, len(FINDING_COLUMNS) - 1).text()
+    assert "Implantation torque test" in summary
 
 
 def test_the_form_refuses_to_remove_a_studied_finding(engine_with_item, monkeypatch) -> None:
