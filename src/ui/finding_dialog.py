@@ -66,7 +66,12 @@ class FindingRow:
     zone_id: int | None = None
     deviation_type_id: int | None = None
     finding_id: int | None = None
-    inspections: int = 0
+    #: Исследования находки — **сами записи**, а не их число (§3.2 наряда `0036`).
+    #: Колонка `Inspections` показывает сводку, и на обоих экранах одну и ту же:
+    #: кортеж колонок общий, `FindingsPanel` решением 4 реестра QMS-025 одна на
+    #: оба экрана, и одно значение не имеет права выглядеть по-разному.
+    #: Счётчик, где он нужен, берётся длиной.
+    inspections: tuple = ()
     #: Исход находки: `permitted` · `not_permitted` · `None` («ещё не решали»).
     #: Пусто по умолчанию — нормальное состояние свежей регистрации: находки
     #: заводятся при регистрации, суждение приходит позже (`Finding.md` rev 1.01).
@@ -228,7 +233,7 @@ class FindingDialog(QDialog):
                 # Правка возвращает ту же находку — иначе форма сочла бы её
                 # новой, а прежнюю удалила вместе с её исследованиями.
                 finding_id=self._source.finding_id if self._source else None,
-                inspections=self._source.inspections if self._source else 0,
+                inspections=self._source.inspections if self._source else (),
                 outcome=self.outcome.value(),
             )
         except Exception as error:

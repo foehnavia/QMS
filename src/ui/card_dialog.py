@@ -91,6 +91,8 @@ from .kit.pills import DECISION_ROLE, DecisionPillDelegate
 from .decision_dialog import DecisionDialog
 from .deviation_dialog import (
     FINDING_COLUMNS,
+    INSPECTIONS_COLUMN,
+    fit_findings_columns,
     FINDING_MAGNITUDE_COLUMNS,
     FINDING_NUMERIC_COLUMNS,
     FINDING_WIDTHS,
@@ -117,9 +119,6 @@ INSPECTION_COLUMNS = ("Type", "Conclusion")
 #: `Type` — закрытый список справочника (рекорд `Implantation torque test`);
 #: `Conclusion` — свободный текст с обрезкой, полный текст в подсказке.
 INSPECTION_WIDTHS = (kit.closed(()), kit.free())
-
-#: Индекс колонки сводки исследований — по имени, а не по числу (§9а.9).
-INSPECTIONS_COLUMN = FINDING_COLUMNS.index("Inspections")
 
 #: Индекс колонки вывода — адресуем по имени, а не по числу в теле цикла (§9а.9).
 INSPECTION_CONCLUSION_COLUMN = INSPECTION_COLUMNS.index("Conclusion")
@@ -196,7 +195,11 @@ PRECEDENT_COLUMNS = (
 #: третий, поэтому 68 и 47 — ровно то, что нужно, и снимок показывает обе подписи
 #: целыми. Выдай кто-нибудь ту добавку буквально, сумма ушла бы с 1119 на 1133
 #: при полотне 1120, и таблица поехала бы вбок.
-PRECEDENT_WIDTHS = (
+#: **Сжатая** сетка — та, что была до наряда `0036`, и она остаётся сеткой
+#: `DIALOG_FULL`. При 1180 одиннадцать колонок тесны, и `Characteristic` с
+#: `Explanation` обрезаются с подсказкой: это объявленная цена отказа от
+#: горизонтальной прокрутки (наряд `0032` §2), а не недосмотр.
+PRECEDENT_TIGHT_WIDTHS = (
     kit.px(PRECEDENT_EXPANDER_WIDTH),
     kit.px(132),
     kit.px(92),
@@ -209,6 +212,67 @@ PRECEDENT_WIDTHS = (
     kit.px(196),
     kit.FIT_LABEL,
 )
+
+#: **Полная** сетка — когда полотно её держит (`QMS-026` п. 1, наряд `0036` §2).
+#: На минимуме давать нечего, а на настоящем мониторе ширина есть, и платить за
+#: неё обрезкой главного текста прецедента незачем.
+#:
+#: Назначена замером **целиком**, а не «сжатая плюс что-нибудь»: снимать по
+#: колонке значило бы получать разные числа при разных ширинах окна и мерить
+#: каждое отдельно (тот же довод, что у `deviation_view.TIGHT_WIDTHS`).
+#: Замер на нативной платформе, самое длинное реальное значение плюс 27 px
+#: непечатаемого; где известен предел предметной области, взят он, а не то, что
+#: оказалось в базе прогона:
+#:
+#:   (раскрыватель)     30   §3 наряда `0031`, не трогается
+#:   Deviation         132   `DEV-260909-0001` просит 131
+#:   Date               92   `19.08.2026` просит 89
+#:   Item              123   **не 89**: максимум `מק"ט` по журналу 13 знаков (§5 `0034`)
+#:   Revision       заголовок `FIT_LABEL`, 68
+#:   WO                102   **не 95**: максимум `פק"ע` по журналу 10 знаков (§5 `0034`)
+#:   Characteristic    195   `77 · Implant_Con_375_C1 · g1` — перестаёт обрезаться
+#:   Sign · value       96   заголовок шире значения
+#:   Decision       пилюля    считается оправой пилюли, а не текстом ячейки
+#:   Explanation       440   самое длинное реальное обоснование целиком
+#:   Insp.          заголовок `FIT_LABEL`, 47
+#:
+#: Сумма — **1462**; полотно при `DIALOG_FULL` равно 1136, поэтому здесь работает
+#: сжатая, а полная включается сама, когда карточку растянут.
+PRECEDENT_FULL_WIDTHS = (
+    kit.px(PRECEDENT_EXPANDER_WIDTH),
+    kit.px(132),
+    kit.px(92),
+    kit.px(123),
+    kit.FIT_LABEL,
+    kit.px(102),
+    kit.px(195),
+    kit.px(96),
+    kit.pill(DECISION_DEV_COLUMN),
+    kit.px(440),
+    kit.FIT_LABEL,
+)
+
+#: Сетка, с которой таблица собирается: до первой раскладки ширины полотна ещё
+#: нет, и начинать надо с той, что помещается заведомо.
+PRECEDENT_WIDTHS = PRECEDENT_TIGHT_WIDTHS
+
+
+def precedent_widths(table, canvas: int) -> tuple:
+    """Какая из двух сеток по этому полотну — **одна** версия сжатия.
+
+    Тот же приём, что `deviation_view.grid_widths`: не «полная минус
+    что-нибудь», а две назначенные целиком, и выбор между ними один.
+
+    Сумма полной считается **у таблицы**, а не берётся числом: две её колонки
+    (`Revision`, `Insp.`) меряются заголовком, а `Decision` — оправой пилюли, и
+    все три зависят от шрифта машины. Записанное число разошлось бы с
+    нарисованным на первой же машине с другим шрифтом (`CLAUDE.md` §9а.12).
+    """
+    full = sum(
+        kit.column_width(table, spec, caption)
+        for spec, caption in zip(PRECEDENT_FULL_WIDTHS, PRECEDENT_COLUMNS)
+    )
+    return PRECEDENT_FULL_WIDTHS if full <= canvas else PRECEDENT_TIGHT_WIDTHS
 
 #: Дата, «знак · величина», счётчик. Ревизия сюда **не входит**: обозначение —
 #: идентификатор, а не величина, сравнивать по нему нечего, и левый край держит
@@ -605,9 +669,19 @@ class PrecedentTable(kit.DataTable):
             return
         self._laying_out = True
         try:
+            self.apply_grid()
             self._stretch_panels()
         finally:
             self._laying_out = False
+
+    def apply_grid(self) -> None:
+        """Переложить колонки под нынешнее полотно — полная сетка или сжатая.
+
+        Зовётся отсюда, а не из наполнения: сетка зависит от **ширины**, а не от
+        строк. Защита от рекурсии — флаг вызывающего: `refit_columns` двигает
+        отступы полотна, а это снова `resizeEvent` (§9а.15).
+        """
+        kit.refit_columns(self, precedent_widths(self, kit.canvas_width(self)))
 
     def _stretch_panels(self) -> None:
         """Растянуть панели на ширину служебной строки.
@@ -776,27 +850,35 @@ class CardDialog(QDialog):
         )
         self.copy_own.clicked.connect(self.copy_own_explanation)
         self.copy_own.setVisible(False)
-        explanation_row = kit.button_row(self.explanation, self.copy_own)
+        # **Именованное исключение** (§1.3 наряда `0036`): обоснование — проза, и
+        # ему нужна ширина, которая у шапки есть. Правило `kit.form()` «поля не
+        # растягиваются» (ратификация В-1) при этом в силе для всех прочих полей.
+        explanation_row = kit.prose_row(self.explanation, self.copy_own)
 
+        # **Реквизиты в три колонки** (§1.1 наряда `0036`, `QMS-026` п. 3). Было
+        # две — пять строк слева и четыре справа; девять реквизитов занимали пять
+        # строк вертикали, и прецеденты, ради которых карточку открывают, уезжали
+        # вниз. Три колонки по три строки отдают две строки вертикали обратно.
+        #
+        # Группировка не произвольная и читается слева направо тем же порядком,
+        # каким отклонение заводят: **что это** (номер, деталь, ревизия) → **где
+        # сделано** (наряд, станок, сколько) → **чем зафиксировано** (дата, NCR,
+        # вложения).
+        #
         # Поля не растягиваются на всю ширину: иначе значение уезжает от своей
         # подписи через полэкрана и липнет к подписи соседней колонки.
-        head_left = kit.form()
-        head_left.addRow("Deviation:", self.number)
-        head_left.addRow("Item:", self.item_label)
-        head_left.addRow("Revision:", self.revision_label)
-        head_left.addRow("WO:", self.wo)
-        head_left.addRow("Machine:", self.machine)
-        head_right = kit.form()
-        head_right.addRow("Quantity:", self.quantity)
-        head_right.addRow("Date:", self.date)
-        head_right.addRow("NCR:", self.ncr)
-        head_right.addRow("Attachments:", self.attachment)
-
-        # Каждая колонка — в своём виджете: соседние QFormLayout иначе делят
-        # ширину так, что значение левой оказывается вплотную к подписи правой.
-        head_columns = QHBoxLayout()
-        head_columns.addWidget(kit.boxed(head_left), 1)
-        head_columns.addWidget(kit.boxed(head_right), 1)
+        head_identity = kit.form()
+        head_identity.addRow("Deviation:", self.number)
+        head_identity.addRow("Item:", self.item_label)
+        head_identity.addRow("Revision:", self.revision_label)
+        head_making = kit.form()
+        head_making.addRow("WO:", self.wo)
+        head_making.addRow("Machine:", self.machine)
+        head_making.addRow("Quantity:", self.quantity)
+        head_record = kit.form()
+        head_record.addRow("Date:", self.date)
+        head_record.addRow("NCR:", self.ncr)
+        head_record.addRow("Attachments:", self.attachment)
 
         decision_form = kit.form()
         # Пилюля не растягивается на ширину формы: её край и есть её форма.
@@ -804,7 +886,19 @@ class CardDialog(QDialog):
         decision_row.addWidget(self.decision)
         decision_row.addStretch(1)
         decision_form.addRow("Decision:", kit.boxed(decision_row))
-        decision_form.addRow("Explanation:", kit.boxed(explanation_row))
+        decision_form.addRow("Explanation:", explanation_row)
+
+        # **Подпись и первая строка значения — на одной линии** (§1.2), во всех
+        # формах шапки, а не только там, где сегодня стоит виджет выше текста.
+        for head_form in (head_identity, head_making, head_record, decision_form):
+            kit.align_labels_to_first_line(head_form)
+
+        # Каждая колонка — в своём виджете: соседние QFormLayout иначе делят
+        # ширину так, что значение левой оказывается вплотную к подписи правой.
+        head_columns = QHBoxLayout()
+        head_columns.addWidget(kit.boxed(head_identity), 1)
+        head_columns.addWidget(kit.boxed(head_making), 1)
+        head_columns.addWidget(kit.boxed(head_record), 1)
 
         self.edit_button = kit.secondary("Edit…")
         self.decision_button = kit.primary("Decision…")
@@ -1108,14 +1202,7 @@ class CardDialog(QDialog):
         # должна прыгать от того, какие исследования у этой находки. Гарантируется
         # ровно «самый длинный тип плюс `+N`»; вывод единственной записи за этой
         # границей обрезается — так §2 и просит, полный текст в подсказке.
-        kit.refit_columns(
-            self.findings,
-            (
-                *FINDING_WIDTHS[:INSPECTIONS_COLUMN],
-                kit.closed([joined(name, "+9") for name in self._inspection_types]),
-                *FINDING_WIDTHS[INSPECTIONS_COLUMN + 1 :],
-            ),
-        )
+        fit_findings_columns(self.findings, self._inspection_types)
         # Высота **после** наполнения, а не при сборке: в конструкторе строк ещё
         # нет, и посчитанная там высота была бы высотой пустой таблицы. Ровно
         # на этом первая попытка и дала ноль — поймал замер, не тест.

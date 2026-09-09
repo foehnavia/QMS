@@ -55,7 +55,7 @@ from domain.reference import list_values
 from domain.characteristics import get_or_create_characteristic
 from domain.deviations import register, update_registration
 from domain.findings import (
-    inspection_counts,
+    inspections_of_deviation,
     make_finding,
     remove_finding,
     update_finding,
@@ -67,6 +67,10 @@ from domain.precedents import CANON_NEW, canon_labels_for_item
 
 from . import kit
 from .common import (
+    SAMPLE_INSPECTION,
+    joined,
+    inspections_summary,
+    inspections_tooltip,
     bind_direction,
     outcome_label,
     dimension_sort_key,
@@ -135,9 +139,13 @@ HIDDEN_FINDING_COLUMNS = ("Measurement point",)
 #:   `Inspections`        92 (заголовок)                   -> 100
 #: Сумма 924 из 1180 диалога; остаток — зона запаса.
 #:
-#: `Inspections` заодно перестала быть `FIT_LABEL`: та формула давала ей 85 px при
-#: нужных 92 — недобор в 7 px, который есть у каждой колонки по заголовку и
-#: чинится задачей **QMS-022**, а не здесь.
+#: `Inspections` заодно перестала быть `FIT_LABEL` — но **не** из-за «недобора в
+#: 7 px»: стоявшая здесь запись про него и про `QMS-022` была ошибкой замера,
+#: снятой нарядом `0034`. Зазоров три, и каждый принадлежит своему рисующему:
+#: текст под стилем теряет 27 px, делегат, рисующий ячейку сам, 21, заголовок 20
+#: (`kit.metrics`). Колонка по заголовку платит третий, и недобора у неё нет.
+#: Объявленные пиксели здесь остаются потому, что колонка несёт **сводку**
+#: исследований, а не счётчик, и её ширину задаёт справочник (§3.2 наряда `0036`).
 FINDING_WIDTHS = (
     kit.px(64),
     kit.px(96),
@@ -157,6 +165,35 @@ FINDING_NUMERIC_COLUMNS = tuple(
 #: Из них выравнивается вправо только **величина** (решение Cowork по ревью
 #: наряда 0007): разряды встают в столбик, и разброс виден без чтения.
 FINDING_MAGNITUDE_COLUMNS = (FINDING_COLUMNS.index("Sign · value"),)
+
+#: Индекс колонки сводки исследований — по имени, а не по числу (§9а.9).
+INSPECTIONS_COLUMN = FINDING_COLUMNS.index("Inspections")
+
+
+def fit_findings_columns(table, inspection_types) -> None:
+    """Ширины таблицы находок; колонка сводки считается **по справочнику**.
+
+    Одна функция на оба экрана — карточку и форму, — потому что колонка у них
+    общая и обязана выглядеть одинаково (§9а.11, §3.2 наряда `0036`). До него
+    правило жило в карточке, а форма показывала голое число: расхождение
+    ровно того класса, который §9а.11 велит ловить сравнением экранов.
+
+    Гарантируется «самый длинный тип плюс `+N`»: объявленных 100 px не хватало,
+    и `Solidworks assembly · +2` резалось до `Solidworks…` — «есть ещё две»
+    пропадало вместе с хвостом. Вывод единственной записи за этой границей
+    обрезается, и так и задумано: полный текст в подсказке.
+
+    Считается по справочнику, а не по показанным строкам, чтобы ширина не
+    прыгала от того, какие исследования у этой находки.
+    """
+    kit.refit_columns(
+        table,
+        (
+            *FINDING_WIDTHS[:INSPECTIONS_COLUMN],
+            kit.closed([joined(name, "+9") for name in inspection_types]),
+            *FINDING_WIDTHS[INSPECTIONS_COLUMN + 1 :],
+        ),
+    )
 
 
 def hide_finding_columns(table) -> None:
@@ -187,11 +224,10 @@ INSPECTION_COLUMNS = ("Number", "Characteristic", "Type", "Protocol")
 #: является); `Type` — закрытый список справочника, `Protocol` — путь к файлу,
 #: то есть свободный текст (наряд `0034` §2).
 INSPECTION_WIDTHS = (
-    # Эталон — **настоящий** номер, а не похожий на него: формат
-    # `INSP-YYMMDD-NNN`, пятнадцать знаков. Придуманный `INS-2609-0001`
-    # (тринадцать) резал каждую строку таблицы, и поймала это сводная проверка
-    # обрезки, а не тест (наряд `0035`, критерий 1).
-    kit.fixed("INSP-260909-002"),
+    # Эталон — **настоящий** номер, и берётся он из одного места, где его
+    # сторожит гард (`common.GENERATED_SAMPLES`, §3.3 наряда `0036`). Литерал
+    # на месте — ровно то, чем в `0034` сюда попал `INS-2609-0001`.
+    kit.fixed(SAMPLE_INSPECTION),
     kit.FIT_LABEL,
     kit.closed(()),
     kit.free(),
@@ -435,7 +471,13 @@ class DeviationDialog(QDialog):
             self.attachment.setPlainText(deviation.attachment or "")
 
             findings = _load_findings(session, deviation)
-            counts = inspection_counts(session, findings)
+            # **Сами исследования, а не их число** (§3.2 наряда `0036`): колонка
+            # несёт сводку, и на этом экране ту же, что в карточке.
+            by_finding = inspections_of_deviation(session, self._deviation_id)
+            # Справочник типов — для ширины колонки сводки (§3.2 наряда `0036`).
+            self._inspection_types = [
+                value.name for value in list_values(session, RefInspectionType)
+            ]
             self._rows = [
                 FindingRow(
                     local_number=finding.characteristic.local_number,
@@ -446,7 +488,7 @@ class DeviationDialog(QDialog):
                     zone_id=finding.zone_id,
                     deviation_type_id=finding.deviation_type_id,
                     finding_id=finding.finding_id,
-                    inspections=counts.get(finding.finding_id, 0),
+                    inspections=tuple(by_finding.get(finding.finding_id, ())),
                     outcome=finding.outcome,
                 )
                 for finding in findings
@@ -533,10 +575,25 @@ class DeviationDialog(QDialog):
                 kinds.get(row.deviation_type_id, ""),
                 "" if row.dimension_point is None else iso(str(row.dimension_point)),
                 outcome_label(row.outcome),
-                str(row.inspections),
+                inspections_summary(row.inspections),
             )
             for column, value in enumerate(values):
-                self.findings.setItem(index, column, QTableWidgetItem(value))
+                cell = QTableWidgetItem(value)
+                if column == INSPECTIONS_COLUMN and len(row.inspections) > 1:
+                    # **Подсказка содержательная, а не компенсация обрезки** —
+                    # то же объявленное исключение, что в карточке (§2 наряда
+                    # `0035`, механизм в `kit.CONTENT_TOOLTIP_ROLE`). Колонка
+                    # обязана вести себя на двух экранах одинаково: кортеж
+                    # колонок общий, и одно значение не имеет права выглядеть
+                    # по-разному (§9а.11, §3.2 наряда `0036`).
+                    cell.setData(
+                        kit.CONTENT_TOOLTIP_ROLE, inspections_tooltip(row.inspections)
+                    )
+                elif column == INSPECTIONS_COLUMN and row.inspections:
+                    cell.setToolTip(inspections_tooltip(row.inspections))
+                self.findings.setItem(index, column, cell)
+
+        fit_findings_columns(self.findings, getattr(self, "_inspection_types", []))
 
     def _refresh_inspections(self) -> None:
         if self._deviation_id is None:
@@ -698,7 +755,7 @@ class DeviationDialog(QDialog):
                 self,
                 "Finding is in use",
                 f"The finding on characteristic no. {row.local_number} carries "
-                f"inspections: {row.inspections} — delete them first.",
+                f"inspections: {len(row.inspections)} — delete them first.",
             )
             return
         if len(self._rows) == 1:
@@ -779,15 +836,14 @@ class DeviationDialog(QDialog):
         self._refresh()
 
     def _reload_inspection_counts(self) -> None:
+        """Перечитать исследования находок — **записи**, а не их число (§3.2 `0036`)."""
         saved = [row for row in self._rows if row.finding_id is not None]
-        if not saved:
+        if not saved or self._deviation_id is None:
             return
         with session_scope(self._engine) as session:
-            counts = inspection_counts(
-                session, [session.get(Finding, row.finding_id) for row in saved]
-            )
+            by_finding = inspections_of_deviation(session, self._deviation_id)
         for row in saved:
-            row.inspections = counts.get(row.finding_id, 0)
+            row.inspections = tuple(by_finding.get(row.finding_id, ()))
 
     # --- сохранение --------------------------------------------------------------
 

@@ -45,6 +45,8 @@ from .kit.widgets import UnexpectedErrorDialog, in_test_mode, set_test_mode, sho
 
 __all__ = [
     "SAMPLE_DATE",
+    "GENERATED_SAMPLES",
+    "SAMPLE_INSPECTION",
     "SAMPLE_DEVIATION",
     "SAMPLE_ITEM_NUMBER",
     "SAMPLE_NCR",
@@ -139,6 +141,30 @@ SAMPLE_DATE = "09.09.2026"
 
 #: Номер NCR: максимум журнала — 10 знаков.
 SAMPLE_NCR = "NCR-118999"
+
+#: Номер исследования — формат наш: `INSP-YYMMDD-NNN`, при исчерпанном суточном
+#: счётчике `999`. Эталон берётся **самый широкий из возможных**, а не первый
+#: попавшийся: колонка обязана держать любой номер, который выдаст генератор.
+SAMPLE_INSPECTION = "INSP-260909-999"
+
+#: Эталоны, у которых есть **настоящий генератор** (`db.ids`), — их и сторожит
+#: гард `tests/test_ui_kit.py::test_business_number_samples_match_their_generator`.
+#:
+#: Правило «эталон обязан быть настоящим значением, а не похожим на него»
+#: существовало и до наряда `0036`, но было **дисциплиной** и не сработало: в
+#: `0034` номер исследования объявили как `INS-2609-0001` (13 знаков) при
+#: настоящем формате `INSP-YYMMDD-NNN` (15), и резалась каждая строка таблицы
+#: исследований формы. Нашёл это не прогон, а сводная проверка обрезки — то есть
+#: случайность. Здесь список, по которому гард обходит эталоны механически;
+#: заведёшь новый бизнес-номер — впиши его сюда, иначе он останется без сторожа.
+#:
+#: `SAMPLE_ITEM_NUMBER`, `SAMPLE_WO`, `SAMPLE_NCR` сюда **не входят**: эти номера
+#: приходят из цеха, генератора у нас для них нет, и сверять их форму не с чем.
+#: Их основание — журнал `0033`, и оно записано у каждого.
+GENERATED_SAMPLES = {
+    "dev_number": SAMPLE_DEVIATION,
+    "insp_number": SAMPLE_INSPECTION,
+}
 
 
 #: Позиция без геометрии — прочерк. Деталь по такой позиции не засеется, и
@@ -477,9 +503,23 @@ PANEL_NUMERIC_COLUMNS = (1, 2, 3)
 PANEL_MAGNITUDE_COLUMNS = (3,)
 
 
-def panel_height(inspection_counts: list[int]) -> int:
-    """Высота панели раскрытия: своя шапка плюс строки находок (§4 наряда)."""
-    return tokens.PANEL_HEADER_HEIGHT + sum(finding_row_height(n) for n in inspection_counts)
+def panel_height(inspection_counts: list[int], view=None) -> int:
+    """Высота панели раскрытия: своя шапка, строки находок и **рамка**.
+
+    Рамку добавил наряд `0036` §0 — тот же дефект, что у `kit.table_height`, и
+    он у панели тоже был: замер показал недобор полотна ровно 2 px и лишнюю
+    полосу прокрутки при трёх строках. `setFrameShape(NoFrame)` его не снимает —
+    рамку рисует **лист стиля**, а не форма кадра, и `frameWidth()` у панели
+    остаётся 1 (наряд `0036`, замер приложен к отчёту). Косвенный довод
+    постановки — «у панели фантомной полосы нет» — замером **не подтвердился**.
+
+    `view` необязателен там, где считается **пол** раскладки, а не высота живой
+    панели.
+    """
+    height = tokens.PANEL_HEADER_HEIGHT + sum(
+        finding_row_height(n) for n in inspection_counts
+    )
+    return height + (kit.frame_height(view) if view is not None else 0)
 
 
 def finding_row_height(inspections: int) -> int:
@@ -636,7 +676,11 @@ class FindingsPanel(QTableWidget):
                 self.setItem(index, column, cell)
             self.setRowHeight(index, finding_row_height(len(found)))
 
-        self.setFixedHeight(panel_height([len(inspections.get(r.finding_id, [])) for r in ordered]))
+        self.setFixedHeight(
+            panel_height(
+                [len(inspections.get(r.finding_id, [])) for r in ordered], self
+            )
+        )
 
     def fit_to(self, width: int) -> None:
         """Уложить колонки панели в `width`, отдавая разницу `Inspections`.
