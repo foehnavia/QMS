@@ -47,9 +47,11 @@ from db.models import (
     Item,
     ItemRevision,
     RefDeviationType,
+    RefInspectionType,
     RefZone,
 )
 from db.session import session_scope
+from domain.reference import list_values
 from domain.characteristics import get_or_create_characteristic
 from domain.deviations import register, update_registration
 from domain.findings import (
@@ -185,7 +187,11 @@ INSPECTION_COLUMNS = ("Number", "Characteristic", "Type", "Protocol")
 #: является); `Type` — закрытый список справочника, `Protocol` — путь к файлу,
 #: то есть свободный текст (наряд `0034` §2).
 INSPECTION_WIDTHS = (
-    kit.fixed("INS-2609-0001"),
+    # Эталон — **настоящий** номер, а не похожий на него: формат
+    # `INSP-YYMMDD-NNN`, пятнадцать знаков. Придуманный `INS-2609-0001`
+    # (тринадцать) резал каждую строку таблицы, и поймала это сводная проверка
+    # обрезки, а не тест (наряд `0035`, критерий 1).
+    kit.fixed("INSP-260909-002"),
     kit.FIT_LABEL,
     kit.closed(()),
     kit.free(),
@@ -551,6 +557,11 @@ class DeviationDialog(QDialog):
                     deviation.inspections, key=lambda i: i.insp_number
                 )
             ]
+            # Ширину `Type` задаёт **справочник**, а не показанные строки; набор
+            # передаёт экран, `kit` к базе не ходит (§1.1 наряда `0035`).
+            inspection_types = [
+                value.name for value in list_values(session, RefInspectionType)
+            ]
 
         self.inspections.setRowCount(len(rows))
         for index, (inspection_id, number, local, kind, protocol) in enumerate(rows):
@@ -560,6 +571,19 @@ class DeviationDialog(QDialog):
                 if column == 0:
                     cell.setData(Qt.ItemDataRole.UserRole, inspection_id)
                 self.inspections.setItem(index, column, cell)
+
+        # Второе из двух мест с `kit.free()` (§0.4 наряда `0035`): без пересчёта
+        # `Protocol` сидел на полу по заголовку, а `Type` — на пустом наборе.
+        # Предел полотна `refit_columns` берёт у самой таблицы.
+        kit.refit_columns(
+            self.inspections,
+            (
+                INSPECTION_WIDTHS[0],
+                INSPECTION_WIDTHS[1],
+                kit.closed(inspection_types),
+                INSPECTION_WIDTHS[3],
+            ),
+        )
 
     def _refresh_actions(self) -> None:
         """Доступность кнопок и объяснение, почему «Сохранить» неактивна."""

@@ -49,6 +49,8 @@ __all__ = [
     "SAMPLE_ITEM_NUMBER",
     "SAMPLE_NCR",
     "SAMPLE_WO",
+    "NO_INSPECTIONS_MARK",
+    "inspections_summary",
     "DECISION_DEV_COLUMN",
     "DECISION_DEV_LABELS",
     "DECISION_DEV_SHORT",
@@ -524,6 +526,36 @@ def inspections_tooltip(rows) -> str:
             f"{row.type_name}\n{row.conclusion}" if row.conclusion else row.type_name
         )
     return "\n\n".join(lines)
+
+
+#: Что стоит в колонке `Inspections`, когда исследований нет. Прежнее поведение
+#: колонки-счётчика; менять его наряд `0035` не заказывал.
+NO_INSPECTIONS_MARK = "0"
+
+
+def inspections_summary(rows) -> str:
+    """Сводка колонки `Inspections` — **содержимое вместо счётчика** (§2 `0035`).
+
+    Голое число бесполезно: панель ниже и так показывает исследования выбранной
+    находки, а счётчик не даёт причины кликать. Отсюда три случая:
+
+    * **ноль** — как было, `0`;
+    * **одна** — тип и вывод; длинное урежет колонка, полный текст в подсказке;
+    * **несколько** — тип первой и `+N` остальных. Сколько именно скрыто, а не
+      сколько всего: та же условность, что у `+N findings` в пилюлях находок, и
+      две разные условности на одном экране читались бы как ошибка.
+
+    Подсказку эта функция не собирает — её собирает `inspections_tooltip`, и
+    вторую писать незачем.
+    """
+    if not rows:
+        return NO_INSPECTIONS_MARK
+    first = rows[0]
+    if len(rows) == 1:
+        return joined(first.type_name, first.conclusion) if first.conclusion else iso(
+            first.type_name
+        )
+    return joined(first.type_name, f"+{len(rows) - 1}")
 
 
 class FindingsPanel(QTableWidget):

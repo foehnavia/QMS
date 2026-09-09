@@ -48,12 +48,13 @@ from db.models import (
     Inspection,
     Item,
     RefDeviationType,
+    RefInspectionType,
     RefZone,
 )
 from db.session import session_scope
+from domain.reference import list_values
 from domain.findings import (
     findings_for_deviations,
-    inspection_counts,
     inspections_of_deviation,
     update_finding,
 )
@@ -69,6 +70,8 @@ from domain.precedents import (
 from . import kit
 from .common import (
     DECISION_DEV_COLUMN,
+    inspections_summary,
+    inspections_tooltip,
     UNBOUND_MARK,
     FindingsPanel,
     panel_height,
@@ -114,6 +117,9 @@ INSPECTION_COLUMNS = ("Type", "Conclusion")
 #: `Type` — закрытый список справочника (рекорд `Implantation torque test`);
 #: `Conclusion` — свободный текст с обрезкой, полный текст в подсказке.
 INSPECTION_WIDTHS = (kit.closed(()), kit.free())
+
+#: Индекс колонки сводки исследований — по имени, а не по числу (§9а.9).
+INSPECTIONS_COLUMN = FINDING_COLUMNS.index("Inspections")
 
 #: Индекс колонки вывода — адресуем по имени, а не по числу в теле цикла (§9а.9).
 INSPECTION_CONCLUSION_COLUMN = INSPECTION_COLUMNS.index("Conclusion")
@@ -166,13 +172,13 @@ PRECEDENT_COLUMNS = (
 #:   Deviation         153    131    132   потребность плюс округление
 #:   Date              132     89     92   то же
 #:   Item              125     89     92   то же (наряд назвал её третьей)
-#:   Revision           68     75     68   `FIT_LABEL`; недобор в 7 px — QMS-022
+#:   Revision           68     68     68   `FIT_LABEL`; считается зазором заголовка
 #:   WO                125     95     96   потребность плюс округление
 #:   Characteristic    230    195    120   обрезается, полный текст в подсказке
 #:   Sign · value      118     93     96   потребность плюс округление
 #:   Decision          150     85    150   рисует пилюля, ей нужна оправа
 #:   Explanation       270    440    176   обрезается, полный текст в подсказке
-#:   Insp.              47     54     47   `FIT_LABEL`; тот же недобор, QMS-022
+#:   Insp.              47     47     47   `FIT_LABEL`; то же
 #:   сумма            1448   1373   1119   полотно 1120
 #:
 #: **Полотно считается по тесноте, а не по удобному случаю.** Раскрытие строк
@@ -182,9 +188,14 @@ PRECEDENT_COLUMNS = (
 #: раскрытия (`kit.recentre_columns`): отступ 8 на свёрнутой, 3 на раскрытой,
 #: полотно в обоих случаях 1120. Сумма при этом не меняется ни на пиксель.
 #:
-#: `Revision` и `Insp.` оставлены `FIT_LABEL` намеренно, хотя замер показывает у
-#: обеих недобор в 7 px: это известный дефект формулы `kit.FIT_LABEL`, общий для
-#: всех экранов, и он чинится задачей **QMS-022**, а не здесь.
+#: `Revision` и `Insp.` — `FIT_LABEL`, и **недобора у них нет**. Стоявшая здесь
+#: запись про «7 px, чинится QMS-022» была ошибкой замера, снятой нарядом `0034`:
+#: она вычитала из заголовка зазор **ячейки**. Зазоров три, и каждый принадлежит
+#: своему рисующему — текст под стилем теряет 27 px, делегат, рисующий ячейку
+#: сам, 21, заголовок 20 (`kit.metrics`). Колонка класса «по заголовку» платит
+#: третий, поэтому 68 и 47 — ровно то, что нужно, и снимок показывает обе подписи
+#: целыми. Выдай кто-нибудь ту добавку буквально, сумма ушла бы с 1119 на 1133
+#: при полотне 1120, и таблица поехала бы вбок.
 PRECEDENT_WIDTHS = (
     kit.px(PRECEDENT_EXPANDER_WIDTH),
     kit.px(132),
@@ -751,6 +762,22 @@ class CardDialog(QDialog):
         )
         self.explanation.setWordWrap(True)
 
+        # Иконка копирования рядом с полем (§4 наряда `0035`). Выделение мышью
+        # работает и без неё, но требует догадаться, что текст выделяем, —
+        # а обоснование как раз то, что переносят в своё отклонение.
+        #
+        # **Показывается только когда в поле есть текст**: кнопка над прочерком
+        # обещала бы действие, которого нет. Это не та же кнопка, что
+        # `Copy explanation` внизу: там копируется обоснование **выбранного
+        # прецедента**, здесь — своё собственное. Разные объекты, и объединять
+        # их нельзя (наряд `0035`, §4).
+        self.copy_own = kit.icon_button(
+            "copy", "Copy this explanation to the clipboard"
+        )
+        self.copy_own.clicked.connect(self.copy_own_explanation)
+        self.copy_own.setVisible(False)
+        explanation_row = kit.button_row(self.explanation, self.copy_own)
+
         # Поля не растягиваются на всю ширину: иначе значение уезжает от своей
         # подписи через полэкрана и липнет к подписи соседней колонки.
         head_left = kit.form()
@@ -777,7 +804,7 @@ class CardDialog(QDialog):
         decision_row.addWidget(self.decision)
         decision_row.addStretch(1)
         decision_form.addRow("Decision:", kit.boxed(decision_row))
-        decision_form.addRow("Explanation:", self.explanation)
+        decision_form.addRow("Explanation:", kit.boxed(explanation_row))
 
         self.edit_button = kit.secondary("Edit…")
         self.decision_button = kit.primary("Decision…")
@@ -957,6 +984,11 @@ class CardDialog(QDialog):
         layout.addWidget(self.status)
         layout.addLayout(footer)
 
+        # Пустой набор до первой загрузки: `_refresh_inspections` зовётся и из
+        # `reload`, и по выбору строки, а справочник читает только `reload`.
+        self._inspection_types: list[str] = []
+        #: Своё обоснование целиком — источник для иконки копирования (§4).
+        self._own_explanation = ""
         self.reload()
 
     @classmethod
@@ -988,10 +1020,28 @@ class CardDialog(QDialog):
             # Пилюля — тот же компонент, что и в колонке списка: одно значение
             # не имеет права выглядеть на двух экранах по-разному.
             kit.paint_badge(self.decision, decision_dev_label(code), code)
-            self.explanation.setText(deviation.explanation or "—")
+            # Полный текст держим отдельно от подписи: копируется он, а не то,
+            # что видно (§4 наряда `0035`).
+            self._own_explanation = deviation.explanation or ""
+            self.explanation.setText(self._own_explanation or "—")
+            # Иконка — только когда есть что копировать.
+            self.copy_own.setVisible(bool(self._own_explanation))
+
+            # Полный набор типов исследования — **ширину колонки `Type` задаёт
+            # справочник, а не показанные строки** (§1.1 наряда `0035`). Набор
+            # передаёт экран: `kit` к базе не обращается, слоение домен/UI
+            # сторожится тестами с S2 и ради ширины колонки не ломается.
+            # Читается один раз на загрузку карточки, а не на каждый выбор
+            # находки: справочник за время открытого окна не меняется.
+            self._inspection_types = [
+                value.name for value in list_values(session, RefInspectionType)
+            ]
 
             findings = _load_findings(session, deviation)
-            counts = inspection_counts(session, findings)
+            # **Сами исследования, а не их число** (§2 наряда `0035`): колонка
+            # несёт теперь сводку. Запрос тот же один, что и у счётчиков, —
+            # `inspections_of_deviation` раскладывает их по находкам сразу.
+            by_finding = inspections_of_deviation(session, self._deviation_id)
             canon = canon_labels(session, [f.characteristic for f in findings])
             rows = [
                 (
@@ -1003,7 +1053,7 @@ class CardDialog(QDialog):
                     finding.dimension_point,
                     finding.zone.name if finding.zone else "",
                     finding.deviation_type.name if finding.deviation_type else "",
-                    counts.get(finding.finding_id, 0),
+                    by_finding.get(finding.finding_id, []),
                     finding.outcome,
                 )
                 for finding in findings
@@ -1022,10 +1072,24 @@ class CardDialog(QDialog):
                 # Исход — перед счётчиком исследований, тем же порядком, что и в
                 # форме отклонения: суждение, а исследования лишь сведения к нему.
                 outcome_label(row[9]),
-                str(row[8]),
+                inspections_summary(row[8]),
             )
             for column, value in enumerate(values):
-                self.findings.setItem(index, column, QTableWidgetItem(value))
+                cell = QTableWidgetItem(value)
+                if column == INSPECTIONS_COLUMN and len(row[8]) > 1:
+                    # **Подсказка содержательная, а не компенсация обрезки**, и
+                    # потому стоит всегда, когда исследований больше одной:
+                    # ячейка показывает тип первой и `+N`, и умолчать про
+                    # остальные значило бы соврать оператору (§2 наряда `0035`).
+                    # Объявленное исключение из правила `0034` §4 — механизм для
+                    # него в `kit.CONTENT_TOOLTIP_ROLE`, чтобы следующий наряд
+                    # не «починил» подсказку на неурезанной ячейке обратно.
+                    cell.setData(kit.CONTENT_TOOLTIP_ROLE, inspections_tooltip(row[8]))
+                elif column == INSPECTIONS_COLUMN and row[8]:
+                    # Одна запись: полный текст вывода — обычной подсказкой,
+                    # по факту обрезки.
+                    cell.setToolTip(inspections_tooltip(row[8]))
+                self.findings.setItem(index, column, cell)
 
         if rows:
             restored = self._finding_ids.index(previous) if previous in self._finding_ids else 0
@@ -1034,6 +1098,24 @@ class CardDialog(QDialog):
             self.findings.blockSignals(True)
             self.findings.setCurrentCell(restored, 0)
             self.findings.blockSignals(False)
+        # **Колонка сводки обязана вмещать `+N`** (§2 наряда `0035`). Объявленные
+        # 100 px её не вмещали: `Solidworks assembly +2` резалось до
+        # `Solidworks…`, то есть «есть ещё две» пропадало вместе с хвостом, и
+        # оператор видел ту же бесполезную ячейку, что и со счётчиком. Поймал
+        # снимок, не тест (`CLAUDE.md` §9а.25).
+        #
+        # Ширина считается по **справочнику**, а не по показанным строкам: она не
+        # должна прыгать от того, какие исследования у этой находки. Гарантируется
+        # ровно «самый длинный тип плюс `+N`»; вывод единственной записи за этой
+        # границей обрезается — так §2 и просит, полный текст в подсказке.
+        kit.refit_columns(
+            self.findings,
+            (
+                *FINDING_WIDTHS[:INSPECTIONS_COLUMN],
+                kit.closed([joined(name, "+9") for name in self._inspection_types]),
+                *FINDING_WIDTHS[INSPECTIONS_COLUMN + 1 :],
+            ),
+        )
         # Высота **после** наполнения, а не при сборке: в конструкторе строк ещё
         # нет, и посчитанная там высота была бы высотой пустой таблицы. Ровно
         # на этом первая попытка и дала ноль — поймал замер, не тест.
@@ -1109,9 +1191,26 @@ class CardDialog(QDialog):
                 note="" if bound else UNBOUND_HINT,
             ),
         ]
-        self.precedents.fill(groups, reference=reference_revision)
-        self.precedents.setVisible(True)
-        self.precedents_empty.setVisible(False)
+        # **Обе группы пусты — показываем одну строку, а не два нуля** (§3 наряда
+        # `0035`). Наряд `0032` ратифицировал обратное: «(0)» это ответ, а
+        # исчезнувшая группа читается как «поиск не работал». Правило не
+        # отменено, а уточнено прогоном: два заголовка с нулями подряд занимают
+        # место и обещают содержимое, которого нет, — глаз идёт вниз, листает и
+        # возвращается ни с чем. Скрывается **пустота, а не секция**: стоит хоть
+        # одной группе дать строки, обе снова на месте, иначе непонятно, которая
+        # из двух ответила. Счётчик на вкладке не трогаем — он и есть штатный
+        # способ узнать, что прецедентов нет, не разворачивая.
+        if not same_dimension and not same_position:
+            kit.set_empty_reason(
+                self.precedents_empty, NO_PRECEDENTS_TITLE, NO_PRECEDENTS_HINT
+            )
+            self.precedents.fill([], reference=reference_revision)
+            self.precedents.setVisible(False)
+            self.precedents_empty.setVisible(True)
+        else:
+            self.precedents.fill(groups, reference=reference_revision)
+            self.precedents.setVisible(True)
+            self.precedents_empty.setVisible(False)
         # Привязки нет — предлагаем её сделать. Это действие, а не объяснение
         # пустоты: пустоту уже объяснила групповая строка с нулём.
         self.position_hint_box.setVisible(not bound)
@@ -1175,6 +1274,16 @@ class CardDialog(QDialog):
                 # типа, а не отдельной колонкой: колонка ради признака у одной
                 # записи из десяти — это счётчик там, где показано содержимое.
                 self.inspections.item(index, 0).setToolTip(NO_PROTOCOL_HINT)
+
+        # **Ширины — по справочнику и по полотну** (§0, §1 наряда `0035`).
+        # До него `Type` стоял с пустым `kit.closed(())`, а `Conclusion` —
+        # с нерозданным `kit.free()`: обе садились на пол по заголовку, и панель
+        # показывала `F…` и `Not in …` при пустом поле во всю ширину справа.
+        # Предел полотна `refit_columns` берёт у самой таблицы.
+        kit.refit_columns(
+            self.inspections,
+            (kit.closed(self._inspection_types), kit.free()),
+        )
 
         self.inspections.setVisible(bool(rows))
         self.inspections_empty.setVisible(not rows)
@@ -1394,6 +1503,21 @@ class CardDialog(QDialog):
             CardDialog.run(self._engine, deviation_id, self)
         except Exception as error:  # pragma: no cover - защита от битой ссылки
             kit.show_error(self, error, title="Precedent not opened")
+
+    def copy_own_explanation(self) -> None:
+        """Положить в буфер **своё** обоснование — целиком (§4 наряда `0035`).
+
+        Берётся сохранённый текст, а не подпись с экрана: ярлык переносит строки
+        по ширине и показывает прочерк при пустом значении, и скопированное из
+        него пришлось бы править руками. Критерий приёмки прямо требует «весь
+        текст, а не видимую часть».
+        """
+        if not self._own_explanation:
+            return
+        from PySide6.QtWidgets import QApplication  # noqa: PLC0415
+
+        QApplication.clipboard().setText(self._own_explanation)
+        self.status.setText("Explanation copied to the clipboard.")
 
     def copy_explanation(self) -> None:
         """Положить в буфер **полное** обоснование выбранного прецедента (§5).
