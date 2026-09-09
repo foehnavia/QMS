@@ -2139,3 +2139,220 @@ def test_the_panel_header_is_subordinate_in_the_card_and_not_in_the_list(engine)
     ] == [
         in_list.horizontalHeaderItem(i).text() for i in range(in_list.columnCount())
     ]
+
+
+# --- наряд 0035: остаток доезжает до экрана, сводка, пустые секции, копирование ----
+
+
+def _shown_card(engine, deviation_id: int):
+    """Карточка, **показанная** на экране, — иначе половина механики Qt молчит.
+
+    `CLAUDE.md` §9а.5: у скрытого виджета часть механики не запускается вовсе, и
+    тест молча проверяет пустоту. Ширины здесь как раз из той половины: пока
+    полотно не знает своего размера, раздавать остаток не из чего.
+    """
+    card = CardDialog(engine, deviation_id)
+    card.resize(1180, 960)
+    card.show()
+    QApplication.processEvents()
+    return card
+
+
+def test_the_remainder_reaches_the_inspection_panel(engine) -> None:
+    """§0 наряда `0035`: раздача остатка доезжает **до экрана**, а не до функции.
+
+    Сторожит правило `design-system.md` §3: «Fixed columns are counted first;
+    free text takes the remainder». До наряда `share_remainder` не вызывался в
+    работающем приложении ни разу — строки `limit=` в `src/ui` не было вовсе, —
+    и колонка `Conclusion` садилась на пол по заголовку: панель показывала
+    `Not in …` при пустом поле во всю ширину справа.
+
+    Тест **входит через экран**, а не зовёт функцию: прежний звал
+    `kit.share_remainder` напрямую со своей таблицей и был зелёным ровно потому,
+    что проверял существование механизма, а не его работу (`CLAUDE.md` §9а.20).
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12", decision=None)
+        _inspection(
+            session,
+            finding_id,
+            position=None,
+            conclusion="Clearance in the assembled state drops by 20 %.",
+        )
+
+    card = _shown_card(engine, deviation_id)
+    card.findings.setCurrentCell(0, 0)
+    QApplication.processEvents()
+
+    table = card.inspections
+    conclusion = _inspection_column(card, "Conclusion")
+    floor = ui.kit.column_width(table, ui.kit.free(), "Conclusion")
+
+    assert table.columnWidth(conclusion) > floor, (
+        "колонка свободного текста осталась на полу по заголовку — "
+        "остаток не роздан"
+    )
+    # И не шире потолка читаемости: остаток сверх него не раздаётся никому.
+    assert table.columnWidth(conclusion) <= ui.kit.free_text_width(table)
+
+
+def test_the_inspection_type_is_measured_against_the_reference(engine) -> None:
+    """§1.1 наряда `0035`: ширину `Type` задаёт справочник, а не показанные строки.
+
+    Иначе колонка прыгала бы от того, какие исследования у этой находки, а самое
+    длинное значение справочника всё равно однажды в неё попадёт.
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, finding_id = _case(session, item, "12", decision=None)
+        # В строке — короткий тип; в справочнике есть длиннее.
+        _inspection(session, finding_id, position=None, kind="Solidworks assembly")
+        ensure_value(session, RefInspectionType, "Implantation torque test")
+
+    card = _shown_card(engine, deviation_id)
+    card.findings.setCurrentCell(0, 0)
+    QApplication.processEvents()
+
+    table = card.inspections
+    kind = _inspection_column(card, "Type")
+    metrics = table.fontMetrics()
+    assert metrics.horizontalAdvance("Implantation torque test") <= ui.kit.room_for_text(
+        table, kind
+    )
+
+
+def test_the_inspections_column_summarises_instead_of_counting(engine) -> None:
+    """§2 наряда `0035`: колонка несёт сводку, а не голое число.
+
+    Три случая, и подсказка у «нескольких» перечисляет **все**: показать одну и
+    умолчать про остальные значило бы соврать оператору. Проверяется содержимое
+    подсказки, а не её наличие (критерий 4 наряда).
+    """
+    from ui.card_dialog import INSPECTIONS_COLUMN
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, none_id = _case(session, item, "10", decision=None)
+        one = make_finding(
+            session,
+            session.get(Deviation, deviation_id),
+            get_or_create_characteristic(session, rev(item), "11")[0],
+            direction=Direction.PLUS,
+            value=0.02,
+        )
+        many = make_finding(
+            session,
+            session.get(Deviation, deviation_id),
+            get_or_create_characteristic(session, rev(item), "12")[0],
+            direction=Direction.PLUS,
+            value=0.03,
+        )
+        _inspection(session, one.finding_id, position=None, conclusion="Fits.")
+        _inspection(session, many.finding_id, position=None, conclusion="First.")
+        _inspection(
+            session,
+            many.finding_id,
+            position=None,
+            conclusion="Second.",
+            kind="Tolerances review",
+        )
+
+    card = _shown_card(engine, deviation_id)
+    cells = {}
+    for row in range(card.findings.rowCount()):
+        item_cell = card.findings.item(row, INSPECTIONS_COLUMN)
+        cells[_text(card.findings.item(row, 0))] = item_cell
+
+    # Ноль — как было.
+    assert _text(cells["10"]) == "0"
+    assert not cells["10"].toolTip()
+
+    # Одна — тип и вывод; полный текст подсказкой (по факту обрезки).
+    assert "Solidworks assembly" in _text(cells["11"])
+    assert "Fits." in _text(cells["11"])
+
+    # Несколько — тип первой и `+N`; подсказка перечисляет **все**.
+    assert _text(cells["12"]).startswith("Solidworks assembly")
+    assert "+1" in _text(cells["12"])
+    summary = cells["12"].data(ui.kit.CONTENT_TOOLTIP_ROLE)
+    assert summary, "у нескольких исследований нет содержательной подсказки"
+    assert "First." in summary and "Second." in summary
+    assert "Tolerances review" in summary
+
+    # И она показывается **всегда**, а не по обрезке: сводка не компенсирует
+    # обрезку, а несёт то, чего в ячейке нет (объявленное исключение §4 `0034`).
+    card.findings.setColumnWidth(INSPECTIONS_COLUMN, 4000)
+    delegate = card.findings.itemDelegate()
+    index = card.findings.model().index(
+        [r for r in range(card.findings.rowCount())
+         if _text(card.findings.item(r, 0)) == "12"][0],
+        INSPECTIONS_COLUMN,
+    )
+    assert not delegate.truncated(
+        card.findings, delegate.style_option(card.findings, None, index), index
+    )
+    assert index.data(ui.kit.CONTENT_TOOLTIP_ROLE)
+
+
+def test_empty_l1_sections_collapse_to_one_line(engine) -> None:
+    """§3 наряда `0035`: скрывается **пустота, а не секция**.
+
+    Три состояния. Обе группы пусты — одна строка вместо двух нулей: два
+    заголовка подряд занимают место и обещают содержимое, которого нет. Пуста
+    одна — обе на месте, иначе непонятно, которая из двух ответила. Наряд `0032`
+    ратифицировал «(0) это ответ», и правило не отменено, а уточнено прогоном.
+    """
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        alone_id, _ = _case(session, item, "12", decision=None)
+
+    # Обе пусты — таблица скрыта, вместо неё одна строка.
+    card = _shown_card(engine, alone_id)
+    card.findings.setCurrentCell(0, 0)
+    QApplication.processEvents()
+    assert card.precedents.isHidden()
+    assert not card.precedents_empty.isHidden()
+    assert card.precedents.rowCount() == 0
+
+    # Появился прецедент по тому же номеру — обе групповые строки вернулись,
+    # включая пустую: её заголовок и говорит, которая из двух ответила.
+    with session_scope(engine) as session:
+        item = session.query(Item).filter_by(item_number="C1-08375A").one()
+        _case(session, item, "12", wo="W2", decision="approved")
+
+    card = _shown_card(engine, alone_id)
+    card.findings.setCurrentCell(0, 0)
+    QApplication.processEvents()
+    assert not card.precedents.isHidden()
+    assert card.precedents_empty.isHidden()
+    titles = [entry.title for entry in card.precedents.groups()]
+    assert len(titles) == 2, titles
+    assert any("(0)" in title for title in titles), titles
+
+
+def test_the_copy_icon_follows_the_explanation(engine) -> None:
+    """§4 наряда `0035`: иконка есть, когда есть что копировать, и берёт всё.
+
+    Копируется сохранённый текст, а не подпись с экрана: ярлык переносит строки
+    и показывает прочерк при пустом значении (критерий 7 наряда).
+    """
+    # Хвостовой пробел домен срезает при сохранении — сравниваем с тем, что
+    # он и запишет, а не с тем, что мы набрали.
+    long_text = ("Batch sorted 100 % — 3 parts out of 25 rejected. " * 4).strip()
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        empty_id, _ = _case(session, item, "12", decision=None)
+        filled_id, _ = _case(
+            session, item, "13", wo="W9", decision="sorting", explanation=long_text
+        )
+
+    empty = _shown_card(engine, empty_id)
+    assert empty.copy_own.isHidden(), "иконка обещает действие над пустым полем"
+
+    filled = _shown_card(engine, filled_id)
+    assert not filled.copy_own.isHidden()
+
+    QApplication.clipboard().clear()
+    filled.copy_own.click()
+    assert QApplication.clipboard().text() == long_text
