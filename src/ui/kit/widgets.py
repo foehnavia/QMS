@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QSizePolicy,
     QTableWidget,
     QTabWidget,
     QVBoxLayout,
@@ -32,7 +33,7 @@ from PySide6.QtWidgets import (
 
 from . import tokens as t
 from .direction import directional, iso
-from .metrics import cell_chrome, delegate_chrome, header_chrome
+from .metrics import cell_chrome, delegate_chrome, frame_height, header_chrome
 from .theme import (
     ROLE,
     ROLE_DANGER,
@@ -187,6 +188,70 @@ def stretching_form() -> QFormLayout:
     layout.setHorizontalSpacing(t.GAP_CONTROL)
     layout.setVerticalSpacing(t.GAP_CONTROL)
     return layout
+
+
+def align_labels_to_first_line(layout: QFormLayout) -> QFormLayout:
+    """Подпись и **первая строка** значения — на одной линии.
+
+    По умолчанию `QFormLayout` центрирует подпись по высоте поля. Пока в поле
+    одна строка текста, центр и верх совпадают и разницы не видно; стоит полю
+    стать выше — переносом на вторую строку или соседом-виджетом выше текста, —
+    подпись съезжает вниз относительно первой строки значения.
+
+    Повод — прогон 09.09: у `Explanation` в шапке карточки рядом со значением
+    появилась иконка копирования (24 px против ~17 px строки текста), высота ряда
+    стала высотой кнопки, и подпись с значением встали на разные уровни.
+
+    Выравнивание задаётся **явно**, а не достаётся умолчанием Qt: умолчание тут
+    зависит от того, что окажется в ряду, то есть меняется само (`CLAUDE.md`
+    §9а.22 — объявленное переопределяется тем, чего не объявляли).
+    """
+    layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+    layout.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+    return layout
+
+
+class _ProseRow(QWidget):
+    """Ряд поля-прозы: просит всю доступную ширину, а не свой `sizeHint`."""
+
+    def sizeHint(self):  # noqa: N802 — имя от Qt
+        hint = super().sizeHint()
+        # Заведомо больше любой шапки приложения: раскладка обрежет по месту, и
+        # поле получит **доступное**, а не то, что напросил ярлык. Число берётся
+        # у объявленной ширины полного диалога, а не выдумывается.
+        hint.setWidth(t.DIALOG_FULL)
+        return hint
+
+
+def prose_row(*parts: QWidget) -> QWidget:
+    """**Именованное исключение** из правила `form()` — поле, чьё значение проза.
+
+    `form()` объявляет `FieldsStayAtSizeHint`, и это ратификация находки прогона
+    В-1: поля не растягиваются, иначе значение уезжает от своей подписи через
+    полэкрана и липнет к подписи соседней колонки. Правило верно для реквизитов —
+    номера, даты, количества, — и **здесь не отменяется**.
+
+    Но у `QLabel` с переносом `sizeHint` не есть длина строки: Qt считает его
+    эвристикой, и ярлык сам просит узкую коробку. Обоснование отклонения —
+    единственное поле шапки, чьё значение длинная проза, — переносилось на вторую
+    строку при пустой правой половине шапки (прогон 09.09).
+
+    Исключение именованное и **одно**: ряд просит доступную ширину и не ставит
+    распорку в конец — иначе свободную ширину забрала бы она, а не значение.
+
+    Потолок читаемости `FREE_TEXT_CHARS` сюда **не применяется**: это поле-ярлык,
+    а не колонка таблицы, и перенос для него законен, когда текст правда длинный.
+    Требование — не переносить, **пока ширина есть**.
+    """
+    row = QHBoxLayout()
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(t.GAP_CONTROL)
+    for part in parts:
+        row.addWidget(part)
+    box = _ProseRow()
+    box.setLayout(row)
+    box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+    return box
 
 
 def column(*parts) -> QVBoxLayout:
@@ -888,14 +953,22 @@ def inline_table_height(table: QTableWidget, *, short: bool = False) -> QTableWi
     return table
 
 
-def table_height(rows: int) -> int:
-    """Сколько пикселей занимает таблица с `rows` строками — шапка плюс строки.
+def table_height(rows: int, view: QTableWidget | None = None) -> int:
+    """Сколько пикселей занимает таблица с `rows` строками — шапка, строки и рамка.
 
     Чистая функция: то же свойство, что у `centring_margin`, и по той же причине
     (`CLAUDE.md` §9а.15) — величину, от которой зависит раскладка, надо уметь
     проверить арифметикой, не поднимая экран.
+
+    **`view` даёт рамку, и без него ответ неполон.** Лист стиля отнимает у полотна
+    два пикселя (`metrics.frame_height`), и высоты `30 + 40n` последней строке не
+    хватает ровно на них: Qt рисует полосу прокрутки там, где прокручивать нечего
+    (наряд `0036` §0, подтверждено замером — недобор ровно 2 на всех таблицах).
+    Аргумент необязателен там, где виджета ещё нет и считается **пол** раскладки,
+    а не высота конкретной таблицы: рамка там прибавится своим владельцем.
     """
-    return t.TABLE_HEADER_HEIGHT + max(rows, 0) * t.TABLE_ROW_HEIGHT
+    height = t.TABLE_HEADER_HEIGHT + max(rows, 0) * t.TABLE_ROW_HEIGHT
+    return height + (frame_height(view) if view is not None else 0)
 
 
 def fit_table_height(table: QTableWidget, *, rows: int) -> QTableWidget:
@@ -915,7 +988,7 @@ def fit_table_height(table: QTableWidget, *, rows: int) -> QTableWidget:
     одеялом; пустое состояние рядом объясняет пустоту словами.
     """
     visible = min(table.rowCount(), rows)
-    table.setFixedHeight(table_height(visible) if visible else 0)
+    table.setFixedHeight(table_height(visible, table) if visible else 0)
     return table
 
 
