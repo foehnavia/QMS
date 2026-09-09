@@ -446,19 +446,38 @@ def test_no_column_stretches_and_width_is_the_sum(qt_app) -> None:
     assert narrow == wide, "колонка тянется за окном"
 
 
-def test_each_class_carries_its_own_limit(qt_app) -> None:
-    """Класс содержимого несёт предел: счётчик уже идентификатора, текст шире."""
+def test_width_comes_from_the_origin_of_the_content(qt_app) -> None:
+    """§2 наряда `0034`: три класса происхождения вместо семи знакоместных чисел.
+
+    Сторожит правило `docs/design/design-system.md` §3: «A column width is
+    measured, never guessed - it comes from the origin of what the column holds:
+    a closed list, a fixed format, or free text.»
+
+    Закрытый список меряется самым длинным **значением**, жёсткий формат -
+    эталонной строкой. Ни один из них не считается знакоместами: число знакомест
+    было догадкой с запасом в четверть, и запас этот то велик, то мал.
+    """
     kit.apply_theme(qt_app)
-    table = kit.data_table(("Number", "Findings", "Explanation"))
+    table = kit.data_table(("A", "B", "C"))
+    metrics = table.fontMetrics()
+    chrome = kit.cell_chrome(table)
 
-    identifier, counter, text = (table.columnWidth(c) for c in range(3))
+    # Закрытый список - по самому длинному значению, а не по их числу.
+    assert kit.column_width(table, kit.closed(("ab", "abcdef", "abc"))) == (
+        metrics.horizontalAdvance("abcdef") + chrome
+    )
+    # Жёсткий формат - по эталонной строке.
+    assert kit.column_width(table, kit.fixed("DEV-260903-0001")) == (
+        metrics.horizontalAdvance("DEV-260903-0001") + chrome
+    )
+    # Свободный текст сам ширины не требует: её даёт остаток полотна (§3).
+    assert kit.column_width(table, kit.free()) == 0
 
-    assert counter < identifier < text
-    # И ни одна не уже собственной подписи: обрезанная подпись — это колонка,
-    # про которую оператор не знает, что в ней.
-    for column in range(3):
-        label = table.horizontalHeaderItem(column).text()
-        assert table.columnWidth(column) >= table.fontMetrics().horizontalAdvance(label)
+    # Заголовок - пол любого класса: обрезанная подпись это колонка, про которую
+    # оператор не знает, что в ней.
+    assert kit.column_width(table, kit.closed(("x",)), "Explanation") == (
+        metrics.horizontalAdvance("Explanation") + kit.header_chrome(table)
+    )
 
 
 def test_centring_only_when_the_table_fills_most_of_the_area(qt_app) -> None:
@@ -519,28 +538,26 @@ def test_a_truncated_cell_explains_itself(qt_app) -> None:
 # --- наряд 0020 §7: ширины объявлены поимённо ---------------------------------------
 
 
-def test_a_slot_is_the_average_glyph_and_not_the_widest(qt_app) -> None:
-    """§8.3: знакоместо — **средний** знак шрифта канона, не самый широкий.
+def test_a_slot_no_longer_hands_out_width(qt_app) -> None:
+    """§2 наряда `0034`: `slot_width` остался диагностикой, раздачей не занят.
 
-    Разметку оператора по пикселям воспроизводит именно средний знак: текущая
-    раскладка ложилась в `знакоместа × 12 px + 20` (12 — ширина `M`), желаемая —
-    в `знакоместа × ≈7.4 px + 20`. Запас от обрезки сидит в самих числах
-    знакомест (§7.3), а не в том, что каждый знак считается за `M`.
+    Сторожит правило `design-system.md` §3: ширина выводится замером содержимого,
+    а знакоместо - лишь ориентир «сколько это примерно знаков» для сообщений.
 
-    Оговорка про платформу: под offscreen шрифт **моноширинный** (все знаки
-    13 px), поэтому «средний» и «самый широкий» здесь неразличимы, и разницу
-    ловит не этот тест, а замер на нативной платформе
-    (`tools/screenshots.py --run-db` печатает ширину каждой колонки). Тест
-    сторожит **правило**: единица берётся ровно одним способом.
+    Голое число знакомест `column_width` больше **не принимает вовсе**: приняв
+    его молча, он вернул бы старую догадку, и снятая модель дожила бы до экрана.
     """
+    import pytest
+
     from ui.kit.widgets import column_width, slot_width
 
     kit.apply_theme(qt_app)
     table = kit.data_table(("Value",))
 
     assert slot_width(table) == table.fontMetrics().horizontalAdvance("0")
-    for slots in (6, 12, 26):
-        assert column_width(table, slots) == slot_width(table) * slots + tokens.PAD_CELL * 2
+
+    with pytest.raises(TypeError):
+        column_width(table, 26)
 
 
 def test_a_counter_column_is_its_header_and_nothing_more(qt_app) -> None:
@@ -566,68 +583,78 @@ def test_a_counter_column_is_its_header_and_nothing_more(qt_app) -> None:
 def test_a_pill_column_leaves_room_for_the_pill_not_just_its_text(qt_app) -> None:
     """§8, находка прогона: делегат режет «Not deci…», а замер по тексту молчит.
 
-    Пилюлю рисует `DecisionPillDelegate` — своим шрифтом (крупнее и жирнее
+    Пилюлю рисует `DecisionPillDelegate` - своим шрифтом (крупнее и жирнее
     табличного) и со своей оправой: отступы плюс кружок исхода. Ширина колонки
     обязана считаться по тому, **чем рисуют**, а не по голому тексту ячейки.
-    """
-    from PySide6.QtGui import QFont, QFontMetrics
 
+    С наряда `0034` колонка объявляет **закрытый список подписей исхода**, а не
+    число знакомест: исход - значение контролируемого словаря, и самое длинное
+    из них измеримо.
+    """
+    from PySide6.QtGui import QFontMetrics
+
+    from ui.common import DECISION_DEV_COLUMN
     from ui.deviation_view import COLUMNS, FULL_WIDTHS
-    from ui.kit.pills import PILL_CHROME
+    from ui.kit.pills import PILL_CHROME, pill_font
     from ui.kit.widgets import column_width
 
     kit.apply_theme(qt_app)
     table = kit.data_table(
-        COLUMNS, widths=tuple(kit.px(FULL_WIDTHS[name]) if name in FULL_WIDTHS
-                              else kit.FIT_LABEL for name in COLUMNS)
+        COLUMNS,
+        widths=tuple(
+            kit.px(FULL_WIDTHS[name]) if name in FULL_WIDTHS else kit.FIT_LABEL
+            for name in COLUMNS
+        ),
     )
     decision = COLUMNS.index("Decision")
 
-    # Оправа учтена ровно один раз и ровно та же, которой рисует делегат.
-    assert column_width(table, kit.pill(14), "Decision") == (
-        column_width(table, 14, "Decision") + PILL_CHROME
+    # Оправа учтена ровно один раз и ровно та же, которой рисует делегат;
+    # шрифт - тот же, которым делегат пишет подпись.
+    pill_metrics = QFontMetrics(pill_font(table.font()))
+    widest = max(pill_metrics.horizontalAdvance(label) for label in DECISION_DEV_COLUMN)
+    # Зазор здесь **делегатский**, а не текстовый: пилюлю рисует делегат своими
+    # руками и добавочного отступа отрисовки текста (`kit.text_margin`) не платит.
+    assert column_width(table, kit.pill(DECISION_DEV_COLUMN), "Decision") == (
+        widest + PILL_CHROME + kit.delegate_chrome(table)
     )
 
     # Наряд `0028` перевёл этот экран на **пиксели канвы**: ширина объявлена
-    # рисунком, а не выведена из знакомест, и объявление экрана доходит до
-    # колонки без пересчёта — вот это здесь и проверяется.
+    # рисунком, а не выведена из содержимого, и объявление экрана доходит до
+    # колонки без пересчёта - вот это здесь и проверяется.
     assert table.columnWidth(decision) == FULL_WIDTHS["Decision"]
-    assert table.columnWidth(decision) != column_width(table, kit.pill(14), "Decision")
-
-    # **Хватает ли объявленных пикселей самой пилюле — под offscreen непроверяемо**
-    # (`CLAUDE.md` §9а.8): шрифт здесь моноширинный, `0` и `M` одной ширины, и
-    # «Not decided» получает 197 px там, где на пропорциональном шрифте берёт 116.
-    # Тест, сверяющий пиксели канвы с этим завышением, красный на верной сетке —
-    # то есть проверяет платформу, а не экран. Замер живёт на нативной платформе,
-    # в `tools/screenshots.py` (`measure_pill_room`), где шрифт настоящий.
-    font = QFont(table.font())
-    font.setPointSizeF(tokens.SIZE_PILL)
-    font.setWeight(QFont.Weight(tokens.WEIGHT_PILL))
-    pill_metrics = QFontMetrics(font)
-    # Оправа всё же обязана быть учтена: без неё расчёт врёт на любой платформе.
-    assert pill_metrics.horizontalAdvance("Approved") + PILL_CHROME > 0
 
 
 def test_a_declared_width_beats_the_guessed_class(qt_app) -> None:
-    """§7.3: класс остался умолчанием, объявление экрана — правилом.
+    """§7.3: класс остался умолчанием, объявление экрана - правилом.
 
     Догадка по имени и развела `Connection` (короткое содержимое, широкий
     класс) с `Item type` (длинное содержимое, узкий): имена врут.
     """
     kit.apply_theme(qt_app)
     guessed = kit.data_table(("Item type",))
-    declared = kit.data_table(("Item type",), widths=(24,))
+    declared = kit.data_table(("Item type",), widths=(kit.fixed("Straight Multy-Unit"),))
 
     assert declared.columnWidth(0) != guessed.columnWidth(0)
-    assert declared.columnWidth(0) >= 24 * kit.widgets.slot_width(declared)
+    assert declared.columnWidth(0) == (
+        declared.fontMetrics().horizontalAdvance("Straight Multy-Unit")
+        + kit.cell_chrome(declared)
+    )
 
 
 def test_no_cell_and_no_header_wraps(qt_app) -> None:
-    """Критерий 1 §7.4: ни ячейка, ни заголовок не уезжают на вторую строку."""
+    """Критерий 1 §7.4: ни ячейка, ни заголовок не уезжают на вторую строку.
+
+    Сверяется с **замеренной** доступной шириной (`kit.room_for_text`), а не с
+    `columnWidth - PAD_CELL * 2`: между объявленным числом и текстом стоит ещё
+    линия сетки, и вычитание «на глаз» разошлось бы со стилем (наряд `0034` §1).
+    """
     from PySide6.QtWidgets import QTableWidgetItem
 
     kit.apply_theme(qt_app)
-    table = kit.data_table(("Value", "Used by"), widths=(26, 12))
+    table = kit.data_table(
+        ("Value", "Used by"),
+        widths=(kit.closed(("Straight Multy-Unit",)), kit.fixed("999 records")),
+    )
     table.setRowCount(1)
     table.setItem(0, 0, QTableWidgetItem("Straight Multy-Unit"))
     table.setItem(0, 1, QTableWidgetItem("2 records"))
@@ -635,60 +662,249 @@ def test_no_cell_and_no_header_wraps(qt_app) -> None:
     assert table.wordWrap() is False
     metrics = table.fontMetrics()
     for column, text in ((0, "Straight Multy-Unit"), (1, "2 records")):
-        room = table.columnWidth(column) - tokens.PAD_CELL * 2
+        room = kit.room_for_text(table, column)
         assert metrics.horizontalAdvance(text) <= room, (
-            f"{text!r} не помещается в свою колонку"
+            "%r does not fit its column" % text
         )
         label = table.horizontalHeaderItem(column).text()
-        assert metrics.horizontalAdvance(label) <= room, f"заголовок {label!r} не влез"
+        assert metrics.horizontalAdvance(label) <= room
 
 
-def test_every_declared_width_holds_a_quarter_more(qt_app) -> None:
-    """Критерий 6 §7.4: запас в четверть — проверкой, а не глазами.
+def test_a_closed_list_column_grows_with_its_reference(qt_app) -> None:
+    """§2 наряда `0034`: завёл оператор значение длиннее - колонка выросла сама.
 
-    К самому длинному реальному значению каждой объявленной колонки можно
-    дописать ещё четверть длины, и оно по-прежнему не обрежется. Значения
-    удлиняются искусственно: завтра они удлинятся сами.
+    Сторожит правило `design-system.md` §3: «A closed list is measured against the
+    reference itself, so a value added by the operator resizes the column with no
+    code change.» Прежнее правило - «запас в четверть» - **снято**: запас был
+    свойством догадки, а замеренной ширине он не нужен.
+
+    Проверяется не копированием константы, а поведением: до пересчёта колонка
+    сидит на своём поле, после - на новом значении (родственно §9а.16).
     """
     kit.apply_theme(qt_app)
+    table = kit.data_table(("Value",), widths=(kit.closed(("short",)),))
+    metrics = table.fontMetrics()
+    chrome = kit.cell_chrome(table)
 
-    from ui.cg_view import COLUMNS as CG_COLUMNS
-    from ui.cg_view import WIDTHS as CG_WIDTHS
-    from ui.item_view import COLUMNS as ITEM_COLUMNS
-    from ui.item_view import WIDTHS as ITEM_WIDTHS
-    from ui.reference_view import COLUMNS as REF_COLUMNS
-    from ui.reference_view import WIDTHS as REF_WIDTHS
+    assert table.columnWidth(0) == max(
+        metrics.horizontalAdvance("short") + chrome,
+        metrics.horizontalAdvance("Value") + kit.header_chrome(table),
+    )
 
-    # Самое длинное реальное значение каждой колонки — из базы прогона.
-    longest = {
-        ("Value",): "Straight Multy-Unit",
-        ("Used by",): "2 records",
-        ("Item number",): "MF5-10375A-N",
-        ("Item type",): "Straight Multy-Unit",
-        ("Connection",): "IntHex",
-        ("Size class",): "General",
-        ("Groups",): "C1 SP375 Int. Con. Zone",
-        ("Group",): "C1 SP375 Int. Con. Zone",
-    }
-
-    for columns, widths in (
-        (REF_COLUMNS, REF_WIDTHS),
-        (ITEM_COLUMNS, ITEM_WIDTHS),
-        (CG_COLUMNS, CG_WIDTHS),
-    ):
-        table = kit.data_table(columns, widths=widths)
-        metrics = table.fontMetrics()
-        for index, name in enumerate(columns):
-            value = longest.get((name,))
-            if value is None:
-                continue
-            grown = value + "M" * max(len(value) // 4, 1)
-            room = table.columnWidth(index) - tokens.PAD_CELL * 2
-            assert metrics.horizontalAdvance(grown) <= room, (
-                f"{name}: {grown!r} ({len(grown)} знаков) не помещается — запаса нет"
-            )
+    longer = "Straight Multy-Unit and then some"
+    kit.refit_columns(table, (kit.closed(("short", longer)),))
+    assert table.columnWidth(0) == metrics.horizontalAdvance(longer) + chrome
 
 
+# --- наряд 0034 (QMS-022): замер вместо догадки ------------------------------------
+
+
+def test_declared_pixels_are_handed_over_untouched(qt_app) -> None:
+    """§1.3 наряда `0034`: `kit.px(N)` возвращает ровно `N`, без прибавок.
+
+    Сторожит правило `design-system.md` §3: «Declared pixels are final.»
+    Объявленные пиксели уже содержат непечатаемое — они назначены замером
+    нарисованной сетки. Прибавка зазора поверх сдвинула бы каждую нарисованную
+    сетку разом и развалила объявленные суммы: `TIGHT_WIDTHS` перестала бы давать
+    1216, а `PRECEDENT_WIDTHS` — помещаться в полотно 1120.
+    """
+    kit.apply_theme(qt_app)
+    table = kit.data_table(("Number",))
+
+    for pixels in (30, 92, 200, 410):
+        assert kit.column_width(table, kit.px(pixels)) == pixels
+        assert kit.column_width(table, kit.px(pixels), "Number") == pixels
+
+    # И через объявление экрана — тем же числом, без пола по заголовку.
+    declared = kit.data_table(("Explanation",), widths=(kit.px(40),))
+    assert declared.columnWidth(0) == 40
+
+
+def test_free_text_never_grows_past_the_reading_ceiling(qt_app) -> None:
+    """§3.3 наряда `0034`: свободная колонка не шире 60 знаков **никогда**.
+
+    Сторожит правило `design-system.md` §3: «Free text takes the remainder, but
+    never grows past the reading ceiling; the surplus is handed to nobody.»
+    Основание числа — журнал за 2025 год: медиана описания отклонения 35 знаков.
+
+    Проверяется на **широком** окне, где остатка заведомо больше потолка: именно
+    там прежняя колонка-остаток растягивалась на всё окно, и именно это правило
+    запрещает.
+    """
+    kit.apply_theme(qt_app)
+    table = kit.data_table(("Number", "Explanation"), widths=(kit.fixed("DEV-1"), kit.free()))
+
+    ceiling = kit.free_text_width(table)
+    specs = [(kit.fixed("DEV-1"), "Number"), (kit.free(), "Explanation")]
+
+    for window in (1280, 1920, 3840):
+        shares = kit.share_remainder(table, specs, kit.table_limit(window))
+        assert shares[1] <= ceiling, (
+            "free column %d px past the ceiling %d at window %d"
+            % (shares[1], ceiling, window)
+        )
+
+    # Остаток сверх потолка не раздаётся никому: таблица просто уже полотна.
+    wide = kit.table_limit(3840)
+    shares = kit.share_remainder(table, specs, wide)
+    total = kit.column_width(table, kit.fixed("DEV-1"), "Number") + shares[1]
+    assert total < wide, "surplus was handed out instead of being left as margin"
+
+
+def _tooltip_asked(delegate, table, index, monkeypatch) -> str:
+    """Что делегат **показал** в ответ на запрос подсказки; пусто — не показал.
+
+    Перехватывается сам вызов, а не глобальное `QToolTip.text()`: глобальное
+    состояние не сбрасывается синхронно, и тест на нём зелен по прошлому
+    показу — то есть меряет не то (`CLAUDE.md` §9а.24).
+    """
+    from PySide6.QtCore import QEvent, QPoint
+    from PySide6.QtGui import QHelpEvent
+    from PySide6.QtWidgets import QToolTip
+
+    shown: list[str] = []
+    monkeypatch.setattr(
+        QToolTip, "showText", lambda pos, text, *a, **k: shown.append(text)
+    )
+    monkeypatch.setattr(QToolTip, "hideText", lambda *a, **k: None)
+    event = QHelpEvent(QEvent.Type.ToolTip, QPoint(5, 5), table.mapToGlobal(QPoint(5, 5)))
+    delegate.helpEvent(event, table, None, index)
+    return shown[0] if shown else ""
+
+
+def test_a_tooltip_appears_exactly_when_the_drawing_does_not_fit(
+    qt_app, monkeypatch
+) -> None:
+    """§4 наряда `0034`: подсказка тогда и **только** тогда, когда обрезано.
+
+    Сторожит правило `design-system.md` §3: «A tooltip is shown when, and only
+    when, what the delegate draws is wider than the room the column leaves.»
+
+    Пара случаев на **обычную** ячейку: тот же текст, две ширины колонки. До
+    наряда подсказка у обоснования стояла безусловно, то есть появлялась и там,
+    где всё поместилось.
+
+    `ToolTipRole` здесь же: прежний `helpEvent` возвращал `True` на любое событие
+    и показывал `DisplayRole`, поэтому `setToolTip` экрана не показывался никогда.
+    """
+    from PySide6.QtWidgets import QTableWidgetItem
+
+    kit.apply_theme(qt_app)
+    table = kit.data_table(("Explanation",))
+    table.setRowCount(1)
+    value = "A justification long enough to be cut in a narrow column"
+    full = value + " - with the full wording"
+    cell = QTableWidgetItem(value)
+    cell.setToolTip(full)
+    table.setItem(0, 0, cell)
+
+    index = table.model().index(0, 0)
+    delegate = table.itemDelegate()
+    metrics = table.fontMetrics()
+
+    # Узко - обрезано, подсказка есть, и это **роль**, а не строка ячейки.
+    table.setColumnWidth(0, 60)
+    assert metrics.horizontalAdvance(value) > kit.room_for_text(table, 0)
+    assert _tooltip_asked(delegate, table, index, monkeypatch) == full
+
+    # Широко - поместилось, подсказки нет.
+    table.setColumnWidth(0, metrics.horizontalAdvance(value) + 200)
+    assert metrics.horizontalAdvance(value) <= kit.room_for_text(table, 0)
+    assert _tooltip_asked(delegate, table, index, monkeypatch) == ""
+
+
+def test_a_wrapping_cell_is_judged_by_height_not_width(qt_app, monkeypatch) -> None:
+    """§4 наряда `0034`: где ячейка переносит, ширина перестаёт быть ответом.
+
+    Сторожит правило `design-system.md` §3 («shown when, and only when, what the
+    delegate draws is wider than the room the column leaves») в том его месте, где
+    «шире» перестаёт значить «обрезано»: список отклонений включает перенос на
+    колонке обоснования осознанно (наряд `0028`, канва §1). У переносящей ячейки
+    длинный текст уходит на вторую строку, а не за край, и подсказка по одной
+    ширине встала бы почти на каждой строке - то есть осталась бы той самой
+    безусловной подсказкой, которую этот наряд снимает.
+
+    Пара случаев на одной ширине: текст, укладывающийся в две строки, и текст,
+    который не укладывается и в них.
+    """
+    from PySide6.QtWidgets import QTableWidgetItem
+
+    kit.apply_theme(qt_app)
+    table = kit.data_table(("Explanation",))
+    table.setWordWrap(True)
+    table.setRowCount(2)
+
+    fits = "Batch sorted, three parts out"
+    spills = " ".join(["a justification that keeps going"] * 8)
+    table.setItem(0, 0, QTableWidgetItem(fits))
+    table.setItem(1, 0, QTableWidgetItem(spills))
+    table.setColumnWidth(0, 200)
+    for row in (0, 1):
+        table.setRowHeight(row, tokens.ROW_TWO_FINDINGS)
+
+    metrics = table.fontMetrics()
+    delegate = table.itemDelegate()
+
+    # Оба **шире** колонки в одну строку - иначе проверять было бы нечего.
+    room = kit.room_for_text(table, 0)
+    assert metrics.horizontalAdvance(fits) > room
+    assert metrics.horizontalAdvance(spills) > room
+
+    # Но подсказку получает только тот, что не уложился и в высоту.
+    assert _tooltip_asked(delegate, table, table.model().index(0, 0), monkeypatch) == ""
+    assert (
+        _tooltip_asked(delegate, table, table.model().index(1, 0), monkeypatch) == spills
+    )
+
+
+def test_a_delegate_cell_reports_what_it_draws_not_its_text(
+    qt_app, monkeypatch
+) -> None:
+    """§4.2 наряда `0034`: у ячейки с делегатом меряется **нарисованное**.
+
+    Сторожит то же правило `design-system.md` §3. Пилюлю рисует делегат своим
+    кеглем и со своей оправой, поэтому замер по строке ячейки обрезки не видит:
+    строка короткая, а пилюля вокруг неё шире. Пара случаев - две ширины колонки
+    на одной и той же подписи.
+    """
+    from PySide6.QtGui import QFontMetrics
+    from PySide6.QtWidgets import QTableWidgetItem
+
+    from ui.kit.pills import (
+        DECISION_ROLE,
+        PILL_TEXT_CHROME,
+        DecisionPillDelegate,
+        pill_font,
+    )
+
+    kit.apply_theme(qt_app)
+    table = kit.data_table(("Decision",))
+    delegate = DecisionPillDelegate(table)
+    table.setItemDelegateForColumn(0, delegate)
+    table.setRowCount(1)
+    label = "Not decided"
+    cell = QTableWidgetItem(label)
+    cell.setData(DECISION_ROLE, None)
+    table.setItem(0, 0, cell)
+
+    index = table.model().index(0, 0)
+    drawn = QFontMetrics(pill_font(table.font())).horizontalAdvance(label)
+    drawn += PILL_TEXT_CHROME
+
+    # Нарисованное шире голой строки - иначе проверять было бы нечего.
+    assert drawn > table.fontMetrics().horizontalAdvance(label)
+
+    # Ширина, при которой **строка** влезает, а **пилюля** уже нет.
+    table.setColumnWidth(0, drawn + kit.delegate_chrome(table) - 4)
+    assert table.fontMetrics().horizontalAdvance(label) <= kit.room_for_text(table, 0)
+    assert drawn > kit.room_for_delegate(table, 0)
+    assert _tooltip_asked(delegate, table, index, monkeypatch) == label, (
+        "delegate cell measured its text instead of its drawing"
+    )
+
+    # Шире нарисованного - подсказки нет.
+    table.setColumnWidth(0, drawn + kit.delegate_chrome(table) + 40)
+    assert _tooltip_asked(delegate, table, index, monkeypatch) == ""
 def test_the_stylesheet_is_built_from_tokens() -> None:
     """Стиль — производная канона: значения приходят из `tokens`, не из головы."""
     sheet = kit.stylesheet()
