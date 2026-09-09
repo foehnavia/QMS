@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
@@ -180,6 +182,45 @@ def form() -> QFormLayout:
     layout.setHorizontalSpacing(t.GAP_CONTROL)
     layout.setVerticalSpacing(t.GAP_CONTROL)
     return layout
+
+
+@contextmanager
+def filling(*widgets: QWidget):
+    """**Программная заливка** — виджет наполняет код, а не оператор.
+
+    Заливка обязана быть глухой к сигналам: иначе `itemChanged` от нашей же
+    `setText` неотличим от того, что набрал человек, и обработчик действия
+    срабатывает на отрисовку. Но глушение — это состояние, а состояние,
+    поднятое вручную, однажды остаётся поднятым.
+
+    **Механизм, а не дисциплина** (наряд `0039`). До него заливка была семью
+    независимыми обычаями: флаг `_loading` в диалоге привязки и шесть пар
+    `blockSignals` на других экранах — **и ни один не был отказоустойчив**.
+    Исключение посреди цикла заливки оставляло флаг поднятым навсегда, и диалог
+    переставал записывать привязки, **ничего не сообщая оператору**. Окно
+    падения (`ui/crash.py`) оператор увидел бы; то, что окно оставило диалог
+    глухим, не увидел бы никто — ровно тот отказ, ради которого `crash.py` и
+    заводился: система работает, молчит и не делает.
+
+    Отсюда `finally`: он и есть содержание этой функции.
+
+    **Возвращается прежнее состояние, а не безусловное `False`.** `blockSignals`
+    отдаёт то, что было до вызова; вложенная заливка обязана вернуть внешней её
+    глушение, а не снять его. Без этого внутренний `with`, закончившись, открыл
+    бы сигналы посреди внешней заливки — то есть чинил бы один отказ и заводил
+    другой, тише прежнего.
+
+        with kit.filling(self.table):
+            self.table.setItem(...)
+
+    Принимает несколько виджетов: заливка формы трогает не один.
+    """
+    previous = [widget.blockSignals(True) for widget in widgets]
+    try:
+        yield
+    finally:
+        for widget, was_blocked in zip(widgets, previous):
+            widget.blockSignals(was_blocked)
 
 
 def stretching_form() -> QFormLayout:
