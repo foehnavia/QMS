@@ -4,8 +4,8 @@ doc: design-system
 status: ratified
 task: QMS-016
 branch: run/qms-016
-updated: 2026-09-07
-revision: 1.13
+updated: 2026-09-09
+revision: 1.14
 ---
 
 # MIS-QMS design system — tokens and rules
@@ -198,15 +198,69 @@ own section minimum, the stylesheet subtracts cell padding, and the drawn text a
 platform** with the real font: a sum of declared numbers can balance perfectly while a value on
 screen is clipped. Every width in a screen grid is a measured value or it is a guess.
 
-**The gap has a size and it is computed, not assumed** (measured in the doving of `0028`):
-**27 px of a column never prints** — 1 px grid line, 20 px of stylesheet cell padding, 6 px of
-Qt's own margins. Hence the shape of every width in a screen grid:
+**The gap has a size, it is measured, and there are three of them — one per whoever draws**
+(QMS-022, naryad `0034`; the 27 was first measured in the doving of `0028`). What never prints
+depends on who puts ink in the cell:
 
-> **declared width = what the text needs + 27**
+| Who draws | Never prints | Made of |
+|---|---|---|
+| the style, drawing **text** | **27** | grid line 1 + cell padding 20 + `2 × (PM_FocusFrameHMargin + 1)` 6 |
+| a **delegate** drawing itself (outcome pill, finding chips) | **21** | grid line 1 + cell padding 20 |
+| the **header** | **20** | cell padding 20 |
 
-`kit.FIT_LABEL` predates this and adds only the cell padding, so a column sized by its header is
-**7 px short on every screen** — `Revision` was clipping its own heading unnoticed. The fix is
-one place, not one screen: task **QMS-022**.
+> **declared width = what the drawing needs + the gap of whoever draws it**
+
+The 6 px that separate text from a delegate are the margin `QCommonStyle::viewItemDrawText`
+subtracts **inside** `drawControl`. They are invisible to `subElementRect`, which answers *where*
+the style puts text, not *the width it elides against* — two different quantities. Naryad `0034`
+measured the first, concluded the 6 px did not exist, and was refuted by a screenshot: `Abutment`
+(56 px) clipped in a 77 px column while `Implant` (43 px) did not, which only 27 predicts. **A
+width is proven by a screenshot, never by a measurement alone.**
+
+`kit.FIT_LABEL` — a column sized by its header — pays the **header's** 20, not the cell's 27.
+The note that used to stand here, that such a column is "7 px short on every screen" and that
+`Revision` was clipping its own heading, was wrong: it charged a header the text gap. `Revision`
+and `Insp.` were never clipped, and the screenshot says so both before and after.
+
+### A column width is measured, never guessed
+
+**It comes from the origin of what the column holds**, and there are three origins (QMS-022,
+naryad `0034`). Seven character-count constants (`WIDTH_IDENTIFIER … WIDTH_LINK`) were retired
+with this rule: a count of character slots was a guess carrying a quarter of slack, and the
+slack was alternately too much (a date drew 104 px where it needed 69) and too little.
+
+| Class | Where the width comes from | Applies to |
+|---|---|---|
+| **closed list** (`kit.closed`) | the longest **value of the reference** | priority, decision, machine, owner, state, item type, group names |
+| **fixed format** (`kit.fixed`) | the longest **specimen of the format** | `DEV-260903-0001`, `מק"ט`, `פק"ע`, dates, `NCR` |
+| **free text** (`kit.free`) | the **remainder** of the canvas | deviation explanation, precedent justification |
+
+A closed list is measured against the reference itself, so a value added by the operator resizes
+the column with no code change: the screen hands its loaded values back to `kit.refit_columns`
+when it reloads. Nothing is guessed here by construction.
+
+**Fixed columns are counted first; free text takes the remainder; the surplus is handed to
+nobody.** The order is one for every table: sum what is known, give what is left to free text,
+and stop at the **reading ceiling of 60 characters** — never wider, however much room remains.
+The ceiling comes from the record, not from taste: across the 2025 journal (1116 rows) the
+median deviation explanation is 35 characters and p95 is 107. Above the ceiling the table is
+simply narrower than its area — the ground around it is already `surface-sunken` — and that is
+the mechanical bar against a column of three words spanning the screen. A screen with no free
+column at all leaves the remainder unclaimed; that is a normal state, not a layout defect.
+
+### A tooltip is shown when, and only when, the drawing does not fit
+
+The rule lives in one place (`kit.metrics.TruncationTooltip`) and holds for every table: a
+tooltip appears exactly when **what the delegate draws** is wider than the room the column
+leaves. **Thresholds by count are not a truncation signal** — before `0034` the finding cell
+showed one above `CHIPS_SHOWN` and the justification showed one unconditionally, so the hint was
+silent where text was cut and present where everything fitted. The count still governs the
+`+N findings` line, and nothing else.
+
+**What is measured is the drawing, not the cell string.** Where a delegate paints — outcome
+pills, finding chips — the text is neither the glyphs nor the font that reach the screen, so the
+delegate itself reports the width it needs. A cell's `ToolTipRole`, when a screen sets one, is
+what gets shown; falling back to the displayed value when it does not.
 
 **Measure against the widest value the domain permits, not the widest one in the database
 today.** `Qty` measures at 47 px against real quantities and is set to **56**, because `9999` —
