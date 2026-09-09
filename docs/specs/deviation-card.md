@@ -5,7 +5,7 @@ status: as-built
 task: QMS-015
 amended_by: QMS-016, QMS-017, QMS-026
 updated: 2026-09-09
-amended_run: QMS-017 hand-run
+amended_run: QMS-026 hand-run 2026-09-09
 ---
 
 # Deviation card & precedent search L1/L2 — as-built spec (S5 / QMS-015)
@@ -59,9 +59,11 @@ has rows*").
   parts whose local dimension numbers differ. The current item is excluded (it is already
   the first section), and items marked **code 99** never appear — code 99 is not a search
   key (`../model/CharacteristicGroup.md`).
-  When the dimension has no mapping, the section is replaced by an explanation plus a
-  **"Bind to canon…"** button: binding is precisely what makes this search possible,
-  so the dead end offers its own exit.
+  When the dimension has no mapping, the section shows **nothing** — see the amendment
+  *The canon block goes quiet* at the end of this file (naryad `0038`). What stood here
+  until then — an explanation plus a **"Bind to canon…"** button — was removed: it repeated
+  what the `Canon` column and the `!` mark already say, and in the mass case (a non-CG
+  dimension) it offered an action that does not exist.
 
 **Descriptive precedents (L2) — REMOVED 2026-09-03 (QMS-016, worklog `0022`).**
 
@@ -348,3 +350,63 @@ The card showed a summary and the entry form showed a bare count, though the col
 is shared and the findings panel is deliberately one component for both screens. Both now
 show the summary, and the width is computed by one function from the inspection-type
 reference.
+
+
+## Amendment — the canon block goes quiet (naryad `0038`, as-built)
+
+### §L1b, as it stands
+
+**When the finding's dimension has no canonical mapping, the L1b area shows nothing.** Not a
+heading, not a short line, not a compressed block — nothing.
+
+What used to stand there — a 14 pt heading `Search by canonical position is unavailable`, an
+explanation and a second `Mapping…` button — is gone. It said a third time what two other
+things already said: the `Canon` column of the finding row carries `not bound`, and the `!`
+mark sits on the dimension itself. It occupied **203 px of the 245 px** the L1b area has at
+`DIALOG_FULL` — 83 % of the one region the card is opened for. **And in the common case it was
+wrong on the merits:** the mass case is a non-CG dimension, which has no canon *by nature*;
+offering to bind there offers an action that does not exist.
+
+What remains is enough: the group row `By canon: this characteristic is not bound (0)` — with
+that same explanation as its tooltip — and the counter on the `Exact precedents (L1)` tab. An
+empty L1b is the **expected answer**, not a dead end needing a way out.
+
+The action is not lost. The `Mapping…` button under the findings table stays, and it is now the
+single place where binding is offered.
+
+### What this spec deliberately does not describe yet
+
+The model distinguishes **three** positions where the card now shows one. This is a **deferred
+behaviour, not an interface decision** — and the difference matters, because the interface is
+not free to choose here.
+
+| Position | What it is | What the operator would do |
+|---|---|---|
+| **1.** The item revision has no characteristic group | there are no g-positions to bind to | assign a group to the item |
+| **2.** There is a group; the dimension is not in it — non-CG, *the mass case* | there is no canon **by nature**; this is normal | nothing |
+| **3.** The dimension belongs to the group but is unbound | exception R2: registered unlinked, mapped later | bind it |
+
+**The canon of the model already carries this distinction** and is right to:
+`CharacteristicGroup.md` §Mapping — "Optional: non-CG dimensions (the mass case) live without a
+canon", "Code 99 is meaningful only where there is a group". **The schema does not carry it**,
+and that is the whole of the reason. Established by measurement on data, naryad `0037`
+(stop report, commit `77be5b7`):
+
+- positions **2 and 3 are indistinguishable by any property of the dimension** — for both,
+  `characteristic.mapping is None`, and `Characteristic` holds no other field about canon.
+  `binding_state` answers about a **g-position of the group**, not about a dimension of an item;
+- both tables that tie an item to canon — `mapping` and `item_position_absent` — are keyed by
+  **g-position**. There is no record saying *this dimension is not covered by canon*;
+- position **1** is likewise not directly recorded: `groups_of` derives the group **from the
+  mappings themselves**, so "a group was assigned but nothing is bound yet" is indistinguishable
+  from "there is no group". A header line `Characteristic group: not assigned` would therefore
+  lie in that state, and is deliberately not added.
+
+**Two facts are missing, and both are schema, not screen:**
+
+1. an explicit link from an item revision to its characteristic group;
+2. a record that a dimension has been reviewed and has no canon — the counterpart of code 99,
+   but on the dimension.
+
+Until they are materialised, showing one behaviour for all three is the honest option: the
+alternative would be to guess, and a guess here is a promise of an action that may not exist.
