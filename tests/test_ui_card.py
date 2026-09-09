@@ -249,23 +249,52 @@ def test_l1b_section_shows_another_item_on_the_same_position(engine) -> None:
     assert len(_group_rows(card, "position")) == 1
     assert _text(_prec_cell(card, "position", "Item")) == "IT-002"
     assert "By canon: position g1" in _group_title(card, "position")
-    assert card.position_hint_box.isHidden() is True
 
 
-def test_unbound_dimension_explains_instead_of_showing_an_empty_table(engine) -> None:
-    """Критерий 10: вместо пустой таблицы — объяснение и кнопка привязки."""
+def test_an_unbound_dimension_says_nothing_in_l1b(engine) -> None:
+    """§1 наряда `0038`: при отсутствии привязки область L1b показывает **ничего**.
+
+    Сторожит правило `deviation-card.md` §L1b, дополнение *The canon block goes
+    quiet*: не короткую строку и не сжатый блок — ничего.
+
+    Прежде здесь стоял заголовок в 14 pt, объяснение и вторая кнопка `Mapping…`.
+    Он говорил третий раз то, что уже сказано колонкой `Canon` со значением
+    `not bound` и знаком `!` на самом размере, занимал 203 px из 245, какие есть
+    у области при `DIALOG_FULL`, — **и в массовом случае был неверен по
+    существу**: у не-CG размера канона нет по природе, и предлагать привязку
+    значит предлагать действие, которого не существует.
+
+    Достаточным сообщением остаются групповая строка с нулём и счётчик вкладки.
+    Действие живёт у кнопки под таблицей находок, и она на месте.
+    """
+    from ui.card_dialog import UNBOUND_HINT
+
     with session_scope(engine) as session:
         create_group(session, "CG-A", POSITIONS)
         item = make_item(session, "C1-08375A")
-        deviation_id, _ = _case(session, item, "12", decision=None)
+        # Прецедент **по номеру** нужен, чтобы групповые строки были нарисованы:
+        # при обеих пустых группах их заменяет одна строка (§3 наряда `0035`), и
+        # проверять на таком случае пришлось бы не то.
+        _case(session, item, "12", wo="W-EARLIER")
+        deviation_id, _ = _case(session, item, "12", wo="W-NOW", decision=None)
 
     card = CardDialog(engine, deviation_id)
 
-    assert card.position_hint_box.isHidden() is False
+    # Блока нет вовсе — ни скрытого, ни пустого: он снят из сборки.
+    assert not hasattr(card, "position_hint_box")
+    assert not hasattr(card, "position_hint_button")
     assert _group_rows(card, "position") == ()
-    # Пустое состояние канона §8: что пусто, почему и один выход — кнопка.
-    assert "not bound to the canon" in card.position_hint_box.body_label.text()
-    assert card.position_hint_button.isHidden() is False
+
+    # А сказано это по-прежнему — групповой строкой и её подсказкой.
+    assert "not bound" in _group_title(card, "position")
+    assert any(
+        entry.note == UNBOUND_HINT
+        for entry in card.precedents.groups()
+        if entry.key == "position"
+    )
+
+    # Действие не потеряно: кнопка под таблицей находок на месте.
+    assert card.map_button.text().strip("\u2068\u2069") == "Mapping…"
 
 
 def test_binding_from_the_card_revives_the_position_section(engine, monkeypatch) -> None:
@@ -362,6 +391,9 @@ def test_an_item_without_a_group_explains_both_levels(engine) -> None:
 
     Случай базы прогона `DEV-260903-0003`: деталь к канону не привязана, значит
     точный уровень пуст по построению, а описательного больше нет.
+
+    С наряда `0038` «сказано словами» означает **групповую строку с нулём и
+    счётчик вкладки**, а не блок в области L1b: блок снят, и область молчит.
     """
     with session_scope(engine) as session:
         item = make_item(session, "CS-C3057A")
@@ -373,15 +405,10 @@ def test_an_item_without_a_group_explains_both_levels(engine) -> None:
 
     assert _group_rows(card, "dimension") == ()
     assert _group_rows(card, "position") == ()
-    # Точный уровень объясняет обе свои пустоты: «нет прецедентов» и «размер не
-    # привязан к канону — привязка это и есть то, что находит то же место».
-    assert card.position_hint_box.isHidden() is False
-    assert UNBOUND_HINT in card.position_hint_box.body_label.text()
+    assert not hasattr(card, "position_hint_box")
+    # Описательный уровень объясняет свою пустоту сам — он про вкладку целиком.
     assert NOT_BUILT_HINT in card.descriptive_hint.body_label.text()
     assert "Exact matches: 0" in card.status.text()
-
-
-# --- Критерий 9: решение из карточки ------------------------------------------------
 
 
 def test_decision_from_the_card_uses_the_untouched_dialog(engine, monkeypatch) -> None:
@@ -2481,6 +2508,83 @@ def test_the_explanation_takes_the_width_the_header_has(engine) -> None:
     # знаков просят 1536 px против 755 на нативной. Тест, сверяющий ширину с
     # длиной текста, был бы красным на **верной** раскладке, то есть проверял бы
     # платформу. Это доказывается снимком — критерий 3 наряда `0036`.
+
+
+def test_the_tight_grid_never_truncates_an_identifier(engine) -> None:
+    """§0 наряда `0038`: объявленный порядок, кто платит обрезкой.
+
+    Сторожит правило `design-system.md` §3 и комментарий `PRECEDENT_TIGHT_WIDTHS`:
+    идентификаторы не обрезаются **никогда**, `Characteristic` обрезается второй,
+    `Explanation` платит первым — до своего пола по заголовку.
+
+    Проверяется на **предельных по предметной области** значениях, а не на том,
+    что оказалось в базе прогона: `מק"ט` до 13 знаков и `פק"ע` до 10 (журнал за
+    2025 год, §5 наряда `0034`). Именно на них прежняя сетка и резала — `Item` 92
+    при нужных 123.
+
+    Ширина колонки сверяется с **потребностью эталона**, а не с нарисованным: под
+    offscreen шрифт моноширинный и шире реального, и сравнение «влезло ли» здесь
+    проверяло бы платформу (`CLAUDE.md` §9а.13). Что не режется на самом деле —
+    доказано снимком `28-card-long-identifiers.png` (критерий 3 наряда).
+    """
+    from ui.card_dialog import (
+        PRECEDENT_COLUMNS,
+        PRECEDENT_TIGHT_WIDTHS,
+        precedent_widths,
+    )
+    from ui.common import SAMPLE_DEVIATION, SAMPLE_ITEM_NUMBER, SAMPLE_WO
+
+    with session_scope(engine) as session:
+        item = make_item(session, "C1-08375A")
+        deviation_id, _ = _case(session, item, "12", decision=None)
+
+    card = CardDialog(engine, deviation_id)
+    table = card.precedents
+
+    def width_of(name):
+        index = PRECEDENT_COLUMNS.index(name)
+        return ui.kit.column_width(
+            table, PRECEDENT_TIGHT_WIDTHS[index], PRECEDENT_COLUMNS[index]
+        )
+
+    # 1. Идентификаторы **не платят**: у колонки идентификатора ширина одна и та
+    #    же в обеих сетках. Сжимая полотно, отдаёт кто угодно, только не они.
+    #
+    #    Сверяется именно это, а не «влезает ли эталон»: под offscreen шрифт
+    #    моноширинный и заметно шире реального (`DEV-260909-0001` просит там
+    #    180 px против 131 на нативной), и такая проверка была бы красной на
+    #    **верной** сетке, то есть проверяла бы платформу (`CLAUDE.md` §9а.13).
+    #    Что идентификаторы не режутся на самом деле — доказано снимком.
+    from ui.card_dialog import PRECEDENT_FULL_WIDTHS
+
+    for name in ("Deviation", "Item", "WO", "Date", "Revision"):
+        index = PRECEDENT_COLUMNS.index(name)
+        assert PRECEDENT_TIGHT_WIDTHS[index] == PRECEDENT_FULL_WIDTHS[index], (
+            f"{name}: идентификатор отдал ширину при сжатии"
+        )
+
+    # И эталоны, по которым эти ширины назначены, — настоящие: их форму сторожит
+    # `test_business_number_samples_match_their_generator`.
+    assert len(SAMPLE_ITEM_NUMBER) == 13 and len(SAMPLE_WO) == 10
+    assert SAMPLE_DEVIATION
+
+    # 2. `Explanation` платит **первым**: он у́же составной подписи, а та — у́же
+    #    любого идентификатора. Это и есть объявленный порядок, и он проверяем
+    #    на любой платформе, потому что сравниваются объявленные числа.
+    assert width_of("Explanation") < width_of("Characteristic")
+    assert width_of("Characteristic") < width_of("Deviation") + width_of("Item")
+
+    #    Не ниже своего пола по заголовку — **факт нативной платформы** (пол 87
+    #    против объявленных 104) и потому здесь не проверяется: под offscreen
+    #    моноширинный заголовок просит 136, и проверка была бы красной на верной
+    #    сетке (`CLAUDE.md` §9а.13). Число записано в отчёт наряда `0038`.
+
+    # 3. Сжатая укладывается в полотно и выбирается на нём.
+    tight = sum(
+        ui.kit.column_width(table, spec, caption)
+        for spec, caption in zip(PRECEDENT_TIGHT_WIDTHS, PRECEDENT_COLUMNS)
+    )
+    assert precedent_widths(table, tight) is PRECEDENT_TIGHT_WIDTHS
 
 
 def test_the_card_has_two_declared_grids(engine) -> None:

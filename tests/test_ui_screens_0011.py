@@ -382,7 +382,9 @@ def test_the_precedent_sections_explain_emptiness_in_one_line(engine, no_modals)
     assert card.precedents_empty.compact is True
     # Пустое состояние вкладки целиком остаётся полным: у него есть свой выход.
     assert card.descriptive_hint.compact is False
-    assert card.position_hint_box.compact is False
+    # Блока канона больше нет вовсе (§1 наряда `0038`): при отсутствии привязки
+    # область L1b не показывает ничего, и сравнивать его компактность не с чем.
+    assert not hasattr(card, "position_hint_box")
     assert no_modals == []
 
 
