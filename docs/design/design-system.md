@@ -5,7 +5,7 @@ status: ratified
 task: QMS-016
 branch: run/qms-016
 updated: 2026-09-09
-revision: 1.14
+revision: 1.15
 ---
 
 # MIS-QMS design system — tokens and rules
@@ -222,6 +222,58 @@ The note that used to stand here, that such a column is "7 px short on every scr
 `Revision` was clipping its own heading, was wrong: it charged a header the text gap. `Revision`
 and `Insp.` were never clipped, and the screenshot says so both before and after.
 
+### A declared table height is not a drawn table height either
+
+The rule above has a vertical half, and it was found the same way — by looking at the
+screen (QMS-026, naryad `0036`). A table's height must include its **frame**: the
+stylesheet draws `border: 1px` on all four sides, so the viewport comes out 2 px shorter
+than the height that was set. The last row then misses by exactly those two pixels and Qt
+draws a scrollbar where there is nothing to scroll — a bar that promises content below,
+which the operator drags to and returns from empty-handed.
+
+> **declared height = header + rows + the frame the style draws**
+
+**The symptom names itself: a scrollbar on a table that fits is a report of missing
+height**, not decoration. It is the vertical counterpart of a clipped value, and it is
+what to look for on a screenshot.
+
+The frame is measured at run time (`kit.metrics.frame_height`), like the horizontal gaps —
+and **not** through `frameWidth()`. On these tables `frameWidth()` also carries the
+horizontal padding that centres the grid, so it reads 240 where the frame is 2. Measured
+on the card's findings table, naryad `0036`.
+
+### The card carries two declared grids
+
+Like the deviations list, the precedent table has a **full** grid and a **tight** one,
+each measured in full rather than derived one from the other, and one single rule choosing
+between them by the canvas it is given.
+
+At `DIALOG_FULL` eleven columns are tight, and `Characteristic` and `Explanation` are
+truncated with a tooltip: that is the declared price of refusing a horizontal scrollbar
+(naryad `0032`), not an oversight. Widen the card and the full grid takes over on its own,
+and the main text of a precedent stops paying for the narrow window.
+
+### One field of prose may take the width the screen has
+
+`form()` states that fields do not stretch — ratification of run finding В-1: a stretched
+field walks away from its own label and sticks to the neighbouring column's. That holds.
+
+The **named exception** is `kit.prose_row`, and there is exactly one field behind it: the
+deviation's explanation, the only header field whose value is long prose. A wrapping
+`QLabel` does not report its line length as its `sizeHint` — Qt uses a heuristic there, so
+the label asks for a narrow box and gets it. Measured before the fix: at a 1600 px window
+the explanation was given 133 px where the text needed 413, and wrapped to three lines
+beside an empty half of the header.
+
+The reading ceiling of 60 characters does **not** apply to it: that governs a table
+column, not a label, and wrapping is legitimate here once the text is genuinely long. The
+requirement is narrower — do not wrap **while there is width**.
+
+**A label sits on the first line of its value, not on the middle of its row.** Alignment is
+stated explicitly (`kit.align_labels_to_first_line`), because the default depends on
+whatever ends up in the row: a 24 px icon button next to a 17 px line of text pushed every
+label out of line with its own value.
+
 ### A column width is measured, never guessed
 
 **It comes from the origin of what the column holds**, and there are three origins (QMS-022,
@@ -234,6 +286,14 @@ slack was alternately too much (a date drew 104 px where it needed 69) and too l
 | **closed list** (`kit.closed`) | the longest **value of the reference** | priority, decision, machine, owner, state, item type, group names |
 | **fixed format** (`kit.fixed`) | the longest **specimen of the format** | `DEV-260903-0001`, `מק"ט`, `פק"ע`, dates, `NCR` |
 | **free text** (`kit.free`) | the **remainder** of the canvas | deviation explanation, precedent justification |
+
+**A specimen is a real value, and a guard says so.** Where the number has a generator of
+ours (`db.ids`), the sample is checked against what the generator actually emits — shape
+and length — by `test_business_number_samples_match_their_generator`. The rule existed
+before the guard and did not hold: naryad `0034` declared the inspection number as
+`INS-2609-0001` (13 characters) where the real format is `INSP-YYMMDD-NNN` (15), and every
+row of the form's inspection table was clipped. A discipline that has already failed once
+is replaced by a mechanism, not restated.
 
 A closed list is measured against the reference itself, so a value added by the operator resizes
 the column with no code change: the screen hands its loaded values back to `kit.refit_columns`

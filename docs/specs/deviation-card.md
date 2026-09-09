@@ -303,3 +303,48 @@ explanation is exactly what gets carried over into one's own deviation.
 It copies the **stored** text, not what is on screen. `Copy explanation` at the foot of
 the card is a different button on a different object — the explanation of the *selected
 precedent* — and the two are not merged.
+
+
+## Amendment — header, drawn height and two grids (naryad `0036`, as-built)
+
+Found by the hand-run of 09.09 and by measurement; none of it was caught by a green test.
+
+### The header is three columns
+
+Nine requisites used to sit in two columns of five and four; they now sit in three of
+three, read left to right in the order a deviation is entered: **what it is** (number,
+item, revision) → **where it was made** (WO, machine, quantity) → **what records it**
+(date, NCR, attachments). Measured: the header block drops from **338 px to 245** with an
+explanation present, and from 258 to 232 without one. Those pixels go to the precedents,
+which is what the card is opened for.
+
+A label now sits on the **first line** of its value rather than on the middle of its row.
+
+### The explanation takes the width the header has
+
+It is the only header field whose value is prose, and it is a named exception
+(`kit.prose_row`) to the rule that fields do not stretch. Measured before: 133 px of label
+for 413 px of text at a 1600 px window, wrapping to three lines beside an empty half of the
+header. After: the full width of the row, one line for a 128-character explanation at
+`DIALOG_FULL`.
+
+### Two declared grids
+
+The precedent table has a full grid (**1462**) and a tight one (**1106**), chosen by the
+canvas. At `DIALOG_FULL` the canvas is 1136 and the tight grid applies — `Characteristic`
+and `Explanation` stay truncated with a tooltip, as naryad `0032` declared. Widen the card
+and the full grid takes over: `Characteristic` stops truncating at 195, `Explanation` gets
+440, and `Item` and `WO` hold the journal's real maxima (13 and 10 characters).
+
+### No scrollbar where there is nothing to scroll
+
+The findings table and the inspection panel used to carry a vertical scrollbar at two and
+three rows. The declared height missed the frame by 2 px; it now includes it. The same
+defect, and the same fix, applied to the expansion panel of the deviations list.
+
+### The Inspections column reads the same on both screens
+
+The card showed a summary and the entry form showed a bare count, though the column tuple
+is shared and the findings panel is deliberately one component for both screens. Both now
+show the summary, and the width is computed by one function from the inspection-type
+reference.
