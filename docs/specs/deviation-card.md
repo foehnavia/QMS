@@ -3,8 +3,8 @@ part_of: MIS-QMS/docs/specs
 spec: deviation-card
 status: as-built
 task: QMS-015
-amended_by: QMS-016, QMS-017
-updated: 2026-09-06
+amended_by: QMS-016, QMS-017, QMS-026
+updated: 2026-09-09
 amended_run: QMS-017 hand-run
 ---
 
@@ -235,3 +235,71 @@ same column in the precedent sections was merely bold.
 
 The card header now carries `Revision` next to `Item`, read-only: a part number without a
 revision does not say which drawing its local numbers are read against.
+
+
+## Amendment — the panel, the summary and the empty sections (naryad `0035`, as-built)
+
+Three parts of the card were changed after the QMS-026 hand-run. All three were found by
+looking at the screen, not by a failing test.
+
+### Inspections of the selected characteristic — the panel now reads
+
+`Type` is measured against the **inspection-type reference**, not against the rows on
+display: the column must hold the longest value the dictionary permits, and it must not
+jump about as the operator moves between findings. The screen hands the set to the kit;
+the kit never reaches for the database.
+
+`Conclusion` is free text: it takes the remainder of the canvas, up to the reading ceiling
+of 60 characters, and the full wording is a tooltip when it does not fit.
+
+*What was wrong before:* both columns sat on their header floor — `F…` and `Not in …` —
+with an empty field spanning the rest of the panel. The diagnosis "the table was never
+moved to the kit" was wrong: it had been. The remainder simply never reached any screen
+(see `CLAUDE.md` §9а.20, second case), and the type column had been declared with an empty
+closed set.
+
+### Inspections column — a summary, not a count
+
+A bare number was useless: the panel below already lists the inspections of the selected
+finding, and a count gives no reason to click.
+
+| Inspections | The cell shows | The tooltip |
+|---|---|---|
+| none | `0` | none |
+| one | type · conclusion, truncated by the column | the full wording |
+| several | type of the first · `+N` | **every** inspection with its conclusion |
+
+`+N` counts the ones **not** shown, matching `+N findings` in the finding chips — two
+different conventions on one screen would read as a defect.
+
+**The tooltip of the "several" case is shown always, truncated or not.** It carries what
+the cell cannot: showing one inspection and staying silent about the rest would mislead.
+This is a declared exception to the truncation rule (`design-system.md` §3), and the
+mechanism for it is `kit.CONTENT_TOOLTIP_ROLE` — so that the next build order finds the
+grounds here instead of "fixing" the tooltip away.
+
+The column is sized from the reference as well: the widest type name plus `+N` always
+fits. The conclusion of a single inspection may run past that and is truncated — which is
+what the rule asks for.
+
+### Empty L1 sections — the emptiness is hidden, not the section
+
+- **Both groups empty** — one line, `No precedents yet`; neither group heading is drawn.
+- **One group empty** — both headings stay. Otherwise it is not clear which of the two
+  produced the result.
+- The tab counter `Exact precedents (L1)` is untouched: it is the ordinary way to learn
+  there are no precedents without expanding anything.
+
+This refines, and does not reverse, naryad `0032`: "(0) is an answer, and a vanished group
+reads as *the search did not run*". That holds for one empty group beside a full one. Two
+zero headings in a row only take space and promise content that is not there.
+
+### Explanation — a copy icon
+
+Small, next to the field, shown **only when the field carries text**. Selecting with the
+mouse worked before, but it required guessing that the text was selectable, and the
+explanation is exactly what gets carried over into one's own deviation.
+
+It copies the **stored** text, not what is on screen. `Copy explanation` at the foot of
+the card is a different button on a different object — the explanation of the *selected
+precedent* — and the two are not merged.
