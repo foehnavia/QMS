@@ -195,15 +195,14 @@ class ItemCardDialog(QDialog):
             current = current_revision(item)
             current_id = current.revision_id if current else None
 
-        self.revision.blockSignals(True)
-        self.revision.clear()
-        for revision_id, label in rows:
-            self.revision.addItem(label, revision_id)
-        index = self.revision.findData(keep_shown)
-        if index < 0:
-            index = self.revision.findData(current_id)
-        self.revision.setCurrentIndex(max(index, 0))
-        self.revision.blockSignals(False)
+        with kit.filling(self.revision):
+            self.revision.clear()
+            for revision_id, label in rows:
+                self.revision.addItem(label, revision_id)
+            index = self.revision.findData(keep_shown)
+            if index < 0:
+                index = self.revision.findData(current_id)
+            self.revision.setCurrentIndex(max(index, 0))
 
         self._reload_dimensions()
 

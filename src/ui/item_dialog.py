@@ -458,12 +458,11 @@ def _combo():
 
 
 def _fill(combo, names: list[str], preselect: str) -> None:
-    combo.blockSignals(True)
-    combo.clear()
-    combo.addItems(names)
-    index = combo.findText(preselect)
-    combo.setCurrentIndex(index if index >= 0 else 0)
-    combo.blockSignals(False)
+    with kit.filling(combo):
+        combo.clear()
+        combo.addItems(names)
+        index = combo.findText(preselect)
+        combo.setCurrentIndex(index if index >= 0 else 0)
 
 
 def _select_text(combo, text: str) -> None:

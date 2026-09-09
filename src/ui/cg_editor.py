@@ -197,14 +197,13 @@ class CgEditor(QDialog):
         """
         readable = self.drawing.set_drawing(self._drawing)
 
-        self.table.blockSignals(True)
-        self.table.setRowCount(len(self._rows))
-        for index, row in enumerate(self._rows):
-            self.table.setItem(index, 0, _index_cell(row))
-            self.table.setItem(index, 1, QTableWidgetItem(row.nominal))
-            self.table.setItem(index, 2, QTableWidgetItem(row.tol_plus))
-            self.table.setItem(index, 3, QTableWidgetItem(row.tol_minus))
-        self.table.blockSignals(False)
+        with kit.filling(self.table):
+            self.table.setRowCount(len(self._rows))
+            for index, row in enumerate(self._rows):
+                self.table.setItem(index, 0, _index_cell(row))
+                self.table.setItem(index, 1, QTableWidgetItem(row.nominal))
+                self.table.setItem(index, 2, QTableWidgetItem(row.tol_plus))
+                self.table.setItem(index, 3, QTableWidgetItem(row.tol_minus))
 
         self.status.setText(
             BROKEN_IMAGE if not readable else f"Positions: {len(self._rows)}"

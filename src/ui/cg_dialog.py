@@ -174,9 +174,8 @@ class CgDialog(QDialog):
         Иначе поле показывало бы «3» над таблицей из четырёх строк, и оператор
         читал бы его как ответ на вопрос «сколько позиций», а это неправда.
         """
-        self.count.blockSignals(True)
-        self.count.setValue(max(self.table.rowCount(), 1))
-        self.count.blockSignals(False)
+        with kit.filling(self.count):
+            self.count.setValue(max(self.table.rowCount(), 1))
 
     def _next_index(self) -> int:
         """Следующий индекс — `max + 1`. Дыра в середине не заполняется."""

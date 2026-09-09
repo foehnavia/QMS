@@ -522,17 +522,16 @@ class DeviationDialog(QDialog):
                     if revision.is_current:
                         current_id = revision.revision_id
 
-        self.revision.blockSignals(True)
-        self.revision.clear()
-        for revision_id, label in rows:
-            self.revision.addItem(label, revision_id)
-        wanted = None
-        if keep is not None:
-            wanted = self.revision.findText(keep, Qt.MatchFlag.MatchStartsWith)
-        if wanted is None or wanted < 0:
-            wanted = self.revision.findData(current_id)
-        self.revision.setCurrentIndex(max(wanted, 0))
-        self.revision.blockSignals(False)
+        with kit.filling(self.revision):
+            self.revision.clear()
+            for revision_id, label in rows:
+                self.revision.addItem(label, revision_id)
+            wanted = None
+            if keep is not None:
+                wanted = self.revision.findText(keep, Qt.MatchFlag.MatchStartsWith)
+            if wanted is None or wanted < 0:
+                wanted = self.revision.findData(current_id)
+            self.revision.setCurrentIndex(max(wanted, 0))
         self.revision.setEnabled(bool(rows))
 
     def _revision_changed(self) -> None:

@@ -1237,9 +1237,8 @@ class CardDialog(QDialog):
             restored = self._finding_ids.index(previous) if previous in self._finding_ids else 0
             # Сигнал глушим: иначе выбор строки и явный вызов ниже дают две
             # перерисовки прецедентов, то есть два лишних похода в базу.
-            self.findings.blockSignals(True)
-            self.findings.setCurrentCell(restored, 0)
-            self.findings.blockSignals(False)
+            with kit.filling(self.findings):
+                self.findings.setCurrentCell(restored, 0)
         # **Колонка сводки обязана вмещать `+N`** (§2 наряда `0035`). Объявленные
         # 100 px её не вмещали: `Solidworks assembly +2` резалось до
         # `Solidworks…`, то есть «есть ещё две» пропадало вместе с хвостом, и
