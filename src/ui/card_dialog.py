@@ -68,6 +68,7 @@ from domain.precedents import (
 
 from . import kit
 from .common import (
+    DECISION_DEV_COLUMN,
     UNBOUND_MARK,
     FindingsPanel,
     panel_height,
@@ -110,7 +111,9 @@ INSPECTION_COLUMNS = ("Type", "Conclusion")
 #: подсказке. Колонка `Result` снята вместе с позицией (QMS-025); её знакоместа
 #: **не отдаются** выводу — вывод и так на своём пределе с обрезкой, а лишняя
 #: ширина у него отняла бы её у таблицы находок, где появилась колонка исхода.
-INSPECTION_WIDTHS = (30, 46)
+#: `Type` — закрытый список справочника (рекорд `Implantation torque test`);
+#: `Conclusion` — свободный текст с обрезкой, полный текст в подсказке.
+INSPECTION_WIDTHS = (kit.closed(()), kit.free())
 
 #: Индекс колонки вывода — адресуем по имени, а не по числу в теле цикла (§9а.9).
 INSPECTION_CONCLUSION_COLUMN = INSPECTION_COLUMNS.index("Conclusion")
@@ -191,7 +194,7 @@ PRECEDENT_WIDTHS = (
     kit.px(96),
     kit.px(120),
     kit.px(96),
-    kit.pill(14),
+    kit.pill(DECISION_DEV_COLUMN),
     kit.px(196),
     kit.FIT_LABEL,
 )

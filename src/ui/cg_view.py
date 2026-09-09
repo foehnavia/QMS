@@ -24,7 +24,10 @@ COLUMNS = ("Group", "Positions", "Drawing")
 #: `Group` и `Groups` на экране деталей — одно и то же значение, ширина одна.
 #: `kit.FIT_LABEL` — счётчик (§8.3, класс 2): ширина равна заголовку,
 #: запаса нет — не растёт ни содержимое, ни подпись.
-WIDTHS = (40, kit.FIT_LABEL, kit.FIT_LABEL)
+#: `Group` — имя группы: закрытый список, значения приходят из БД и колонка
+#: пересчитывается на `reload` (наряд `0034` §2). `Positions` и `Drawing` —
+#: счётчик и `yes`/`—`: ширину задаёт заголовок.
+WIDTHS = (kit.closed(()), kit.FIT_LABEL, kit.FIT_LABEL)
 
 #: Счётчик позиций — числовая колонка, но не величина: остаётся влево.
 NUMERIC_COLUMNS = (1,)
@@ -99,6 +102,12 @@ class CgView(QWidget):
             self.table.setItem(
                 row, 2, QTableWidgetItem(HAS_DRAWING if has_drawing else NO_DRAWING)
             )
+
+        # Имя группы — закрытый список: ширину даёт самое длинное прочитанное
+        # (наряд `0034` §2).
+        kit.refit_columns(
+            self.table, (kit.closed(kit.column_values(self.table, 0)), *WIDTHS[1:])
+        )
 
         self.table.setVisible(bool(rows))
         self.empty.setVisible(not rows)

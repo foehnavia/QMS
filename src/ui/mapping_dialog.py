@@ -41,6 +41,13 @@ from .kit import tokens
 
 COLUMNS = ("Position", "State", "Local number", "Canon geometry")
 
+#: Подписи колонки `State` — закрытый набор, из него же берётся её ширина.
+STATE_LABELS = {
+    "linked": "linked",
+    "absent": "absent (99)",
+    "none": "undecided",
+}
+
 #: Колонка, которую оператор правит прямо в строке. Остальные — чтение:
 #: индекс это идентичность позиции, состояние и геометрия — производные.
 LOCAL_NUMBER = COLUMNS.index("Local number")
@@ -60,16 +67,20 @@ NUMERIC_COLUMNS = (0, 2, 3)
 #: ячейка `3.75 +0.05 / −0.05`.
 #: Ширины поимённо (§7.3 наряда 0020): max(заголовок, самое длинное реальное
 #: значение) × 1.25; знакоместо — по самому широкому знаку шрифта канона.
-WIDTHS = (10, 14, 15, 23)
+#: `Position` и `Local number` — номера размеров, жёсткий формат.
+#: `State` — закрытый набор подписей привязки.
+#: `Canon geometry` — составная ячейка `3.75 +0.05 / −0.05`, тоже жёсткий формат
+#: (свободным текстом она не является: длина у неё своя и постоянная).
+WIDTHS = (
+    kit.fixed("g13"),
+    kit.closed(STATE_LABELS.values()),
+    kit.fixed("10375-12"),
+    kit.fixed("3.75 +0.05 / −0.05"),
+)
 
 #: Класс остаётся умолчанием, если ширина почему-то не объявлена.
 CONTENT = ("identifier", "state", "identifier", "state")
 
-STATE_LABELS = {
-    "linked": "linked",
-    "absent": "absent (99)",
-    "none": "undecided",
-}
 
 HINT = (
     "Type the item's local dimension number straight into the row — the "

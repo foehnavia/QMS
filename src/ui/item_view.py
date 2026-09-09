@@ -28,7 +28,7 @@ from domain.revisions import clone_revision, current_revision
 from domain.items import groups_of, list_items
 
 from . import kit
-from .common import iso, joined, strip_iso
+from .common import SAMPLE_ITEM_NUMBER, iso, joined, strip_iso
 from .item_dialog import ItemDialog, complete_new_item, open_mapping
 from .item_positions_dialog import ItemPositionsDialog
 from .mapping_dialog import MappingDialog
@@ -48,7 +48,24 @@ COLUMNS = (
 )
 #: `kit.FIT_LABEL` — счётчик и обозначение ревизии (§8.3, класс 2): ширина равна
 #: заголовку, запаса нет — не растёт ни содержимое, ни подпись.
-WIDTHS = (18, kit.FIT_LABEL, 24, 13, 13, kit.FIT_LABEL, 40)
+#: Классы происхождения вместо знакомест (наряд `0034` §2).
+#:
+#: `Item number` — жёсткий формат: эталон из журнала, 13 знаков (§5).
+#: `Item type` · `Connection` · `Size class` — закрытые списки справочников;
+#: значения приходят из БД, поэтому колонка пересчитывается на `reload` сама
+#: (`refit`), а здесь стоит её пол по заголовку.
+#: `Groups` — тоже **закрытый список**: это имена групп из справочника, а не
+#: свободный текст. §2 относит к свободному тексту описание отклонения и
+#: обоснование прецедента; перечень имён меряется самым длинным именем.
+WIDTHS = (
+    kit.fixed(SAMPLE_ITEM_NUMBER),
+    kit.FIT_LABEL,
+    kit.closed(()),
+    kit.closed(()),
+    kit.closed(()),
+    kit.FIT_LABEL,
+    kit.closed(()),
+)
 
 #: Число размеров — колонка счётчика: направление ей задаём явно, а выравнивание
 #: остаётся левым — счётчик не сравнивают по величине (канон §6). Ревизия сюда
@@ -157,6 +174,18 @@ class ItemView(QWidget):
                 if column == 0:
                     cell.setData(Qt.ItemDataRole.UserRole, item_id)
                 self.table.setItem(row, column, cell)
+
+        # Четыре колонки-справочника (тип, соединение, типоразмер, группы) встают
+        # по самым длинным **прочитанным** значениям (наряд `0034` §2).
+        kit.refit_columns(
+            self.table,
+            (
+                *WIDTHS[:2],
+                *(kit.closed(kit.column_values(self.table, c)) for c in (2, 3, 4)),
+                WIDTHS[5],
+                kit.closed(kit.column_values(self.table, 6)),
+            ),
+        )
 
         self.table.setVisible(bool(rows))
         self.empty.setVisible(not rows)

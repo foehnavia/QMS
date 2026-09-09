@@ -48,13 +48,24 @@ from .kit import tokens
 #: значение) × 1.25, у текстовых — рекорд плюс добавочное слово. Знакоместо
 #: считается по самому широкому знаку шрифта канона, а не по цифре.
 COLUMNS = ("Value", "Used by", "State")
-WIDTHS = (26, 12, 12)
+
+#: Структурный дефолт виден строкой, а не догадкой по отключённой кнопке.
+STATE_DEFAULT = "default"
+#: `Value` — сам справочник: **закрытый список** в чистом виде, и ширину ему даёт
+#: самое длинное значение (наряд `0034` §2). Пересчитывается на `reload`: завёл
+#: оператор значение длиннее — колонка выросла сама, догадок не осталось.
+#: `Used by` — **не** `FIT_LABEL`: подпись счётчика («999 records») длиннее
+#: собственного заголовка, и ширина по заголовку резала бы её. Жёсткий формат.
+#: `State` — закрытый набор из двух подписей.
+WIDTHS = (
+    kit.closed(()),
+    kit.fixed("999 records"),
+    kit.closed((STATE_DEFAULT, "")),
+)
 
 #: Счётчик ссылок — числовая колонка, но не величина: остаётся влево (канон §6).
 NUMERIC_COLUMNS = (1,)
 
-#: Структурный дефолт виден строкой, а не догадкой по отключённой кнопке.
-STATE_DEFAULT = "default"
 
 #: Общая часть подсказки — верна для всех шести словарей.
 IN_USE_HINT = "A value referenced by records cannot be deleted."
@@ -157,6 +168,13 @@ class ReferenceView(QWidget):
             self.values.setItem(
                 index, 2, QTableWidgetItem(STATE_DEFAULT if protected else "")
             )
+
+        # Ширина колонки значений — по самому длинному **прочитанному** значению
+        # (наряд `0034` §2): справочник и есть закрытый список этой колонки.
+        kit.refit_columns(
+            self.values,
+            (kit.closed(kit.column_values(self.values, 0)), *WIDTHS[1:]),
+        )
 
         self.values.setVisible(bool(rows))
         self.empty.setVisible(not rows)
