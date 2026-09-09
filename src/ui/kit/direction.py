@@ -22,6 +22,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLineEdit, QStyledItemDelegate, QWidget
 
 from . import tokens as t
+from .metrics import TruncationTooltip
 
 LTR = Qt.LayoutDirection.LeftToRight
 RTL = Qt.LayoutDirection.RightToLeft
@@ -122,7 +123,7 @@ def bind_direction(editor: QLineEdit) -> QLineEdit:
     return editor
 
 
-class DirectionalDelegate(QStyledItemDelegate):
+class DirectionalDelegate(TruncationTooltip, QStyledItemDelegate):
     """Направление и выравнивание ячейки таблицы — по её значению и по колонке.
 
     **Направление и выравнивание — два разных вопроса** (решение Cowork по ревью
@@ -159,29 +160,6 @@ class DirectionalDelegate(QStyledItemDelegate):
         # незачем, и рассинхронизировать два списка тоже незачем.
         self._magnitude = frozenset(magnitude_columns)
         self._numeric = frozenset(numeric_columns) | self._magnitude
-
-    def helpEvent(self, event, view, option, index) -> bool:  # noqa: N802 - имя от Qt
-        """Подсказка у обрезанного значения — полным текстом.
-
-        Предел ширины без этого превращается в потерю данных на экране: ячейка
-        показывает `DEV-260…`, и узнать остаток неоткуда (§3.1 наряда 0020).
-        Подсказку ставим **только** когда текст не поместился: у всех подряд она
-        мешает.
-        """
-        from PySide6.QtCore import QEvent
-        from PySide6.QtWidgets import QToolTip
-
-        if event.type() != QEvent.Type.ToolTip or not index.isValid():
-            return super().helpEvent(event, view, option, index)
-
-        text = index.data() or ""
-        metrics = view.fontMetrics()
-        room = view.columnWidth(index.column()) - t.PAD_CELL * 2
-        if metrics.horizontalAdvance(str(text)) > room:
-            QToolTip.showText(event.globalPos(), str(text), view)
-        else:
-            QToolTip.hideText()
-        return True
 
     def initStyleOption(self, option, index) -> None:  # noqa: N802 - имя от Qt
         super().initStyleOption(option, index)

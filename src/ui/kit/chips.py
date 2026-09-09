@@ -24,11 +24,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QStyledItemDelegate
 
 from . import tokens as t
 from .direction import LTR
+from .metrics import TruncationTooltip, room_for_delegate
 
 #: Роль, под которой ячейка несёт **состав находок** строки — список `Chip`.
 #: Подпись в `DisplayRole` остаётся текстовой сводкой: её читают тесты и
@@ -103,8 +104,58 @@ def row_height(findings: int) -> int:
     return t.ROW_MANY_FINDINGS
 
 
-class FindingChipsDelegate(QStyledItemDelegate):
+def chips_font(base: QFont) -> QFont:
+    """Шрифт подписи пилюли находки — тот же кегль, что у пилюли исхода.
+
+    Общий для отрисовки и замера по той же причине, что `pills.pill_font`.
+    """
+    font = QFont(base)
+    font.setPointSizeF(t.SIZE_PILL)
+    return font
+
+
+def chip_glyphs(chip: Chip) -> int:
+    """Место под иконки пилюли: исход рисуется всегда, колба — по факту.
+
+    Вынесено из `_chip`, чтобы ширину считали **одним** выражением отрисовка и
+    замер под подсказку. Разойдясь, они дали бы подсказку не там, где обрезка, —
+    ровно тот отказ, который наряд `0034` и чинит.
+    """
+    glyphs = t.CHIP_GLYPH_SIZE + t.GAP_PILL_ICON
+    if chip.researched:
+        glyphs += t.CHIP_GLYPH_SIZE + t.GAP_PILL_ICON
+    return glyphs
+
+
+def chip_width(metrics, chip: Chip) -> int:
+    """Ширина, при которой пилюля находки рисуется без обрезки подписи."""
+    return metrics.horizontalAdvance(chip.text()) + t.PAD_CELL * 2 + chip_glyphs(chip)
+
+
+class FindingChipsDelegate(TruncationTooltip, QStyledItemDelegate):
     """Рисует состав находок пилюлями. Вешается на **одну** колонку таблицы."""
+
+    def drawn_width(self, option, index) -> int:
+        """Ширина самой широкой из **показанных** пилюль.
+
+        Столбик, а не строка: пилюли идут одна под другой, поэтому не влезает не
+        сумма, а максимум. Скрытые сверх `CHIPS_SHOWN` не считаются — про них
+        говорит строка «+N findings», и ширины они не требуют.
+        """
+        chips = index.data(CHIPS_ROLE) or []
+        if not chips:
+            return 0
+        metrics = QFontMetrics(chips_font(option.font))
+        return max(chip_width(metrics, chip) for chip in chips[:CHIPS_SHOWN])
+
+    def available_width(self, view, index) -> int:
+        """Бюджет пилюль находок: как у делегата, минус ещё линия сетки.
+
+        Делегат рисует сам, поэтому добавочного отступа отрисовки не платит
+        (`room_for_delegate`). Лишний пиксель — оттого, что `paint` отсчитывает
+        предел от `option.rect.right()`, а правый край это `left + width - 1`.
+        """
+        return max(room_for_delegate(view, index.column()) - t.BORDER_WIDTH, 0)
 
     def paint(self, painter: QPainter, option, index) -> None:  # noqa: N802 — имя от Qt
         chips = index.data(CHIPS_ROLE) or []
@@ -123,9 +174,7 @@ class FindingChipsDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        font = QFont(option.font)
-        font.setPointSizeF(t.SIZE_PILL)
-        painter.setFont(font)
+        painter.setFont(chips_font(option.font))
         metrics = painter.fontMetrics()
 
         top = option.rect.top() + t.PAD_CHIP_ROW
@@ -153,14 +202,9 @@ class FindingChipsDelegate(QStyledItemDelegate):
         **всегда, во всех трёх состояниях**. Пустое место на месте второй было бы
         неотличимо от «иконка не поместилась» (§3 наряда `0030`).
         """
-        glyphs = t.CHIP_GLYPH_SIZE + t.GAP_PILL_ICON  # исход рисуется всегда
-        if chip.researched:
-            glyphs += t.CHIP_GLYPH_SIZE + t.GAP_PILL_ICON
+        glyphs = chip_glyphs(chip)
         text = chip.text()
-        width = min(
-            metrics.horizontalAdvance(text) + t.PAD_CELL * 2 + glyphs,
-            max(limit - left, 0),
-        )
+        width = min(chip_width(metrics, chip), max(limit - left, 0))
         box = QRectF(left, top, width, t.CHIP_HEIGHT)
 
         painter.setPen(QPen(QColor(t.N_250), t.BORDER_WIDTH))

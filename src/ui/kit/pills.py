@@ -16,11 +16,12 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QLabel, QStyledItemDelegate, QWidget
 
 from . import tokens as t
 from .direction import LTR
+from .metrics import TruncationTooltip, room_for_delegate
 
 #: Роль, под которой ячейка несёт **код** исхода (`approved`, … или `None`).
 #: Подпись в `DisplayRole` человеческая и переводится, код — нет.
@@ -36,13 +37,56 @@ def _pen_and_brush(code: str | None) -> tuple[str | None, str, str]:
 #: режет подпись, а замер по тексту этого не видит (наряд 0020 §8, находка).
 PILL_CHROME = t.PAD_CELL * 2 + t.GAP_PILL_ICON * 2
 
+#: Оправа **вокруг подписи внутри** пилюли — то, что отделяет обрезку от
+#: непритязательного сужения. Слева `GAP_PILL_ICON * 2` до кружка и его диаметр
+#: (`GAP_PILL_ICON`), справа ещё `GAP_PILL_ICON`; итого четыре зазора.
+#:
+#: От `PILL_CHROME` отличается на восемь пикселей, и разница не декоративная.
+#: `PILL_CHROME` — ширина, при которой пилюля рисуется **целиком**; сужаясь ниже
+#: неё, она сначала просто теряет скруглённые поля, и подпись всё ещё читается.
+#: Резаться подпись начинает только ниже `PILL_TEXT_CHROME`. Подсказку ставим по
+#: второму числу: обрезка — потеря данных, поджатая оправа — нет.
+PILL_TEXT_CHROME = t.GAP_PILL_ICON * 4
 
-class DecisionPillDelegate(QStyledItemDelegate):
+
+def pill_font(base: QFont) -> QFont:
+    """Шрифт подписи пилюли — свой кегль и вес.
+
+    Вынесен из `paint`, чтобы замер ширины считался **тем же** шрифтом, которым
+    идёт отрисовка. Замер шрифтом вида дал бы другое число, и подсказка
+    появлялась бы не там (`CLAUDE.md` §9а: сверяй то, чем рисуют).
+    """
+    font = QFont(base)
+    font.setPointSizeF(t.SIZE_PILL)
+    font.setWeight(QFont.Weight(t.WEIGHT_PILL))
+    return font
+
+
+class DecisionPillDelegate(TruncationTooltip, QStyledItemDelegate):
     """Рисует подпись исхода пилюлей. Вешается на **одну** колонку таблицы.
 
     Ставится через `setItemDelegateForColumn`, поверх общего делегата
     направления: колонка исхода английская и всегда LTR, спорить им не о чем.
     """
+
+    def drawn_width(self, option, index) -> int:
+        """Ширина, ниже которой делегат начнёт резать подпись.
+
+        Считается кеглем пилюли, а не вида: `QStyledItemDelegate` про этот шрифт
+        не знает, и замер по строке ячейки обрезки не увидит (§4.2 наряда `0034`).
+        """
+        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        metrics = QFontMetrics(pill_font(option.font))
+        return metrics.horizontalAdvance(str(text)) + PILL_TEXT_CHROME
+
+    def available_width(self, view, index) -> int:
+        """Бюджет пилюли — `room_for_delegate`, а не `room_for_text`.
+
+        Пилюлю рисует делегат своими руками, добавочного отступа отрисовки текста
+        (`metrics.text_margin`) он не платит: тот вычитается внутри
+        `QCommonStyle::viewItemDrawText`, куда эта ячейка не заходит.
+        """
+        return room_for_delegate(view, index.column())
 
     def paint(self, painter: QPainter, option, index) -> None:  # noqa: N802 — имя от Qt
         text = index.data(Qt.ItemDataRole.DisplayRole) or ""
@@ -61,10 +105,7 @@ class DecisionPillDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        font = QFont(option.font)
-        font.setPointSizeF(t.SIZE_PILL)
-        font.setWeight(QFont.Weight(t.WEIGHT_PILL))
-        painter.setFont(font)
+        painter.setFont(pill_font(option.font))
 
         metrics = painter.fontMetrics()
         label_width = metrics.horizontalAdvance(text)

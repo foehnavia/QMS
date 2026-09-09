@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from . import tokens as t
 from .direction import directional, iso
+from .metrics import cell_chrome, delegate_chrome, header_chrome
 from .theme import (
     ROLE,
     ROLE_DANGER,
@@ -222,14 +224,62 @@ def dialog_layout(widget: QWidget) -> QVBoxLayout:
 #: Ниже этой доли области таблица прижимается к левому краю, а не центрируется.
 CENTRING_SHARE = 0.6
 
-CONTENT_WIDTH = {
-    "identifier": t.WIDTH_IDENTIFIER,
-    "magnitude": t.WIDTH_MAGNITUDE,
-    "date": t.WIDTH_DATE,
-    "state": t.WIDTH_STATE,
-    "counter": t.WIDTH_COUNTER,
-    "text": t.WIDTH_TEXT,
-    "link": t.WIDTH_LINK,
+#: Объявление «ширина этой колонки — её заголовок, и только он» (§8.3, класс 2).
+#: Ставится у счётчиков и коротких фиксированных значений: `0`, `15`, `9999`,
+#: `yes` не растут, заголовок задан нами и тоже не растёт.
+#:
+#: Единственный класс, который меряется зазором **заголовка** (20 px), а не
+#: ячейки (27): ширину задаёт подпись, содержимое у́же неё по построению.
+#: Заголовок добавочного отступа отрисовки не платит, и приписать ему семь
+#: пикселей ячейки значило бы раздуть каждую такую колонку — а у
+#: `card_dialog.PRECEDENT_WIDTHS` запас до полотна ровно один пиксель.
+#: Отсюда же ответ на «`Revision` и `Insp.` режутся»: не режутся — замер по
+#: ячейке приписывал заголовку чужой зазор (наряд `0034` §1).
+FIT_LABEL = "label"
+
+#: Метка «эту колонку рисует пилюля исхода»: `kit.pill(labels)`.
+_PILL = "pill"
+
+#: Метка «ширина этой колонки объявлена в пикселях»: `kit.px(200)`.
+_PX = "px"
+
+#: Класс §2: **закрытый список** — ширину даёт самое длинное значение справочника.
+_CLOSED = "closed"
+
+#: Класс §2: **жёсткий формат** — ширину даёт эталонная строка формата.
+_FIXED = "fixed"
+
+#: Класс §2: **свободный текст** — ширину даёт остаток полотна, с потолком.
+_FREE = "free"
+
+#: Объявление свободной колонки. Значением, а не вызовом: она ничего не несёт,
+#: кроме самого факта «эта колонка забирает остаток».
+FREE = (_FREE, None)
+
+
+#: Класс, угаданный по подписи, → **эталонная строка** его формата.
+#:
+#: Замена семи знакоместных чисел (наряд `0034` §2). Строка — реальное значение
+#: этого формата, а не «сколько-то знаков»: `QFontMetrics` меряет её тем самым
+#: шрифтом, которым колонку и нарисуют, поэтому запас в четверть больше не нужен
+#: ни с какой стороны. Дата по этому замеру получает 69 px вместо прежних 104 —
+#: разница и есть та догадка, которую наряд снимает.
+#:
+#: Угадывание остаётся **умолчанием для необъявленных** колонок и только им:
+#: экран, знающий своё содержимое, объявляет класс сам (`closed` / `fixed` /
+#: `free`), и это всегда точнее подписи.
+CONTENT_SAMPLE = {
+    # `DEV-260903-0001` — самый длинный бизнес-номер приложения.
+    "identifier": "DEV-260903-0001",
+    # Величина со знаком — одна неделимая ячейка (`CLAUDE.md` §9).
+    "magnitude": "+ 0.05 / − 0.05",
+    "date": "09.09.2026",
+    # Состояние — подпись самого длинного исхода; пилюля добавляет оправу сама.
+    "state": "Not permitted",
+    # Счётчик не растёт: ширину ему задаёт заголовок и только он.
+    "counter": FIT_LABEL,
+    "text": FREE,
+    "link": FREE,
 }
 
 #: Слова подписей, по которым класс угадывается **по умолчанию**. Экран может
@@ -281,17 +331,6 @@ def content_class(label: str, column: int, magnitude_columns: tuple[int, ...]) -
 #: Из каких знаков считается знакоместо. Не цифра: в шрифте канона `0` — семь
 #: пикселей, а `M` — двенадцать, и колонка «на 12 знакомест», посчитанная
 #: цифрой, резала восьмизначное `1 record` (замерено, предупреждение §7.3).
-#: Объявление «ширина этой колонки — её заголовок, и только он» (§8.3, класс 2).
-#: Ставится вместо числа знакомест у счётчиков и коротких фиксированных значений:
-#: `0`, `15`, `9999`, `yes` не растут, заголовок задан нами и тоже не растёт, —
-#: запас в четверть там не нужен ни с какой стороны.
-FIT_LABEL = "label"
-
-#: Метка «эту колонку рисует пилюля»: `kit.pill(14)` вместо голого `14`.
-_PILL = "pill"
-
-#: Метка «ширина этой колонки объявлена в пикселях»: `kit.px(200)`.
-_PX = "px"
 
 
 def px(pixels: int) -> tuple[str, int]:
@@ -312,80 +351,261 @@ def px(pixels: int) -> tuple[str, int]:
     return (_PX, pixels)
 
 
-def pill(chars: int) -> tuple[str, int]:
+def pill(labels) -> tuple[str, tuple[str, ...]]:
     """Объявить колонку, которую рисует пилюля исхода (`DecisionPillDelegate`).
 
-    Число знакомест остаётся тем же (§7.3), но к нему добавляется **оправа**
-    пилюли: её собственные отступы и кружок. Без этого делегат режет подпись
+    Принимает **закрытый список подписей**, а не число знакомест (наряд `0034`
+    §2): исход — значение контролируемого словаря, и самое длинное из них можно
+    измерить, а не оценить. К замеру добавляется оправа пилюли (`PILL_CHROME`):
+    её собственные отступы и кружок. Без оправы делегат режет подпись
     («Not deci…» на базе прогона), а замер по тексту ячейки обрезки не видит —
     рисует-то не текст, а пилюля, и шрифтом покрупнее.
     """
-    return (_PILL, chars)
+    return (_PILL, tuple(labels))
+
+
+def closed(values) -> tuple[str, tuple[str, ...]]:
+    """Класс §2: **закрытый список** — ширина по самому длинному значению.
+
+    Значения приходят из справочника, поэтому колонка пересчитывается сама,
+    стоит оператору завести новое: догадок здесь не остаётся по построению.
+    Пустой список означает «справочник ещё не прочитан» — колонка садится на
+    свой заголовок, а не схлопывается.
+    """
+    return (_CLOSED, tuple(str(value) for value in values))
+
+
+def fixed(sample: str) -> tuple[str, str]:
+    """Класс §2: **жёсткий формат** — ширина по эталонной строке формата.
+
+    Эталон — реальное значение (`DEV-260903-0001`, `09.09.2026`, `W26007336`), а
+    не «столько-то знаков»: меряет его тот же шрифт, которым колонку нарисуют.
+    """
+    return (_FIXED, sample)
+
+
+def free() -> tuple[str, None]:
+    """Класс §2: **свободный текст** — ширина из остатка полотна, с потолком."""
+    return FREE
 
 
 def slot_width(table) -> int:
-    """Одно знакоместо — **средняя** ширина знака шрифта канона, не самая широкая.
+    """Одно знакоместо — **средняя** ширина знака шрифта канона.
 
-    Замена самого широкого знака на средний — вторая доводка (§8.3). Разметку
-    оператора по пикселям воспроизводит именно средний знак: текущая раскладка
-    ложилась в `знакоместа × 12 px + 20`, где 12 — ширина `M`, а желаемая — в
-    `знакоместа × ≈7.4 px + 20`. Гарантия от обрезки при этом не теряется: она
-    сидит в запасе в четверть внутри самих чисел знакомест (§7.3), а не в том,
-    что каждый знак считается за `M`.
+    **Раздачей ширины больше не занимается** (наряд `0034` §2). Осталось для
+    сообщений и диагностики, где нужен ориентир «сколько это примерно знаков»:
+    ширину колонки теперь даёт замер самого содержимого, а не знакоместа с
+    запасом в четверть.
     """
     return table.fontMetrics().horizontalAdvance("0")
 
 
-def column_width(table, chars, label: str = "") -> int:
-    """Ширина колонки в пикселях. Два класса содержимого — два расчёта (§8.3).
+def free_text_width(table) -> int:
+    """Потолок колонки свободного текста в пикселях — `FREE_TEXT_CHARS` знаков.
 
-    `chars` — число знакомест **растущего** содержимого либо `FIT_LABEL` для
-    счётчика: тогда ширину задаёт заголовок и ничего больше.
+    Знаки переводятся в пиксели знакоместом: сам предел объявлен в знаках,
+    потому что читаемость меряется словами, а не пикселями (`tokens` §3).
+    """
+    return slot_width(table) * t.FREE_TEXT_CHARS + cell_chrome(table)
 
-    Заголовок не переносится никогда — это нижняя граница обоих классов
+
+def content_need(table, spec) -> int:
+    """Сколько пикселей просит **содержимое** колонки, без непечатаемого.
+
+    Ноль означает «содержимое ширины не требует»: так отвечают `FIT_LABEL`
+    (ширину задаёт заголовок) и свободный текст (ширину задаёт остаток).
+    """
+    metrics = table.fontMetrics()
+    if spec == FIT_LABEL:
+        return 0
+    if isinstance(spec, tuple):
+        kind, value = spec
+        if kind == _FREE:
+            return 0
+        if kind == _CLOSED:
+            return max((metrics.horizontalAdvance(v) for v in value), default=0)
+        if kind == _FIXED:
+            return metrics.horizontalAdvance(value)
+        if kind == _PILL:
+            from .pills import PILL_CHROME, pill_font  # noqa: PLC0415 — круговой импорт
+
+            pill_metrics = QFontMetrics(pill_font(table.font()))
+            widest = max((pill_metrics.horizontalAdvance(v) for v in value), default=0)
+            return widest + PILL_CHROME
+    raise TypeError(
+        f"column width spec must be kit.closed/fixed/free/pill/px/FIT_LABEL, got {spec!r}"
+    )
+
+
+def column_width(table, spec, label: str = "") -> int:
+    """Ширина колонки в пикселях: **замер содержимого**, пол — заголовок (§2).
+
+    Непечатаемое прибавляется **замеренное**, и у каждого рисующего оно своё:
+    заголовок 20, делегат пилюли 21, текст под стилем 27 (`kit.metrics`). До
+    наряда `0034` здесь стояло `+ PAD_CELL * 2` = 20 на всё подряд, то есть
+    текстовая колонка недобирала семь пикселей и резалась при идеально
+    сходившейся сумме; рядом, в `deviation_view`, жила вторая формула той же
+    величины. Теперь место одно.
+
+    Заголовок не переносится никогда — это нижняя граница любого класса
     (правило 1 §7.3). Обрезанная подпись это колонка, про которую оператор не
     знает, что в ней (`spectior` вместо `Inspections` на первом снимке).
+
+    **`kit.px(N)` возвращает ровно `N`**: объявленные пиксели уже полные, и
+    прибавка сдвинула бы каждую нарисованную сетку (§1.3 наряда).
     """
-    from .pills import PILL_CHROME  # noqa: PLC0415 — иначе круговой импорт
+    if isinstance(spec, tuple) and spec[0] == _PX:
+        return spec[1]
 
-    metrics = table.fontMetrics()
-    by_label = metrics.horizontalAdvance(label) if label else 0
-    chrome = 0
-    if isinstance(chars, tuple) and chars[0] == _PX:
-        # Объявленные пиксели отдаются как есть: ни знакомест, ни пола по
-        # заголовку, ни отступов ячейки поверх — число уже полное.
-        return chars[1]
-    if isinstance(chars, tuple) and chars[0] == _PILL:
-        chars, chrome = chars[1], PILL_CHROME
-    by_slots = 0 if chars == FIT_LABEL else slot_width(table) * chars + chrome
-    return max(by_slots, by_label) + t.PAD_CELL * 2
+    by_label = (
+        table.fontMetrics().horizontalAdvance(label) + header_chrome(table)
+        if label
+        else 0
+    )
+    need = content_need(table, spec)
+    by_content = need + content_chrome(table, spec) if need else 0
+    return max(by_content, by_label)
 
 
-def _fit_columns(table, magnitude_columns, content, widths) -> None:
-    """Раздать колонкам ширину. Ни одна не тянется.
+def content_chrome(table, spec) -> int:
+    """Чей зазор платит эта колонка — **того, кто её рисует**.
+
+    Пилюлю рисует делегат своими руками и добавочного отступа отрисовки текста не
+    платит (`delegate_chrome`); обычную ячейку рисует стиль, и платит
+    (`cell_chrome`). Разница 6 px, и без неё колонка пилюли получала бы лишнее, а
+    текстовая — недобирала.
+    """
+    if isinstance(spec, tuple) and spec[0] == _PILL:
+        return delegate_chrome(table)
+    return cell_chrome(table)
+
+
+def column_specs(table, magnitude_columns, content, widths) -> list:
+    """Чем объявлена каждая колонка — **чистый разбор**, без установки ширин.
 
     Порядок источников (решение §7.3): **объявленная экраном ширина** →
     объявленный класс → класс, угаданный по подписи. Угадывание осталось
     умолчанием для необъявленных колонок и только им: оно развело `Connection`
     (короткое содержимое, широкий класс) с `Item type` (длинное содержимое,
     узкий), потому что имена врут.
+
+    Вынесено из `_fit_columns` отдельной функцией, потому что раздача остатка
+    (§3) обязана знать состав **до** того, как назначит хоть одну ширину:
+    свободной колонке достаётся то, что осталось от всех прочих.
     """
-    header = table.horizontalHeader()
-    header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-    header.setStretchLastSection(False)
+    specs = []
     for column in range(table.columnCount()):
         label = table.horizontalHeaderItem(column)
         caption = label.text() if label else ""
         if widths and column < len(widths) and widths[column] is not None:
-            slots = widths[column]
+            spec = widths[column]
         else:
             name = (
                 content[column]
                 if content and column < len(content)
                 else content_class(caption, column, magnitude_columns)
             )
-            slots = CONTENT_WIDTH[name]
-        table.setColumnWidth(column, column_width(table, slots, caption))
+            spec = CONTENT_SAMPLE[name]
+            if isinstance(spec, str) and spec not in (FIT_LABEL,):
+                spec = fixed(spec)
+        specs.append((spec, caption))
+    return specs
+
+
+def _is_free(spec) -> bool:
+    return isinstance(spec, tuple) and spec[0] == _FREE
+
+
+def share_remainder(table, specs, limit: int) -> dict[int, int]:
+    """Сколько достаётся каждой свободной колонке — **чистый расчёт** (§3).
+
+    Порядок раздачи, единый для всех таблиц:
+
+    1. считается сумма колонок известной ширины — она не плавает;
+    2. остаток до предела полотна делится между колонками свободного текста;
+    3. выше потолка читаемости (`FREE_TEXT_CHARS` знаков) колонка не растёт
+       **никогда**, сколько бы места ни осталось;
+    4. **остаток сверх потолка не раздаётся никому** — таблица просто у́же своей
+       области. Это и есть механический запрет на «колонку с тремя словами во всю
+       ширину экрана»: тянуть больше некому и нечем.
+
+    Свободных колонок на экране может не быть вовсе (`cg_view`, `reference_view`,
+    `mapping_dialog` и др.) — тогда остаток не раздаётся и таблица у́же полотна.
+    Это штатное состояние, а не дефект раскладки (§3.5).
+
+    Чистая функция по той же причине, что `centring_margin` и `table_height`
+    (`CLAUDE.md` §9а.15): величину, от которой зависит раскладка, надо уметь
+    проверить арифметикой, не поднимая экран.
+    """
+    free_columns = [i for i, (spec, _) in enumerate(specs) if _is_free(spec)]
+    if not free_columns:
+        return {}
+
+    floors = {i: column_width(table, specs[i][0], specs[i][1]) for i in free_columns}
+    taken = sum(
+        column_width(table, spec, caption)
+        for i, (spec, caption) in enumerate(specs)
+        if not _is_free(spec)
+    )
+    ceiling = free_text_width(table)
+    spare = max(limit - taken, 0)
+
+    share = spare // len(free_columns)
+    return {i: max(min(share, ceiling), floors[i]) for i in free_columns}
+
+
+def refit_columns(table, widths, *, limit: int = 0) -> None:
+    """Пересчитать ширины **по загруженным данным**.
+
+    Ради этого вызова класс «закрытый список» и заведён: при сборке таблицы
+    справочник ещё не прочитан, и колонка садится на свой пол по заголовку.
+    Экран, дочитав строки, отдаёт сюда фактические значения — и колонка встаёт по
+    самому длинному из них. Завёл оператор значение длиннее прежнего — колонка
+    выросла сама, без правки кода: «догадок здесь не остаётся по построению»
+    (наряд `0034` §2).
+
+    Зовётся из `reload`, а не из раскладки: ширина зависит от данных, и пересчёт
+    по событию раскладки уводил бы её в рекурсию (`CLAUDE.md` §9а.15).
+    """
+    specs = [
+        (widths[column], _caption(table, column)) for column in range(table.columnCount())
+    ]
+    shares = share_remainder(table, specs, limit) if limit else {}
+    for column, (spec, caption) in enumerate(specs):
+        table.setColumnWidth(column, shares.get(column) or column_width(table, spec, caption))
+    _centre_columns(table)
+
+
+def _caption(table, column: int) -> str:
+    label = table.horizontalHeaderItem(column)
+    return label.text() if label else ""
+
+
+def column_values(table, column: int) -> list[str]:
+    """Что **сейчас** стоит в колонке — сырьё для `kit.closed` при пересчёте."""
+    return [
+        table.item(row, column).text()
+        for row in range(table.rowCount())
+        if table.item(row, column) is not None
+    ]
+
+
+def _fit_columns(table, magnitude_columns, content, widths, limit: int = 0) -> None:
+    """Раздать колонкам ширину. Ни одна не тянется.
+
+    Свободные колонки получают остаток только когда предел полотна известен
+    (`limit`); без него они садятся на свой пол по заголовку, а ширину им
+    назначит экран, когда узнает свою ширину, — через `refit_columns`.
+    """
+    header = table.horizontalHeader()
+    header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+    header.setStretchLastSection(False)
+
+    specs = column_specs(table, magnitude_columns, content, widths)
+    shares = share_remainder(table, specs, limit) if limit else {}
+    for column, (spec, caption) in enumerate(specs):
+        width = shares.get(column) or column_width(table, spec, caption)
+        table.setColumnWidth(column, width)
 
 
 #: Предел вложенности пересчёта центрирования. Раскладка зовёт его синхронно, и

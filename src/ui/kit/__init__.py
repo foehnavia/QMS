@@ -19,6 +19,14 @@
 """
 
 from . import tokens
+from .metrics import (
+    cell_chrome,
+    delegate_chrome,
+    header_chrome,
+    room_for_delegate,
+    room_for_text,
+    text_margin,
+)
 from .combo import FilterCombo
 from .focus import FocusHalo, FocusHaloController
 from .direction import (
@@ -56,6 +64,15 @@ from .theme import (
 from . import chips  # noqa: F401 — доступен как `kit.chips`
 from .widgets import (
     FIT_LABEL,
+    FREE,
+    closed,
+    fixed,
+    free,
+    free_text_width,
+    refit_columns,
+    column_values,
+    column_width,
+    share_remainder,
     Choice,
     DataTable,
     boxed,
@@ -99,7 +116,22 @@ from .widgets import (
 
 __all__ = [
     "chips",
+    "cell_chrome",
+    "delegate_chrome",
+    "room_for_delegate",
+    "text_margin",
+    "header_chrome",
+    "room_for_text",
     "FIT_LABEL",
+    "FREE",
+    "closed",
+    "fixed",
+    "free",
+    "free_text_width",
+    "refit_columns",
+    "column_values",
+    "column_width",
+    "share_remainder",
     "pill",
     "px",
     "Choice",
