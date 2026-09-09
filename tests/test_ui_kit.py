@@ -949,6 +949,52 @@ def test_business_number_samples_match_their_generator(seeded_session) -> None:
         )
 
 
+def test_filling_restores_the_widget_even_when_it_raises(qt_app) -> None:
+    """Наряд `0039`, шаг 5: заливка — **механизм с `finally`**, а не флаг.
+
+    Сторожит правило, ради которого механизм и заведён: исключение посреди
+    заливки обязано оставить виджет **слышащим** сигналы. Прежде это была
+    дисциплина в семи местах, и ни одно из семи не было отказоустойчиво: флаг
+    `_loading` оставался поднятым навсегда, и диалог привязки переставал
+    записывать, ничего не сообщая оператору.
+
+    Проверяется на самом механизме, поэтому покрывает все семь мест разом.
+    """
+    import pytest
+    from PySide6.QtWidgets import QComboBox, QTableWidget
+
+    table, combo = QTableWidget(1, 1), QComboBox()
+
+    # 1. Обычный ход: глушит на время и возвращает как было.
+    assert table.signalsBlocked() is False
+    with kit.filling(table):
+        assert table.signalsBlocked() is True
+    assert table.signalsBlocked() is False
+
+    # 2. Исключение изнутри — виджет всё равно слышит.
+    with pytest.raises(RuntimeError):
+        with kit.filling(table):
+            raise RuntimeError("заливка сорвалась")
+    assert table.signalsBlocked() is False, (
+        "исключение оставило виджет глухим — механизм не отказоустойчив"
+    )
+
+    # 3. Возвращается **прежнее** состояние, а не безусловное `False`:
+    #    вложенная заливка не снимает глушение внешней.
+    with kit.filling(table):
+        with kit.filling(table):
+            pass
+        assert table.signalsBlocked() is True, (
+            "вложенная заливка сняла глушение внешней"
+        )
+    assert table.signalsBlocked() is False
+
+    # 4. Несколько виджетов разом — заливка формы трогает не один.
+    with kit.filling(table, combo):
+        assert (table.signalsBlocked(), combo.signalsBlocked()) == (True, True)
+    assert (table.signalsBlocked(), combo.signalsBlocked()) == (False, False)
+
+
 def test_the_stylesheet_is_built_from_tokens() -> None:
     """Стиль — производная канона: значения приходят из `tokens`, не из головы."""
     sheet = kit.stylesheet()

@@ -19,7 +19,7 @@ import pytest
 import ui.kit
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QMouseEvent, QWheelEvent
-from PySide6.QtWidgets import QDialog, QDialogButtonBox
+from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox
 
 from conftest import make_item, make_png, rev
 from db.models import CharacteristicGroup, GPosition, Item
@@ -962,3 +962,120 @@ def test_the_position_label_is_the_same_everywhere(group_engine) -> None:
     assert strip_iso(editor.table.item(0, 0).text()) == "g1"
     assert strip_iso(mapping.table.item(0, 0).text()) == "g1"
     assert strip_iso(position_label(13)) == "g13"
+
+
+# --- наряд 0039: обработчик сигнала не перестраивает свой виджет -------------------
+
+
+def test_the_edit_handler_does_not_rebuild_the_table_inside_the_emission(
+    group_engine, quiet
+) -> None:
+    """Наряд `0039`: **обработчик сигнала не перестраивает свой виджет внутри
+    эмиссии**.
+
+    Утверждение о **конструкции**, а не о симптоме. `setItem` уничтожает прежний
+    `QTableWidgetItem`; когда это делает обработчик `itemChanged`, уничтожается
+    ровно тот объект, который Qt передал в слот и чей метод ещё на стеке. Ниже
+    границы Python ↔ C++ это тот же класс, что стоп-дефект раскрытия наряда
+    `0028`: величина, которую функция задаёт, входит в её же вход. Исход
+    недетерминирован, поэтому доказывается **отсутствие конструкции**, а не
+    воспроизведение падения (`CLAUDE.md` §9а.14).
+
+    Считается два раза: пересборки за время эмиссии и то, что переданный в слот
+    объект по возвращении из него **всё ещё принадлежит таблице**.
+    """
+    item_id, cg_id = _item_id(group_engine), _cg_id(group_engine)
+    dialog = MappingDialog(group_engine, item_id, cg_id)
+    table = dialog.table
+
+    calls: list[str] = []
+    original_set_item = table.setItem
+    original_set_row_count = table.setRowCount
+
+    def counting_set_item(*args):
+        calls.append("setItem")
+        return original_set_item(*args)
+
+    def counting_set_row_count(*args):
+        calls.append("setRowCount")
+        return original_set_row_count(*args)
+
+    cell = table.item(0, LOCAL_NUMBER)
+    survived: list[bool] = []
+
+    def watch(changed) -> None:
+        # Слот-наблюдатель подключён **после** боевого, поэтому исполняется, когда
+        # тот уже отработал, — но всё ещё внутри той же эмиссии.
+        survived.append(table.item(changed.row(), changed.column()) is changed)
+
+    table.setItem = counting_set_item
+    table.setRowCount = counting_set_row_count
+    table.itemChanged.connect(watch)
+    try:
+        cell.setText("12")
+    finally:
+        table.setItem = original_set_item
+        table.setRowCount = original_set_row_count
+
+    assert quiet == []
+    assert calls == [], f"таблица пересобрана внутри эмиссии: {calls}"
+    assert survived == [True], (
+        "объект, переданный в слот, к возвращению из него больше не принадлежит "
+        "таблице — значит он был уничтожен обработчиком"
+    )
+    # И запись при этом состоялась: конструкция убрана, поведение цело.
+    assert table.item(0, 1).text() == "linked"
+
+
+def test_a_number_typed_into_the_real_cell_editor_is_bound(group_engine, quiet) -> None:
+    """Наряд `0039`: тот же путь, каким входит **человек** — через редактор ячейки.
+
+    Сторожит то же правило, что и тест выше, но с другой стороны: проверка
+    входит в систему там же, где в неё входит человек (`CLAUDE.md` §9а). До этого
+    наряда **ни один** тест приложения не вводил значение через настоящий
+    редактор: все тесты привязки правили модель напрямую, и ветка
+    `_commit_open_editor` → `commitData` не исполнялась вовсе. Между этими двумя
+    входами дефект и жил.
+
+    Последовательность воспроизводится целиком, как её делает человек (§9а.19):
+    клик по строке → открытие редактора → набор → `Enter` → `Done`.
+    """
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+
+    item_id, cg_id = _item_id(group_engine), _cg_id(group_engine)
+    with session_scope(group_engine) as session:
+        item, group = session.get(Item, item_id), session.get(CharacteristicGroup, cg_id)
+        # Две позиции уже решены: проверяем последнюю, чтобы `Done` закрыла окно.
+        bind(session, rev(item), group.positions[1], "19")
+        mark_absent(session, rev(item), group.positions[2])
+
+    dialog = MappingDialog(group_engine, item_id, cg_id)
+    dialog.show()
+    QApplication.processEvents()
+    table = dialog.table
+
+    index = table.model().index(0, LOCAL_NUMBER)
+    # Человек сперва щёлкает по строке, и только потом набирает: без одиночного
+    # клика `QAbstractItemView` не с чем связать редактирование (§9а.19).
+    table.setCurrentIndex(index)
+    table.edit(index)
+    QApplication.processEvents()
+
+    editor = table.viewport().focusWidget()
+    assert editor is not None, "редактор ячейки не открылся — тест до кода не дошёл"
+
+    QTest.keyClicks(editor, "12")
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    QApplication.processEvents()
+
+    dialog.finish()
+    QApplication.processEvents()
+
+    assert quiet == [], f"окно ошибки при вводе через редактор: {quiet}"
+    assert table.item(0, 1).text() == "linked"
+    with session_scope(group_engine) as session:
+        item, group = session.get(Item, item_id), session.get(CharacteristicGroup, cg_id)
+        states = binding_state(session, rev(item), group)
+    assert states[0].state == "linked"
+    assert states[0].local_number == "12"
