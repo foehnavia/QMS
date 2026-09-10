@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
@@ -44,6 +44,23 @@ from db.models import (
 )
 
 from .reference import ref, seed_reference
+
+
+#: Дата решения у синтетических записей — **явная**, по одной на отклонение.
+#:
+#: До наряда `0040` её подставлял дефолт схемы, и сид о ней не думал вовсе. Дефолт
+#: снят (`decision_date` пуста, пока решения нет), а сид строит `Deviation(...)`
+#: напрямую, минуя `set_decision`, — значит дату обязан поставить сам. Иначе он
+#: производил бы запись, невозможную по смыслу: решение есть, даты решения нет.
+#:
+#: Числа выбраны на день-два позже даты регистрации: решение принимают после
+#: регистрации, и данные должны это показывать.
+DECIDED_ON = {
+    "approved": datetime(2026, 7, 30, 9, 15),
+    "rejected": datetime(2026, 8, 4, 14, 40),
+    "sorting": datetime(2026, 8, 11, 11, 5),
+    "repair": datetime(2026, 8, 18, 16, 20),
+}
 
 
 def build_synthetic(session: Session) -> dict[str, object]:
@@ -125,6 +142,7 @@ def build_synthetic(session: Session) -> dict[str, object]:
         date=date(2026, 7, 28),
         ncr="NCR-26-0431",
         decision_dev="approved",
+        decision_date=DECIDED_ON["approved"],
         explanation="החריגה נבדקה מול השרטוט ואושרה לשימוש כמות שהיא",
         attachment=r"\\fileserver\QC\deviations\W26007336\measure.pdf",
     )
@@ -157,6 +175,7 @@ def build_synthetic(session: Session) -> dict[str, object]:
         quantity=18,
         date=date(2026, 7, 29),
         decision_dev="rejected",
+        decision_date=DECIDED_ON["rejected"],
         explanation="שבר בכלי — גדשים בהברגה, לא לשימוש",
     )
     session.add(
@@ -182,6 +201,7 @@ def build_synthetic(session: Session) -> dict[str, object]:
         quantity=9999,  # выборка `X מתוך Y` — уровень WO
         date=date(2026, 8, 3),
         decision_dev="sorting",
+        decision_date=DECIDED_ON["sorting"],
         explanation="מיון 100% לפי קריטריון שנקבע",
     )
     session.add(
@@ -207,6 +227,7 @@ def build_synthetic(session: Session) -> dict[str, object]:
         quantity=45,
         date=date(2026, 8, 4),
         decision_dev="repair",
+        decision_date=DECIDED_ON["repair"],
         explanation="תיקון — החריגה נותרת אך מאושרת",
     )
     session.add(

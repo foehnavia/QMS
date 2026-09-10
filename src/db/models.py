@@ -425,9 +425,14 @@ class Deviation(Base):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     date: Mapped[date_type] = mapped_column(Date, nullable=False)
     ncr: Mapped[Optional[str]] = mapped_column(String(64))  # может прийти позже решения
-    decision_date: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.now
-    )
+    #: Дата решения — **NULL, пока решения нет** (наряд `0040` §4, Δ из S4).
+    #: Прежде поле было `NOT NULL` с дефолтом `datetime.now`: у только что
+    #: зарегистрированного отклонения решения ещё не было, а дата решения уже
+    #: стояла. На поведение это не влияло, выгрузку вводило в заблуждение —
+    #: `אישור חריגה` печатал дату решения там, где решения не принимали.
+    #: Дефолта нет намеренно: дату ставит домен в `set_decision`, то есть там же,
+    #: где ставится само решение, и только там.
+    decision_date: Mapped[Optional[datetime]] = mapped_column(DateTime)
     # NULL = решение ещё не принято (регистрация — шаг 3, решение — шаг 8).
     decision_dev: Mapped[Optional[str]] = mapped_column(String(16))
     explanation: Mapped[str] = mapped_column(Text, nullable=False, default="")

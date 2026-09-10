@@ -440,3 +440,119 @@ def test_rev05_adds_a_column_not_a_table(migrated_url: str) -> None:
 
     assert "no_protocol" in columns
     assert len(ALL_TABLES) == 16
+
+
+# --- rev07: дата решения пуста, пока решения нет (QMS-030, наряд 0040) -------------
+
+
+def _seed_rev06_deviations(engine) -> None:
+    """Две записи схемы `rev06`: одна решённая, одна нет — и **у обеих дата стоит**.
+
+    Так и выглядела база до `rev07`: `decision_date` был `NOT NULL DEFAULT now`,
+    и дата решения появлялась в момент регистрации, когда решения ещё нет.
+    """
+    statements = (
+        "INSERT INTO ref_connection_type (connection_type_id, name) VALUES (1, 'BSP')",
+        "INSERT INTO ref_size (size_id, name) VALUES (1, '1/2\"')",
+        "INSERT INTO item (item_id, item_number, connection_type_id, size_id)"
+        " VALUES (1, 'P-0001', 1, 1)",
+        "INSERT INTO item_revision (revision_id, item_id, designation, seq, is_current)"
+        " VALUES (1, 1, 'A', 1, 1)",
+        # Не решено — дата тем не менее проставлена: это и есть дефект.
+        "INSERT INTO deviation (deviation_id, dev_number, item_id, revision_id, wo,"
+        " quantity, date, decision_date, decision_dev, explanation)"
+        " VALUES (1, 'DEV-1', 1, 1, 'W1', 3, '2026-08-01',"
+        " '2026-08-01 10:00:00', NULL, '')",
+        # Решено — дата осмысленна и обязана уцелеть.
+        "INSERT INTO deviation (deviation_id, dev_number, item_id, revision_id, wo,"
+        " quantity, date, decision_date, decision_dev, explanation)"
+        " VALUES (2, 'DEV-2', 1, 1, 'W2', 5, '2026-08-02',"
+        " '2026-08-03 11:00:00', 'approved', 'ok')",
+    )
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
+def _decision_date_column(engine) -> tuple[int, object]:
+    """`NOT NULL` и дефолт колонки — из самой базы, а не из модели."""
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                "SELECT \"notnull\", dflt_value FROM pragma_table_info('deviation')"
+                " WHERE name = 'decision_date'"
+            )
+        ).one()
+    return int(row[0]), row[1]
+
+
+def test_rev07_empties_the_decision_date_only_where_there_is_no_decision(
+    db_url: str,
+) -> None:
+    """§4 наряда `0040`: дата решения пуста там, и **только там**, где решения нет.
+
+    Сторожит правило `docs/model/Deviation.md`: решение принимается на шаге 8, а
+    регистрация — шаг 3; до решения даты решения не существует. Прежде схема
+    ставила её дефолтом в момент вставки, и выгрузка (`אישור חריגה`) печатала бы
+    дату решения на записи, которую никто не решал.
+
+    Тест целится в **свою** ревизию, а не в `head` (`CLAUDE.md` §9а.17): он
+    утверждает, что сделала `rev07`, а не что её результат дожил до сегодня.
+
+    Проверяются обе стороны разом: нерешённая строка обнулена, решённая — **нет**.
+    Односторонняя проверка прошла бы и на миграции, стирающей дату всем подряд.
+    """
+    config = alembic_config(db_url)
+    command.upgrade(config, "rev06")
+    engine = create_db_engine(db_url)
+    _seed_rev06_deviations(engine)
+
+    assert _decision_date_column(engine)[0] == 1, "до rev07 колонка обязана быть NOT NULL"
+
+    command.upgrade(config, "rev07")
+
+    not_null, default = _decision_date_column(engine)
+    assert not_null == 0, "rev07 не сняла NOT NULL"
+    assert default is None, (
+        "дефолт остался: он вернул бы дату в момент вставки, то есть сам дефект"
+    )
+
+    with engine.connect() as connection:
+        rows = dict(
+            connection.execute(
+                text("SELECT dev_number, decision_date FROM deviation")
+            ).all()
+        )
+    assert rows["DEV-1"] is None, "дата у нерешённого отклонения не обнулена"
+    assert rows["DEV-2"] is not None, "дата у решённого отклонения потеряна"
+
+
+def test_rev07_downgrade_refills_from_the_registration_date(db_url: str) -> None:
+    """Откат `rev07` возвращает `NOT NULL`, заполняя пустые **датой регистрации**.
+
+    Не системным временем отката: оно не имеет отношения к записи и выглядело бы
+    как решение, принятое в момент миграции. Строки при этом целы — обратный
+    перенос ничего не удаляет.
+    """
+    config = alembic_config(db_url)
+    command.upgrade(config, "rev06")
+    engine = create_db_engine(db_url)
+    _seed_rev06_deviations(engine)
+    command.upgrade(config, "rev07")
+
+    command.downgrade(config, "rev06")
+
+    assert _decision_date_column(engine)[0] == 1, "откат не вернул NOT NULL"
+    with engine.connect() as connection:
+        rows = dict(
+            connection.execute(
+                text("SELECT dev_number, decision_date FROM deviation")
+            ).all()
+        )
+    assert len(rows) == 2, "откат потерял строки"
+    assert str(rows["DEV-1"]).startswith("2026-08-01"), (
+        "пустая дата засыпана не датой регистрации"
+    )
+    assert str(rows["DEV-2"]).startswith("2026-08-03"), (
+        "дата решённого отклонения изменена откатом"
+    )

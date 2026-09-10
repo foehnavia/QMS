@@ -167,6 +167,37 @@ def test_rejection_without_an_explanation_is_allowed(seeded_session: Session) ->
     assert deviation.decision_dev == "rejected"
 
 
+def test_a_registered_deviation_has_no_decision_date_until_it_is_decided(
+    seeded_session: Session,
+) -> None:
+    """§4 наряда `0040`: даты решения нет, пока нет решения.
+
+    Сторожит правило `docs/model/Deviation.md`: регистрация — шаг 3, решение —
+    шаг 8. Прежде схема ставила дату дефолтом в момент вставки, и у только что
+    заведённого отклонения дата решения уже стояла. На поведение это не влияло,
+    но выгрузку вводило в заблуждение: `אישור חריגה` напечатал бы дату решения
+    на записи, которую никто не решал.
+
+    Проверяются обе стороны: пусто после регистрации и **не** пусто после
+    решения. Односторонняя проверка прошла бы и на поле, которое не заполняется
+    никогда.
+    """
+    item = make_item(seeded_session, "C1-08375A")
+    deviation = register(
+        seeded_session, item=item, wo="W26007336", quantity=12, date=date(2026, 9, 10)
+    )
+
+    assert deviation.decision_dev is None
+    assert deviation.decision_date is None, (
+        "дата решения проставлена при регистрации — решения ещё нет"
+    )
+
+    permit_findings(seeded_session, deviation)
+    set_decision(seeded_session, deviation, decision="approved", explanation="ok")
+
+    assert deviation.decision_date is not None, "решение внесено, а даты нет"
+
+
 def test_changing_the_decision_rewrites_the_decision_date(seeded_session: Session) -> None:
     deviation = _register(seeded_session, _item(seeded_session))
     old = datetime(2026, 1, 1, 12, 0)
