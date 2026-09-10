@@ -162,3 +162,38 @@ drawing the shop's next deviation is read against.
 **Nothing in this dialog changed.** Typing the local number in the row is ratification S3
 and stays; the naryad's ban on in-row editing covers lists that *show* records, not
 dialogs that exist to *take input*. A test now guards both sides of that line.
+
+---
+
+## Amendment — the row is refreshed in place (QMS-023, naryad `0039`, as-built 2026-09-10)
+
+Nothing an operator can see has changed. What changed is **how** the dialog answers its own
+`itemChanged` signal.
+
+- Writing still happens **per action** — ratification S3 stands, and so do "Done" / "Close",
+  the always-enabled "Done" that checks on press (`0020` §3.3), the emptied cell that does not
+  clear a binding, and re-binding in one move.
+- **The handler no longer rebuilds the table.** It writes to the database and then refreshes the
+  affected rows **in place** (`_refresh_rows`): cells are changed with `setText`, never replaced
+  with `setItem`. A full rebuild (`reload`) is still there and still correct — it is called from
+  `mark_absent`, `clear_position` and dialog start-up, i.e. from outside the emission of the
+  table's own signal.
+- Why it matters: `setItem` destroys the previous `QTableWidgetItem`, and inside the emission
+  that is the very object Qt handed to the slot. The reachable path ran through **Done** —
+  `_commit_open_editor` commits the open editor, the commit raises `itemChanged`, the old handler
+  rebuilt the table, and the editor being closed on the next line no longer had an index.
+- **The row count is invariant here by construction:** binding neither adds nor removes the
+  group's g-positions. Should that ever stop holding, rows do not drift — the refresh walks the
+  actual intersection, and a rebuild is ordered by `reload` from its own safe place.
+- **Programmatic filling is a mechanism, not a habit** — `kit.filling(...)`, a context manager
+  whose `finally` restores the *previous* signal state, so a nested fill returns the outer one its
+  own blocking. It replaced one ad-hoc flag here and six `blockSignals` pairs elsewhere; none of
+  the seven was exception-safe, and an exception mid-fill used to leave this dialog silently
+  refusing to write.
+- Side effect, not a separate change: the group drawing is no longer decoded on every typed
+  number — only `reload` re-reads it.
+
+**Verification, for the record:** the operator's path is now covered by the first test in the
+application that types through a real cell editor (`QTest.keyClicks` + `Return`). Until `0039`
+none of the 720 tests entered through the delegate, which is precisely why the defect lived
+where it did.
