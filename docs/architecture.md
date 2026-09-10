@@ -113,7 +113,7 @@ Characteristic group, g-position, Deviation, Finding, Inspection, Mapping, — �
 | `g_position` | PK; FK `cg`; `g_index`; `nominal`; `tol_plus`; `tol_minus`; `x`; `y` | номинал/допуск зашиты; `x`/`y` — координаты баллона, нормализованы 0..1 (CHECK) |
 | `mapping` | FK `characteristic` (UNIQUE) → FK `g_position` **NOT NULL**; 0..1 на характеристику | до регистрации (R2); означает ровно «размер привязан» |
 | `item_position_absent` | PK; FK `item`; FK `g_position`; UNIQUE(`item`, `g_position`) | **код 99** — «позицию рассмотрели, у детали её нет»; не ключ поиска |
-| `deviation` | PK; `dev_number` UNIQUE; FK `item`; `wo`; `machine?`; `quantity`; `date`; `ncr?`; `decision_date`; `decision_dev`(4); `explanation`; `attachment` | целостность здесь |
+| `deviation` | PK; `dev_number` UNIQUE; FK `item`; `wo`; `machine?`; `quantity`; `date`; `ncr?`; `decision_date?`; `decision_dev`(4); `explanation`; `attachment` | целостность здесь |
 | `finding` | PK; FK `deviation`; FK `characteristic`; `direction±`; `value?`; `dimension_point?`; `comment`; FK `zone?`; FK `deviation_type?` | решения не несёт |
 | `inspection` | PK; `insp_number` UNIQUE; FK `deviation`+`finding`; FK `type`; `decision_insp`(bin); `protocol` | «наука» в протоколе |
 | Справочники | `ref_item_type`, `ref_connection_type`, `ref_size`, `ref_zone`, `ref_deviation_type`, `ref_inspection_type` | контролируемые словари |

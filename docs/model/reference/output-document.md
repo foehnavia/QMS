@@ -39,7 +39,7 @@ Control · **DS-QC.2-2, rev 2.0, effective 2024/12/16**. Analyzed on a real inst
 | תיעוד בדיקות שבוצעו | Inspections performed | Inspection **type** from the dictionary, substituted into a standard phrase |
 | הערכת הסיכון | Risk assessment | **Not a base field** — template constant (QA boilerplate, ~99 % unchanged) |
 | קבלת החלטה: סיכון קביל | Decision | `decisionDev = approved` |
-| אושר על ידי (תפקיד / שם / תאריך) | Approved by | **Not base fields** — single user; date from `decision_date` (default system time) |
+| אושר על ידי (תפקיד / שם / תאריך) | Approved by | **Not base fields** — single user; date from `decision_date` (written when the decision is taken) |
 | Page 2 — drawing / screenshot | Attachment | Inspection protocol |
 
 ## Related

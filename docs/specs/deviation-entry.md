@@ -137,9 +137,10 @@ the findings just created. Removal still goes through `remove_finding`, so both 
 
 ## 8. Known limits (recorded, not defects)
 
-- `decision_date` is NOT NULL with a `now()` default, so a freshly registered deviation carries
-  a decision date while having no decision. "Undecided" is read from `decision_dev`, so
-  behaviour is correct, but an export would mislead. Changing it is a migration → flagged on S7.
+- ~~`decision_date` is NOT NULL with a `now()` default, so a freshly registered deviation carries
+  a decision date while having no decision~~ — **closed in S7** (QMS-030, migration `rev07`,
+  worklog `0040`): the column is nullable and has no default, the date is written by the domain
+  in `set_decision`, and rows registered without a decision were backfilled to `NULL`.
 - ~~Canon state is queried per row (`N+1`)~~ — **closed in S5**: the form uses the batch
   `precedents.canon_labels_for_item`, and a query counter holds the number fixed
   (`deviation-card.md` §5).

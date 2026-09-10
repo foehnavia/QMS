@@ -23,7 +23,7 @@ updated: 2026-09-07
 - `quantity` — parts per this deviation (see Quantity levels)
 - `date`
 - `NCR` (string; may arrive later than the decision) — see NCR below
-- `decision_date` (default = system time)
+- `decision_date` (empty until there is a decision; written together with `decisionDev`)
 - `decisionDev` (4-value dictionary — see Outcomes)
 - `explanation` (free text, always)
 - `attachment` (links to documents — photos, measurement reports — in an open
