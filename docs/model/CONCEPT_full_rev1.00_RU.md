@@ -9,7 +9,7 @@ updated: 2026-08-10
 
 > [!note] Superseded on 2026-08-10 (task QMS-002 / Wave 0b).
 > The model was sliced into per-entity files in this directory; the canonical entry
-> point is **`_overview.md`** (English). A Russian rendering is not maintained in the
-> repo — a frozen rev 1.00 snapshot lives in the Obsidian vault
-> (`50_MIS-QMS/CONCEPT_full_rev1.00_RU.md`) and can be regenerated on demand.
+> point is **`_overview.md`** (English). A Russian rendering is maintained nowhere: the
+> frozen rev 1.00 snapshot that used to live in the Obsidian vault was **deleted on
+> 2026-09-07** (QMS-020) as unused. It can be regenerated from the canon on demand.
 > Change control: `docs/decisions.md`.

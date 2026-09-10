@@ -13,7 +13,7 @@ title: MIS-QMS — Production Deviations Database · Concept Overview
 > **Canonical entry point.** This file plus the per-entity files in this
 > directory (`docs/model/`) are the single source of truth for the MIS-QMS model.
 > The source of truth is the **repository** `github.com/foehnavia/QMS`.
-> The flattened copy in the Obsidian vault (`50_MIS-QMS/CONCEPT_full_rev1.00_EN.md`)
+> The flattened copy in the Obsidian vault (`50_MIS-QMS/CONCEPT_mirror_EN.md`)
 > is a **generated read-only mirror** — see `tools/build_mirror.py` and
 > `docs/_INDEX.md` (Mirror & sync). On any discrepancy, **the repository prevails.**
 >
@@ -21,8 +21,11 @@ title: MIS-QMS — Production Deviations Database · Concept Overview
 > into this directory on 2026-08-10, task QMS-002 / Wave 0b) and the earlier
 > `_CONCEPT.md` A–F snapshot of sessions 01–03 (retained as archived).
 >
-> **Status:** concept finalized (concept sessions 01–06 + revision A). Implementation
-> and stack are not yet started; the design/build stage begins next.
+> **Status:** concept finalized (concept sessions 01–06 + revision A). Implementation is
+> under way against it and the stack is ratified (`architecture.md` §3). Build state is
+> deliberately **not** tracked here — it goes stale faster than the model: changes to the
+> model are recorded in `docs/decisions.md`, project state in the vault brief
+> `_BRIEF_MIS-QMS`.
 
 ---
 
