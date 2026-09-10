@@ -28,13 +28,13 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from sqlalchemy import Engine  # noqa: E402
 
 from db.session import create_db_engine, default_db_url, session_scope  # noqa: E402
+from paths import data_root  # noqa: E402
 from domain.reference import normalise_all  # noqa: E402
 from seed.reference import seed_reference  # noqa: E402
 from ui import crash  # noqa: E402
 from ui.kit import apply_theme  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402
 
-REPO_ROOT = SRC.parent
 
 
 def prepare_database(engine: Engine) -> None:
@@ -49,8 +49,13 @@ def prepare_database(engine: Engine) -> None:
     from alembic.runtime.migration import MigrationContext
     from alembic.script import ScriptDirectory
 
-    config = Config(str(REPO_ROOT / "alembic.ini"))
-    config.set_main_option("script_location", str(REPO_ROOT / "migrations"))
+    # Ресурсы миграций берутся у `data_root()`, а не от исходников: под сборкой
+    # они лежат в каталоге распаковки, и путь от `__file__` указывал бы в никуда.
+    # Скрипты миграций под onefile — **данные, а не импортируемые модули**:
+    # анализатор PyInstaller их не видит и сам не потянет, поэтому они кладутся
+    # в сборку явно (§2 наряда `0040`).
+    config = Config(str(data_root() / "alembic.ini"))
+    config.set_main_option("script_location", str(data_root() / "migrations"))
     config.set_main_option("sqlalchemy.url", str(engine.url))
 
     head = ScriptDirectory.from_config(config).get_current_head()

@@ -1,8 +1,13 @@
 """Подключение к SQLite: движок, `PRAGMA foreign_keys=ON`, фабрика сессий.
 
-Источник истины — файл `app.sqlite` в корне репо (`architecture.md` §4).
+Источник истины — файл `app.sqlite` **рядом с приложением** (`architecture.md` §4):
+в корне репо при запуске из исходников и рядом с `.exe` под сборкой. Где именно —
+отвечает `paths.work_root()`, и отвечает **в момент вызова**, а не при импорте:
+под заморозкой корень известен только на старте процесса.
+
 URL перекрывается переменной окружения `QMS_DB_URL` (используется тестами и
-Alembic-миграциями на временной БД).
+Alembic-миграциями на временной БД) — это официальный способ увести базу в другое
+место, и он не изменился.
 """
 
 from __future__ import annotations
@@ -16,18 +21,27 @@ from typing import Iterator
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
-#: Корень репозитория (src/db/session.py → src/db → src → repo).
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from paths import work_root
 
-#: БД по умолчанию — источник истины.
-DEFAULT_DB_PATH = REPO_ROOT / "app.sqlite"
+#: Имя рабочего файла базы. Одно на все режимы запуска: оператор ищет его глазами.
+DB_FILE_NAME = "app.sqlite"
 
 ENV_DB_URL = "QMS_DB_URL"
 
 
+def default_db_path() -> Path:
+    """Путь к рабочей базе — **функция**, а не константа модуля.
+
+    Константа вычислилась бы при импорте, а под однофайловой сборкой это
+    происходит внутри каталога распаковки: база легла бы во временную папку и
+    исчезла бы вместе с ней при выходе (наряд `0040` §1).
+    """
+    return work_root() / DB_FILE_NAME
+
+
 def default_db_url() -> str:
-    """URL БД: `QMS_DB_URL`, иначе `app.sqlite` в корне репо."""
-    return os.environ.get(ENV_DB_URL) or f"sqlite:///{DEFAULT_DB_PATH}"
+    """URL БД: `QMS_DB_URL`, иначе `app.sqlite` рядом с приложением."""
+    return os.environ.get(ENV_DB_URL) or f"sqlite:///{default_db_path()}"
 
 
 @event.listens_for(Engine, "connect")
